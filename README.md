@@ -16,7 +16,7 @@ This plugin ports the Page Blocks visual builder into a standalone WordPress plu
 
 ## Installation
 
-1. Copy `standalone-plugins/page-blocks-builder` to `/wp-content/plugins/page-blocks-builder`.
+1. Copy `page-blocks-builder` to `/wp-content/plugins/page-blocks-builder`.
 2. Activate **Page Blocks Builder**.
 3. Open **Settings -> Page Blocks Builder** and choose enabled post types.
 
