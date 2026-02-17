@@ -2,7 +2,7 @@
 /**
  * Plugin Name: GT Page Blocks Builder
  * Description: Standalone visual Page Blocks builder with HTML/CSS/JS sections synced to Gutenberg block content.
- * Version: 1.1.0
+ * Version: 1.1.1
  * Author: Gaurav Tiwari
  * Text Domain: page-blocks-builder
  */
@@ -12,7 +12,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 if ( ! defined( 'GT_PB_BUILDER_VERSION' ) ) {
-	define( 'GT_PB_BUILDER_VERSION', '1.1.0' );
+	define( 'GT_PB_BUILDER_VERSION', '1.1.1' );
 }
 
 if ( ! defined( 'GT_PB_BUILDER_FILE' ) ) {
@@ -1396,3 +1396,7 @@ class GT_Page_Blocks_Builder {
 }
 
 $GLOBALS['gt_page_blocks_builder'] = new GT_Page_Blocks_Builder();
+
+require_once GT_PB_BUILDER_DIR . 'includes/class-license-manager.php';
+$gt_pb_license_manager = new GT_PB_License_Manager( GT_PB_BUILDER_FILE );
+$gt_pb_license_manager->hook();

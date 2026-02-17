@@ -27,6 +27,7 @@ jobs:
 
           cp page-blocks-builder.php "$BUILD_DIR/"
           cp -r assets "$BUILD_DIR/"
+          cp -r includes "$BUILD_DIR/"
           cp -r templates "$BUILD_DIR/"
 
           if [ -f README.md ]; then
