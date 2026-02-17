@@ -1,6 +1,7 @@
 <?php
 /**
  * Template Name: Full Page Builder
+ * Template Post Type: post, page, product, snippet, ebook, study_notes, deal, fluent-products, landing_page, portfolio, event, course, lesson
  *
  * Removes header and footer for complete layout control.
  * Retains head, body, wp_head, and wp_footer for SEO, scripts, and styles.

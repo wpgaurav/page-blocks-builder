@@ -1,6 +1,7 @@
 <?php
 /**
  * Template Name: Page Blocks Builder
+ * Template Post Type: post, page, product, snippet, ebook, study_notes, deal, fluent-products, landing_page, portfolio, event, course, lesson
  *
  * Keeps header and footer, removes page title and layout constraints.
  * Designed for full-width section-based pages built with Page Blocks.

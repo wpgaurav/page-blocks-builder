@@ -2,7 +2,7 @@
 /**
  * Plugin Name: GT Page Blocks Builder
  * Description: Standalone visual Page Blocks builder with HTML/CSS/JS sections synced to Gutenberg block content.
- * Version: 1.1.1
+ * Version: 1.1.2
  * Author: Gaurav Tiwari
  * Text Domain: page-blocks-builder
  */
@@ -12,7 +12,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 if ( ! defined( 'GT_PB_BUILDER_VERSION' ) ) {
-	define( 'GT_PB_BUILDER_VERSION', '1.1.1' );
+	define( 'GT_PB_BUILDER_VERSION', '1.1.2' );
 }
 
 if ( ! defined( 'GT_PB_BUILDER_FILE' ) ) {
