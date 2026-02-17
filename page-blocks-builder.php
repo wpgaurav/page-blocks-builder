@@ -1,6 +1,6 @@
 <?php
 /**
- * Plugin Name: Page Blocks Builder
+ * Plugin Name: GT Page Blocks Builder
  * Description: Standalone visual Page Blocks builder with HTML/CSS/JS sections synced to Gutenberg block content.
  * Version: 1.0.0
  * Author: Gaurav Tiwari
