@@ -2,7 +2,7 @@
 /**
  * Plugin Name: GT Page Blocks Builder
  * Description: Standalone visual Page Blocks builder with HTML/CSS/JS sections synced to Gutenberg block content.
- * Version: 1.0.0
+ * Version: 1.1.0
  * Author: Gaurav Tiwari
  * Text Domain: page-blocks-builder
  */
@@ -12,7 +12,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 if ( ! defined( 'GT_PB_BUILDER_VERSION' ) ) {
-	define( 'GT_PB_BUILDER_VERSION', '1.0.0' );
+	define( 'GT_PB_BUILDER_VERSION', '1.1.0' );
 }
 
 if ( ! defined( 'GT_PB_BUILDER_FILE' ) ) {
@@ -151,6 +151,12 @@ class GT_Page_Blocks_Builder {
 		add_action( 'admin_init', array( $this, 'register_settings' ) );
 		add_action( 'admin_menu', array( $this, 'register_settings_page' ) );
 
+		add_action( 'admin_footer', array( $this, 'output_rankmath_integration' ) );
+
+		add_filter( 'theme_page_templates', array( $this, 'register_page_templates' ) );
+		add_filter( 'template_include', array( $this, 'load_page_template' ) );
+		add_action( 'wp_head', array( $this, 'output_template_styles' ) );
+
 		if ( ! is_admin() && $this->is_builder_request() ) {
 			add_filter( 'show_admin_bar', '__return_false' );
 		}
@@ -230,7 +236,12 @@ class GT_Page_Blocks_Builder {
 				true
 			);
 
-			wp_localize_script(
+			$preview_styles = array( get_stylesheet_uri() );
+		if ( is_child_theme() ) {
+			$preview_styles[] = get_template_directory_uri() . '/style.css';
+		}
+
+		wp_localize_script(
 				'gt-page-block-editor',
 				'mdPageBlockEditor',
 				array(
@@ -240,6 +251,7 @@ class GT_Page_Blocks_Builder {
 					'previewEndpoint'    => admin_url( 'admin-ajax.php' ),
 					'previewAction'      => 'md_page_blocks_builder_preview',
 					'previewNonce'       => $preview_nonce,
+					'previewStyles'      => $preview_styles,
 				)
 			);
 		}
@@ -271,8 +283,7 @@ class GT_Page_Blocks_Builder {
 		$output     = '';
 
 		if ( $css !== '' ) {
-			$css    = wp_strip_all_tags( $css );
-			$css    = str_replace( array( 'javascript:', 'expression(' ), '', $css );
+			$css    = self::sanitize_css( $css );
 			$output .= '<style>' . self::minify_css( $css ) . '</style>' . "\n";
 		}
 
@@ -399,8 +410,26 @@ class GT_Page_Blocks_Builder {
 			);
 		}
 
+		$this->maybe_set_builder_template( $post_id );
+
 		$builder_template = GT_PB_BUILDER_DIR . 'templates/builder-shell.php';
 		return file_exists( $builder_template ) ? $builder_template : $template;
+	}
+
+	/**
+	 * Auto-set the post template to Page Blocks Builder if not already using a builder template.
+	 *
+	 * @param int $post_id Post ID.
+	 */
+	private function maybe_set_builder_template( $post_id ) {
+		$current = get_page_template_slug( $post_id );
+		$builder_templates = array( 'page-blocks-builder.php', 'page-blocks-full-builder.php' );
+
+		if ( in_array( $current, $builder_templates, true ) ) {
+			return;
+		}
+
+		update_post_meta( $post_id, '_wp_page_template', 'page-blocks-builder.php' );
 	}
 
 	/**
@@ -669,18 +698,38 @@ class GT_Page_Blocks_Builder {
 			return array();
 		}
 
-		$sections = array();
-		$blocks   = parse_blocks( (string) $post->post_content );
-		foreach ( $blocks as $block ) {
-			if ( ! is_array( $block ) || ( ( $block['blockName'] ?? '' ) !== self::BLOCK_NAME ) ) {
-				continue;
-			}
+		$sections     = array();
+		$blocks       = parse_blocks( (string) $post->post_content );
+		$page_blocks  = self::find_page_blocks( $blocks );
 
+		foreach ( $page_blocks as $block ) {
 			$attrs      = isset( $block['attrs'] ) && is_array( $block['attrs'] ) ? $block['attrs'] : array();
 			$sections[] = $this->normalize_builder_section( $attrs );
 		}
 
 		return $sections;
+	}
+
+	/**
+	 * Recursively find all page-block blocks, including those inside containers.
+	 *
+	 * @param array $blocks Parsed blocks.
+	 * @return array Flat list of page-block blocks.
+	 */
+	public static function find_page_blocks( array $blocks ) {
+		$found = array();
+
+		foreach ( $blocks as $block ) {
+			if ( ( $block['blockName'] ?? '' ) === self::BLOCK_NAME ) {
+				$found[] = $block;
+			}
+
+			if ( ! empty( $block['innerBlocks'] ) && is_array( $block['innerBlocks'] ) ) {
+				$found = array_merge( $found, self::find_page_blocks( $block['innerBlocks'] ) );
+			}
+		}
+
+		return $found;
 	}
 
 	/**
@@ -817,6 +866,8 @@ class GT_Page_Blocks_Builder {
 			wp_send_json_error( array( 'message' => $updated->get_error_message() ), 500 );
 		}
 
+		$this->maybe_set_builder_template( $post_id );
+
 		wp_send_json_success(
 			array(
 				'message'     => __( 'Page Blocks saved.', 'page-blocks-builder' ),
@@ -894,6 +945,157 @@ class GT_Page_Blocks_Builder {
 		}
 
 		$admin_bar->add_node( $node );
+	}
+
+	/**
+	 * Output Rank Math SEO integration script for Gutenberg editor.
+	 */
+	public function output_rankmath_integration() {
+		$screen = get_current_screen();
+		if ( ! $screen || ! in_array( $screen->base, array( 'post', 'post-new' ), true ) ) {
+			return;
+		}
+
+		if ( ! in_array( $screen->post_type, md_page_blocks_builder_post_types(), true ) ) {
+			return;
+		}
+
+		if ( ! class_exists( 'RankMath' ) ) {
+			return;
+		}
+		?>
+		<script>
+		(function() {
+			'use strict';
+
+			function initPageBlocksRankMath() {
+				if (typeof wp === 'undefined' || typeof wp.hooks === 'undefined' || typeof wp.data === 'undefined') {
+					return;
+				}
+
+				function getPageBlocksContent() {
+					var blocks = wp.data.select('core/block-editor').getBlocks();
+					var content = '';
+
+					function extractFromBlocks(blockList) {
+						if (!blockList || !blockList.length) return;
+						for (var i = 0; i < blockList.length; i++) {
+							var block = blockList[i];
+							if (block.name === '<?php echo esc_js( self::BLOCK_NAME ); ?>') {
+								var text = (block.attributes.content || '')
+									.replace(/<\?php[\s\S]*?\?>/gi, ' ')
+									.replace(/<[^>]*>/g, ' ')
+									.replace(/\s+/g, ' ')
+									.trim();
+								if (text) {
+									content += ' ' + text;
+								}
+							}
+							if (block.innerBlocks && block.innerBlocks.length) {
+								extractFromBlocks(block.innerBlocks);
+							}
+						}
+					}
+
+					extractFromBlocks(blocks);
+					return content;
+				}
+
+				wp.hooks.addFilter('rank_math_content', 'gt-page-blocks', function(existingContent) {
+					var pageBlocksContent = getPageBlocksContent();
+					if (typeof existingContent !== 'string') {
+						existingContent = '';
+					}
+					return existingContent + pageBlocksContent;
+				});
+
+				var refreshTimer;
+				wp.data.subscribe(function() {
+					clearTimeout(refreshTimer);
+					refreshTimer = setTimeout(function() {
+						if (typeof rankMathEditor !== 'undefined') {
+							rankMathEditor.refresh('content');
+						}
+					}, 2000);
+				});
+			}
+
+			if (document.readyState === 'complete') {
+				setTimeout(initPageBlocksRankMath, 1000);
+			} else {
+				window.addEventListener('load', function() {
+					setTimeout(initPageBlocksRankMath, 1000);
+				});
+			}
+		})();
+		</script>
+		<?php
+	}
+
+	/**
+	 * Output CSS for page-blocks templates.
+	 */
+	public function output_template_styles() {
+		if ( ! is_singular() ) {
+			return;
+		}
+
+		$slug = get_page_template_slug();
+
+		if ( $slug === 'page-blocks-builder.php' ) {
+			echo '<style id="gt-pb-builder-template">'
+				. '.page-blocks-main{max-width:none;padding:0;margin:0;}'
+				. '.entry-title,.page-title,.post-title{display:none;}'
+				. '.site-content,.content-area,.entry-content{max-width:none;padding:0;margin:0;width:100%;}'
+				. '</style>' . "\n";
+		}
+
+		if ( $slug === 'page-blocks-full-builder.php' ) {
+			echo '<style id="gt-pb-full-builder-template">'
+				. 'body.page-blocks-full-builder{margin:0;padding:0;}'
+				. '.page-blocks-main{max-width:none;padding:0;margin:0;}'
+				. '</style>' . "\n";
+		}
+	}
+
+	/**
+	 * Register page templates for Page Blocks Builder.
+	 *
+	 * @param array $templates Existing templates.
+	 * @return array
+	 */
+	public function register_page_templates( $templates ) {
+		$templates['page-blocks-builder.php']     = __( 'Page Blocks Builder', 'page-blocks-builder' );
+		$templates['page-blocks-full-builder.php'] = __( 'Full Page Builder', 'page-blocks-builder' );
+		return $templates;
+	}
+
+	/**
+	 * Load plugin-provided page templates on the frontend.
+	 *
+	 * @param string $template Current template path.
+	 * @return string
+	 */
+	public function load_page_template( $template ) {
+		if ( is_singular() ) {
+			$slug = get_page_template_slug();
+
+			if ( $slug === 'page-blocks-builder.php' ) {
+				$file = GT_PB_BUILDER_DIR . 'templates/page-blocks-builder.php';
+				if ( file_exists( $file ) ) {
+					return $file;
+				}
+			}
+
+			if ( $slug === 'page-blocks-full-builder.php' ) {
+				$file = GT_PB_BUILDER_DIR . 'templates/page-blocks-full-builder.php';
+				if ( file_exists( $file ) ) {
+					return $file;
+				}
+			}
+		}
+
+		return $template;
 	}
 
 	/**
@@ -1086,6 +1288,17 @@ class GT_Page_Blocks_Builder {
 			return $content;
 		}
 
+		$is_frontend = ! is_admin() && ! wp_doing_ajax() && ! ( defined( 'REST_REQUEST' ) && REST_REQUEST );
+		$can_execute = (bool) apply_filters(
+			'gt_page_blocks_can_execute_php',
+			current_user_can( 'manage_options' ) || $is_frontend,
+			$content
+		);
+
+		if ( ! $can_execute ) {
+			return preg_replace( '/<\?(?:php|=).*?\?>/is', '', $content );
+		}
+
 		$temp_file = tempnam( sys_get_temp_dir(), 'gt_page_block_' );
 		if ( ! $temp_file ) {
 			return $content;
@@ -1100,12 +1313,25 @@ class GT_Page_Blocks_Builder {
 			if ( defined( 'WP_DEBUG' ) && WP_DEBUG ) {
 				echo '<!-- Page Block PHP Error: ' . esc_html( $e->getMessage() ) . ' -->';
 			}
+		} finally {
+			@unlink( $temp_file );
 		}
-		$result = (string) ob_get_clean();
 
-		@unlink( $temp_file );
+		return (string) ob_get_clean();
+	}
 
-		return $result;
+	/**
+	 * Sanitize CSS to strip XSS vectors.
+	 *
+	 * @param string $css Raw CSS.
+	 * @return string
+	 */
+	public static function sanitize_css( $css ) {
+		$css = wp_strip_all_tags( (string) $css );
+		$css = str_replace( array( 'javascript:', 'expression(', '-moz-binding:', 'behavior:' ), '', $css );
+		$css = preg_replace( '/@import\s+url\s*\(\s*["\']?\s*(?:javascript|data)\s*:/i', '@import url(blocked:', $css );
+		$css = preg_replace( '/url\s*\(\s*["\']?\s*data\s*:\s*text\/html/i', 'url(blocked:', $css );
+		return $css;
 	}
 
 	/**

@@ -472,14 +472,26 @@
 			}, [] );
 
 			function buildPreviewDoc( renderedData ) {
+				var config = window.mdPageBlockEditor || {};
 				var data = renderedData && typeof renderedData === 'object' ? renderedData : {};
 				var css = typeof data.css === 'string' ? data.css : ( attributes.css || '' );
 				var html = typeof data.html === 'string' ? data.html : ( attributes.content || '' );
 				var inlineJs = typeof data.jsInline === 'string' ? data.jsInline : ( attributes.js || '' );
 				var footerJs = typeof data.jsFooter === 'string' ? data.jsFooter : '';
 
+				var themeLinks = '';
+				var styles = config.previewStyles;
+				if ( Array.isArray( styles ) ) {
+					for ( var i = 0; i < styles.length; i++ ) {
+						if ( typeof styles[i] === 'string' && styles[i] ) {
+							themeLinks += '<link rel="stylesheet" href="' + styles[i] + '">';
+						}
+					}
+				}
+
 				return '<!DOCTYPE html><html><head><meta charset="utf-8">' +
-					'<style>body{margin:0;padding:12px;font-family:"System Sans",system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;font-size:14px;line-height:1.6;color:#1e1e1e;}*{box-sizing:border-box;}</style>' +
+					themeLinks +
+					'<style>body{margin:0;padding:12px;}*{box-sizing:border-box;}</style>' +
 					( css ? '<style>' + css + '</style>' : '' ) +
 					'</head><body>' + html +
 					( inlineJs ? '<script>' + inlineJs + '<\/script>' : '' ) +

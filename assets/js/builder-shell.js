@@ -143,6 +143,52 @@
 		return section;
 	}
 
+	var AUTOSAVE_KEY = 'md_pb_draft_' + (config.postId || 0);
+	var AUTOSAVE_INTERVAL = 5000;
+	var autosaveTimer = null;
+
+	function getAutosaveDraft() {
+		try {
+			var raw = window.localStorage.getItem(AUTOSAVE_KEY);
+			if (!raw) {
+				return null;
+			}
+			var data = JSON.parse(raw);
+			if (data && Array.isArray(data.sections) && data.sections.length) {
+				return data;
+			}
+		} catch (error) {
+			// corrupted draft
+		}
+		return null;
+	}
+
+	function saveAutosaveDraft() {
+		try {
+			window.localStorage.setItem(AUTOSAVE_KEY, JSON.stringify({
+				sections: getApplyPayloadSections(),
+				timestamp: Date.now()
+			}));
+		} catch (error) {
+			// storage full or unavailable
+		}
+	}
+
+	function clearAutosaveDraft() {
+		try {
+			window.localStorage.removeItem(AUTOSAVE_KEY);
+		} catch (error) {
+			// no-op
+		}
+	}
+
+	function queueAutosave() {
+		if (autosaveTimer) {
+			window.clearTimeout(autosaveTimer);
+		}
+		autosaveTimer = window.setTimeout(saveAutosaveDraft, AUTOSAVE_INTERVAL);
+	}
+
 	function sanitizeSections(input) {
 		if (!Array.isArray(input)) {
 			return [createDefaultSection()];
@@ -723,6 +769,7 @@
 					config.editPostUrl = payload.data.editPostUrl;
 				}
 
+				clearAutosaveDraft();
 				setApplyButtonBusy(false, 'Saved');
 				window.setTimeout(function() {
 					resetApplyButtonLabel();
@@ -748,6 +795,7 @@
 		}
 
 		queuePreviewRender();
+		queueAutosave();
 	}
 
 	function renderIndexList() {
@@ -1316,6 +1364,7 @@
 		}
 
 		if (usedDirectApply) {
+			clearAutosaveDraft();
 			return;
 		}
 
@@ -1324,6 +1373,7 @@
 			return;
 		}
 
+		clearAutosaveDraft();
 		postToParent('md_pb_builder_apply', {
 			sections: sections
 		});
@@ -1633,7 +1683,19 @@
 		collectPreviewAssets();
 		setupEvents();
 		setupCodeEditors();
-		hydrateSections(Array.isArray(config.initialSections) ? config.initialSections : []);
+
+		var initial = Array.isArray(config.initialSections) ? config.initialSections : [];
+		var draft = getAutosaveDraft();
+
+		if (draft && window.confirm('An unsaved draft was recovered. Restore it?')) {
+			hydrateSections(draft.sections);
+		} else {
+			if (draft) {
+				clearAutosaveDraft();
+			}
+			hydrateSections(initial);
+		}
+
 		window.addEventListener('message', handleMessage);
 		postToParent('md_pb_builder_ready', { postId: config.postId || 0 });
 	}

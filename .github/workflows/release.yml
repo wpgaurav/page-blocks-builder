@@ -1,0 +1,45 @@
+name: Release
+
+on:
+  release:
+    types: [published]
+
+jobs:
+  build:
+    name: Build and attach ZIP
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Get version from tag
+        id: version
+        run: echo "tag=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
+
+      - name: Build plugin ZIP
+        run: |
+          PLUGIN_SLUG="page-blocks-builder"
+          BUILD_DIR="${PLUGIN_SLUG}"
+          mkdir -p "$BUILD_DIR"
+
+          cp page-blocks-builder.php "$BUILD_DIR/"
+          cp -r assets "$BUILD_DIR/"
+          cp -r templates "$BUILD_DIR/"
+
+          if [ -f README.md ]; then
+            cp README.md "$BUILD_DIR/"
+          fi
+
+          if [ -f LICENSE ]; then
+            cp LICENSE "$BUILD_DIR/"
+          fi
+
+          zip -r "${PLUGIN_SLUG}-${{ steps.version.outputs.tag }}.zip" "$BUILD_DIR/"
+
+      - name: Upload ZIP to release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: page-blocks-builder-${{ steps.version.outputs.tag }}.zip
