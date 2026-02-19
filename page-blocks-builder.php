@@ -1,9 +1,11 @@
 <?php
 /**
  * Plugin Name: GT Page Blocks Builder
+ * Plugin URI: https://gauravtiwari.org/product/gt-page-blocks-builder/
  * Description: Standalone visual Page Blocks builder with HTML/CSS/JS sections synced to Gutenberg block content.
- * Version: 1.1.3
+ * Version: 1.2.1
  * Author: Gaurav Tiwari
+ * Author URI: https://gauravtiwari.org
  * Text Domain: page-blocks-builder
  */
 
@@ -12,7 +14,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 if ( ! defined( 'GT_PB_BUILDER_VERSION' ) ) {
-	define( 'GT_PB_BUILDER_VERSION', '1.1.3' );
+	define( 'GT_PB_BUILDER_VERSION', '1.2.1' );
 }
 
 if ( ! defined( 'GT_PB_BUILDER_FILE' ) ) {
@@ -134,6 +136,27 @@ class GT_Page_Blocks_Builder {
 	 */
 	private $theme_class_suggestions = null;
 
+	/**
+	 * Whether CSS has been output to head already.
+	 *
+	 * @var bool
+	 */
+	private $css_in_head = false;
+
+	/**
+	 * Parsed blocks cache for the current request.
+	 *
+	 * @var array|null
+	 */
+	private $parsed_blocks = null;
+
+	/**
+	 * Cached upload directory info for asset files.
+	 *
+	 * @var array|null
+	 */
+	private $upload_dir_cache = null;
+
 	public function __construct() {
 		add_action( 'init', array( $this, 'register_block' ) );
 		add_filter( 'block_categories_all', array( $this, 'register_block_category' ), 10, 2 );
@@ -148,14 +171,22 @@ class GT_Page_Blocks_Builder {
 
 		add_action( 'wp_footer', array( $this, 'output_footer_scripts' ), 99 );
 
+		add_action( 'template_redirect', array( $this, 'collect_css_for_head' ) );
+		add_action( 'template_redirect', array( $this, 'collect_js_for_file' ) );
+
+		add_action( 'save_post', array( $this, 'on_post_save' ), 20, 2 );
+		add_action( 'delete_post', array( $this, 'on_post_delete' ) );
+
 		add_action( 'admin_init', array( $this, 'register_settings' ) );
 		add_action( 'admin_menu', array( $this, 'register_settings_page' ) );
 
 		add_action( 'admin_footer', array( $this, 'output_rankmath_integration' ) );
 
-		add_filter( 'theme_page_templates', array( $this, 'register_page_templates' ) );
-		add_filter( 'template_include', array( $this, 'load_page_template' ) );
-		add_action( 'wp_head', array( $this, 'output_template_styles' ) );
+		if ( ! wp_is_block_theme() ) {
+			add_filter( 'theme_page_templates', array( $this, 'register_page_templates' ) );
+			add_filter( 'template_include', array( $this, 'load_page_template' ) );
+			add_action( 'wp_head', array( $this, 'output_template_styles' ) );
+		}
 
 		if ( ! is_admin() && $this->is_builder_request() ) {
 			add_filter( 'show_admin_bar', '__return_false' );
@@ -202,6 +233,7 @@ class GT_Page_Blocks_Builder {
 					'jsLocation' => array( 'type' => 'string', 'default' => 'footer' ),
 					'format'     => array( 'type' => 'boolean', 'default' => false ),
 					'phpExec'    => array( 'type' => 'boolean', 'default' => false ),
+					'output'     => array( 'type' => 'string', 'default' => 'inline' ),
 				),
 			)
 		);
@@ -273,18 +305,19 @@ class GT_Page_Blocks_Builder {
 	 * @return string
 	 */
 	public function render_block( $attributes ) {
-		$attributes = is_array( $attributes ) ? $attributes : array();
-		$content    = isset( $attributes['content'] ) ? (string) $attributes['content'] : '';
-		$css        = isset( $attributes['css'] ) ? (string) $attributes['css'] : '';
-		$js         = isset( $attributes['js'] ) ? (string) $attributes['js'] : '';
-		$js_loc     = isset( $attributes['jsLocation'] ) && $attributes['jsLocation'] === 'inline' ? 'inline' : 'footer';
-		$format     = ! empty( $attributes['format'] );
-		$php_exec   = ! empty( $attributes['phpExec'] );
-		$output     = '';
+		$attributes   = is_array( $attributes ) ? $attributes : array();
+		$content      = isset( $attributes['content'] ) ? (string) $attributes['content'] : '';
+		$css          = isset( $attributes['css'] ) ? (string) $attributes['css'] : '';
+		$js           = isset( $attributes['js'] ) ? (string) $attributes['js'] : '';
+		$js_loc       = isset( $attributes['jsLocation'] ) && $attributes['jsLocation'] === 'inline' ? 'inline' : 'footer';
+		$output_mode  = isset( $attributes['output'] ) ? $attributes['output'] : 'inline';
+		$format       = ! empty( $attributes['format'] );
+		$php_exec     = ! empty( $attributes['phpExec'] );
+		$is_file_mode = $output_mode === 'file';
+		$output       = '';
 
-		if ( $css !== '' ) {
-			$css    = self::sanitize_css( $css );
-			$output .= '<style>' . self::minify_css( $css ) . '</style>' . "\n";
+		if ( $css !== '' && ! $is_file_mode && ! $this->css_in_head ) {
+			$output .= '<style>' . self::minify_css( self::sanitize_css( $css ) ) . '</style>' . "\n";
 		}
 
 		if ( $content !== '' ) {
@@ -301,8 +334,8 @@ class GT_Page_Blocks_Builder {
 			$output .= self::minify_html( (string) $content );
 		}
 
-		if ( $js !== '' ) {
-			$js      = self::minify_js( $js );
+		if ( $js !== '' && ! $is_file_mode ) {
+			$js       = self::minify_js( $js );
 			$block_id = 'pb-' . substr( md5( $js ), 0, 8 );
 
 			if ( $js_loc === 'inline' ) {
@@ -323,9 +356,8 @@ class GT_Page_Blocks_Builder {
 			return;
 		}
 
-		foreach ( $this->footer_scripts as $id => $js ) {
-			echo '<script id="page-block-js-' . esc_attr( $id ) . '">' . $js . '</script>' . "\n";
-		}
+		$combined = implode( ';', $this->footer_scripts );
+		echo '<script>' . $combined . '</script>' . "\n";
 
 		$this->footer_scripts = array();
 	}
@@ -422,6 +454,10 @@ class GT_Page_Blocks_Builder {
 	 * @param int $post_id Post ID.
 	 */
 	private function maybe_set_builder_template( $post_id ) {
+		if ( wp_is_block_theme() ) {
+			return;
+		}
+
 		$current = get_page_template_slug( $post_id );
 
 		if ( ! empty( $current ) && $current !== 'default' ) {
@@ -486,6 +522,7 @@ class GT_Page_Blocks_Builder {
 				'previewAction'      => 'md_page_blocks_builder_preview',
 				'previewNonce'       => wp_create_nonce( md_page_blocks_preview_nonce_action( $post_id ) ),
 				'editPostUrl'        => get_edit_post_link( $post_id, 'raw' ) ?: '',
+				'viewPostUrl'        => get_permalink( $post_id ) ?: '',
 				'initialSections'    => $this->get_builder_sections_from_post( $post_id ),
 				'postTemplate'       => $this->get_builder_post_template_slug( $post_id ),
 				'previewInjection'   => $this->get_builder_preview_injection( $post_id ),
@@ -634,6 +671,7 @@ class GT_Page_Blocks_Builder {
 	private function normalize_builder_section( $section ) {
 		$section     = is_array( $section ) ? $section : array();
 		$js_location = isset( $section['jsLocation'] ) && $section['jsLocation'] === 'inline' ? 'inline' : 'footer';
+		$output      = isset( $section['output'] ) && $section['output'] === 'file' ? 'file' : 'inline';
 		$content     = isset( $section['content'] ) ? (string) $section['content'] : '';
 		$css         = isset( $section['css'] ) ? (string) $section['css'] : '';
 		$js          = isset( $section['js'] ) ? (string) $section['js'] : '';
@@ -643,6 +681,7 @@ class GT_Page_Blocks_Builder {
 			'css'        => $this->decode_builder_unicode_sequences( $css ),
 			'js'         => $this->decode_builder_unicode_sequences( $js ),
 			'jsLocation' => $js_location,
+			'output'     => $output,
 			'format'     => ! empty( $section['format'] ),
 			'phpExec'    => ! empty( $section['phpExec'] ),
 		);
@@ -853,13 +892,19 @@ class GT_Page_Blocks_Builder {
 			array_slice( $filtered, $first_page_block_index )
 		);
 
-		$updated = wp_update_post(
-			array(
-				'ID'           => $post_id,
-				'post_content' => wp_slash( serialize_blocks( $next_blocks ) ),
-			),
-			true
+		$update_args = array(
+			'ID'           => $post_id,
+			'post_content' => wp_slash( serialize_blocks( $next_blocks ) ),
 		);
+
+		if ( wp_is_block_theme() ) {
+			$current_template = get_post_meta( $post_id, '_wp_page_template', true );
+			if ( in_array( $current_template, array( 'page-blocks-builder.php', 'page-blocks-full-builder.php' ), true ) ) {
+				delete_post_meta( $post_id, '_wp_page_template' );
+			}
+		}
+
+		$updated = wp_update_post( $update_args, true );
 
 		if ( is_wp_error( $updated ) ) {
 			wp_send_json_error( array( 'message' => $updated->get_error_message() ), 500 );
@@ -1181,7 +1226,20 @@ class GT_Page_Blocks_Builder {
 		}
 
 		$files = $this->get_theme_style_files();
-		$map   = array();
+
+		$cache_parts = array( get_stylesheet() );
+		foreach ( $files as $file ) {
+			$cache_parts[] = $file . ':' . (string) filemtime( $file );
+		}
+		$cache_key = 'gt_pb_cls_' . md5( implode( '|', $cache_parts ) );
+
+		$cached = get_transient( $cache_key );
+		if ( is_array( $cached ) ) {
+			$this->theme_class_suggestions = $cached;
+			return $this->theme_class_suggestions;
+		}
+
+		$map = array();
 
 		foreach ( $files as $file ) {
 			$contents = file_get_contents( $file );
@@ -1204,6 +1262,8 @@ class GT_Page_Blocks_Builder {
 
 		$classes = array_keys( $map );
 		sort( $classes, SORT_NATURAL | SORT_FLAG_CASE );
+
+		set_transient( $cache_key, $classes, DAY_IN_SECONDS );
 
 		$this->theme_class_suggestions = $classes;
 		return $this->theme_class_suggestions;
@@ -1320,13 +1380,344 @@ class GT_Page_Blocks_Builder {
 	}
 
 	/**
+	 * Get parsed blocks for the current singular request, cached.
+	 *
+	 * @return array|null
+	 */
+	private function get_parsed_blocks() {
+		if ( $this->parsed_blocks !== null ) {
+			return $this->parsed_blocks;
+		}
+
+		if ( ! is_singular() ) {
+			return null;
+		}
+
+		$post = get_queried_object();
+
+		if ( ! $post || ! isset( $post->post_content ) || ! has_blocks( $post->post_content ) ) {
+			return null;
+		}
+
+		$this->parsed_blocks = parse_blocks( $post->post_content );
+		return $this->parsed_blocks;
+	}
+
+	/**
+	 * Parse post content early and output all Page Block CSS in <head>.
+	 */
+	public function collect_css_for_head() {
+		$blocks = $this->get_parsed_blocks();
+		if ( $blocks === null ) {
+			return;
+		}
+
+		$inline_parts = array();
+		$file_parts   = array();
+
+		foreach ( self::find_page_blocks( $blocks ) as $block ) {
+			$css = $block['attrs']['css'] ?? '';
+			if ( ! $css ) {
+				continue;
+			}
+
+			$output = $block['attrs']['output'] ?? 'inline';
+			if ( $output === 'file' ) {
+				$file_parts[] = self::sanitize_css( $css );
+			} else {
+				$inline_parts[] = self::sanitize_css( $css );
+			}
+		}
+
+		if ( empty( $inline_parts ) && empty( $file_parts ) ) {
+			return;
+		}
+
+		$this->css_in_head = true;
+
+		$post    = get_queried_object();
+		$post_id = $post->ID;
+
+		if ( ! empty( $file_parts ) ) {
+			if ( ! $this->css_file_exists( $post_id, 'gb-' ) ) {
+				$this->generate_file( $post_id, 'gb-', 'css', $file_parts );
+			}
+
+			$that = $this;
+			add_action( 'wp_head', function() use ( $that, $post_id ) {
+				$that->enqueue_asset_file( $post_id, 'gb-', 'css' );
+			}, 99 );
+		}
+
+		if ( ! empty( $inline_parts ) ) {
+			$combined = self::minify_css( implode( "\n", $inline_parts ) );
+
+			add_action( 'wp_head', function() use ( $combined ) {
+				echo '<style id="gt-page-block-css">' . $combined . '</style>' . "\n";
+			}, 99 );
+		}
+	}
+
+	/**
+	 * Parse post content early and collect all Page Block JS for external file output.
+	 */
+	public function collect_js_for_file() {
+		$blocks = $this->get_parsed_blocks();
+		if ( $blocks === null ) {
+			return;
+		}
+
+		$js_parts = array();
+
+		foreach ( self::find_page_blocks( $blocks ) as $block ) {
+			$output = $block['attrs']['output'] ?? 'inline';
+			if ( $output !== 'file' ) {
+				continue;
+			}
+
+			$js = $block['attrs']['js'] ?? '';
+			if ( $js ) {
+				$js_parts[] = $js;
+			}
+		}
+
+		if ( empty( $js_parts ) ) {
+			return;
+		}
+
+		$post    = get_queried_object();
+		$post_id = $post->ID;
+
+		if ( ! $this->css_file_exists( $post_id, 'gb-', 'js' ) ) {
+			$this->generate_file( $post_id, 'gb-', 'js', $js_parts );
+		}
+
+		$that = $this;
+		add_action( 'wp_footer', function() use ( $that, $post_id ) {
+			$that->enqueue_asset_file( $post_id, 'gb-', 'js' );
+		}, 99 );
+	}
+
+	/**
+	 * Get the uploads directory for page blocks asset files.
+	 *
+	 * @return array Array with 'path' and 'url' keys.
+	 */
+	private function get_upload_dir() {
+		if ( $this->upload_dir_cache !== null ) {
+			return $this->upload_dir_cache;
+		}
+
+		$upload_dir = wp_upload_dir();
+		$dir        = $upload_dir['basedir'] . '/gt-page-blocks';
+		$url        = $upload_dir['baseurl'] . '/gt-page-blocks';
+
+		if ( ! file_exists( $dir ) ) {
+			wp_mkdir_p( $dir );
+			global $wp_filesystem;
+			if ( empty( $wp_filesystem ) ) {
+				require_once ABSPATH . 'wp-admin/includes/file.php';
+				WP_Filesystem();
+			}
+			$wp_filesystem->put_contents( $dir . '/index.php', "<?php\n// Silence is golden.", FS_CHMOD_FILE );
+		}
+
+		$this->upload_dir_cache = array(
+			'path' => $dir,
+			'url'  => $url,
+		);
+
+		return $this->upload_dir_cache;
+	}
+
+	/**
+	 * Get asset file info for a specific post.
+	 *
+	 * @param int    $post_id   Post ID.
+	 * @param string $prefix    File prefix (e.g. '' or 'gb-').
+	 * @param string $extension File extension.
+	 * @return array Array with 'path' and 'url' keys.
+	 */
+	private function get_asset_file_info( $post_id, $prefix = '', $extension = 'css' ) {
+		$dir      = $this->get_upload_dir();
+		$filename = 'page-blocks-' . $prefix . $post_id . '.' . $extension;
+
+		return array(
+			'path' => $dir['path'] . '/' . $filename,
+			'url'  => $dir['url'] . '/' . $filename,
+		);
+	}
+
+	/**
+	 * Check if an asset file exists.
+	 *
+	 * @param int    $post_id   Post ID.
+	 * @param string $prefix    File prefix.
+	 * @param string $extension File extension.
+	 * @return bool
+	 */
+	private function css_file_exists( $post_id, $prefix = '', $extension = 'css' ) {
+		$info = $this->get_asset_file_info( $post_id, $prefix, $extension );
+		return file_exists( $info['path'] );
+	}
+
+	/**
+	 * Delete an asset file.
+	 *
+	 * @param int    $post_id   Post ID.
+	 * @param string $prefix    File prefix.
+	 * @param string $extension File extension.
+	 * @return bool
+	 */
+	private function delete_asset_file( $post_id, $prefix = '', $extension = 'css' ) {
+		$info = $this->get_asset_file_info( $post_id, $prefix, $extension );
+		if ( file_exists( $info['path'] ) ) {
+			return @unlink( $info['path'] );
+		}
+		return false;
+	}
+
+	/**
+	 * Write content to an asset file.
+	 *
+	 * @param string $path    File path.
+	 * @param string $content File content.
+	 * @return bool
+	 */
+	private function write_asset_file( $path, $content ) {
+		global $wp_filesystem;
+		if ( empty( $wp_filesystem ) ) {
+			require_once ABSPATH . 'wp-admin/includes/file.php';
+			WP_Filesystem();
+		}
+		return (bool) $wp_filesystem->put_contents( $path, $content, FS_CHMOD_FILE );
+	}
+
+	/**
+	 * Generate and save a minified asset file.
+	 *
+	 * @param int    $post_id   Post ID.
+	 * @param string $prefix    File prefix.
+	 * @param string $extension 'css' or 'js'.
+	 * @param array  $parts     Array of code strings.
+	 * @return bool
+	 */
+	private function generate_file( $post_id, $prefix, $extension, $parts ) {
+		if ( empty( $parts ) ) {
+			$this->delete_asset_file( $post_id, $prefix, $extension );
+			return false;
+		}
+
+		$separator = $extension === 'js' ? ";\n" : "\n";
+		$combined  = implode( $separator, $parts );
+		$minified  = $extension === 'js' ? self::minify_js( $combined ) : self::minify_css( $combined );
+		$info      = $this->get_asset_file_info( $post_id, $prefix, $extension );
+
+		return $this->write_asset_file( $info['path'], $minified );
+	}
+
+	/**
+	 * Enqueue an external asset file via HTML tag.
+	 *
+	 * @param int    $post_id   Post ID.
+	 * @param string $prefix    File prefix.
+	 * @param string $extension 'css' or 'js'.
+	 */
+	public function enqueue_asset_file( $post_id, $prefix = '', $extension = 'css' ) {
+		$info = $this->get_asset_file_info( $post_id, $prefix, $extension );
+		if ( ! file_exists( $info['path'] ) ) {
+			return;
+		}
+
+		$version = filemtime( $info['path'] );
+		$id      = 'gt-page-blocks-' . $prefix . esc_attr( $post_id );
+
+		if ( $extension === 'js' ) {
+			echo '<script src="' . esc_url( $info['url'] ) . '?ver=' . esc_attr( $version ) . '"></script>' . "\n";
+		} else {
+			echo '<link rel="stylesheet" id="' . $id . '" href="' . esc_url( $info['url'] ) . '?ver=' . esc_attr( $version ) . '" media="all" />' . "\n";
+		}
+	}
+
+	/**
+	 * Handle post save - regenerate external asset files.
+	 *
+	 * @param int     $post_id Post ID.
+	 * @param WP_Post $post    Post object.
+	 */
+	public function on_post_save( $post_id, $post ) {
+		if ( defined( 'DOING_AUTOSAVE' ) && DOING_AUTOSAVE ) {
+			return;
+		}
+
+		if ( wp_is_post_revision( $post_id ) ) {
+			return;
+		}
+
+		if ( ! in_array( $post->post_type, md_page_blocks_builder_post_types(), true ) ) {
+			return;
+		}
+
+		if ( ! has_blocks( $post->post_content ) ) {
+			$this->delete_asset_file( $post_id, 'gb-', 'css' );
+			$this->delete_asset_file( $post_id, 'gb-', 'js' );
+			return;
+		}
+
+		$blocks    = parse_blocks( $post->post_content );
+		$css_parts = array();
+		$js_parts  = array();
+
+		foreach ( self::find_page_blocks( $blocks ) as $block ) {
+			$output = $block['attrs']['output'] ?? 'inline';
+			if ( $output !== 'file' ) {
+				continue;
+			}
+
+			$css = $block['attrs']['css'] ?? '';
+			if ( $css ) {
+				$css_parts[] = self::sanitize_css( $css );
+			}
+
+			$js = $block['attrs']['js'] ?? '';
+			if ( $js ) {
+				$js_parts[] = $js;
+			}
+		}
+
+		if ( ! empty( $css_parts ) ) {
+			$this->generate_file( $post_id, 'gb-', 'css', $css_parts );
+		} else {
+			$this->delete_asset_file( $post_id, 'gb-', 'css' );
+		}
+
+		if ( ! empty( $js_parts ) ) {
+			$this->generate_file( $post_id, 'gb-', 'js', $js_parts );
+		} else {
+			$this->delete_asset_file( $post_id, 'gb-', 'js' );
+		}
+	}
+
+	/**
+	 * Handle post delete - remove all asset files.
+	 *
+	 * @param int $post_id Post ID.
+	 */
+	public function on_post_delete( $post_id ) {
+		$this->delete_asset_file( $post_id, 'gb-', 'css' );
+		$this->delete_asset_file( $post_id, 'gb-', 'js' );
+	}
+
+	/**
 	 * Sanitize CSS to strip XSS vectors.
 	 *
 	 * @param string $css Raw CSS.
 	 * @return string
 	 */
 	public static function sanitize_css( $css ) {
-		$css = wp_strip_all_tags( (string) $css );
+		$css = (string) $css;
+		$css = preg_replace( '@<(script|style)[^>]*?>.*?</\\1>@si', '', $css );
+		$css = preg_replace( '/<[a-z\/!][^>]*>/i', '', $css );
 		$css = str_replace( array( 'javascript:', 'expression(', '-moz-binding:', 'behavior:' ), '', $css );
 		$css = preg_replace( '/@import\s+url\s*\(\s*["\']?\s*(?:javascript|data)\s*:/i', '@import url(blocked:', $css );
 		$css = preg_replace( '/url\s*\(\s*["\']?\s*data\s*:\s*text\/html/i', 'url(blocked:', $css );
@@ -1344,7 +1735,8 @@ class GT_Page_Blocks_Builder {
 		$css = preg_replace( '!/\*[^*]*\*+([^/][^*]*\*+)*/!', '', $css );
 		$css = str_replace( array( "\r\n", "\r", "\n", "\t" ), '', $css );
 		$css = preg_replace( '/\s+/', ' ', $css );
-		$css = preg_replace( '/\s*([\{\};:,>~+])\s*/', '$1', $css );
+		$css = preg_replace( '/\s*([\{\};:,~+])\s*/', '$1', $css );
+		$css = preg_replace( '/\s*>(?!=)\s*/', '>', $css );
 		$css = preg_replace( '/;}/', '}', $css );
 		return trim( (string) $css );
 	}

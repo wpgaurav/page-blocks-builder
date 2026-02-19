@@ -3,8 +3,8 @@
 	--pb-surface: #161923;
 	--pb-surface2: #1c2030;
 	--pb-border: rgba(255, 255, 255, 0.06);
-	--pb-text: rgba(255, 255, 255, 0.88);
-	--pb-muted: rgba(255, 255, 255, 0.35);
+	--pb-text: rgba(255, 255, 255, 0.92);
+	--pb-muted: rgba(255, 255, 255, 0.55);
 	--pb-accent: #63b3ed;
 	--pb-accent-dim: rgba(99, 179, 237, 0.15);
 	--pb-green: #68d391;
@@ -99,7 +99,7 @@ body {
 	border: 1px solid var(--pb-border);
 	border-radius: 8px;
 	background: transparent;
-	color: var(--pb-muted);
+	color: rgba(255, 255, 255, 0.6);
 	padding: 0 10px;
 	font-size: 12px;
 	font-weight: 600;
@@ -124,6 +124,7 @@ body {
 	display: flex;
 	align-items: center;
 	justify-self: center;
+	gap: 6px;
 	position: relative;
 	z-index: 2147483647;
 }
@@ -139,6 +140,16 @@ body {
 	color: #091019;
 	font-weight: 700;
 	box-shadow: 0 0 0 3px rgba(99, 179, 237, 0.16);
+}
+
+.md-pb-button-preview {
+	border-color: rgba(255, 255, 255, 0.15);
+	color: rgba(255, 255, 255, 0.7);
+}
+
+.md-pb-button-preview:hover {
+	color: var(--pb-text);
+	border-color: rgba(255, 255, 255, 0.3);
 }
 
 .md-pb-main {
@@ -175,7 +186,7 @@ body {
 	font-size: 11px;
 	text-transform: uppercase;
 	letter-spacing: 0.08em;
-	color: var(--pb-muted);
+	color: rgba(255, 255, 255, 0.65);
 }
 
 .md-pb-viewport-controls {
@@ -190,7 +201,7 @@ body {
 	border: 1px solid var(--pb-border);
 	border-radius: 999px;
 	background: rgba(255, 255, 255, 0.02);
-	color: var(--pb-muted);
+	color: rgba(255, 255, 255, 0.6);
 	font-size: 11px;
 	font-weight: 600;
 	line-height: 1;
@@ -249,7 +260,7 @@ body {
 	font-weight: 700;
 	text-transform: uppercase;
 	letter-spacing: 0.09em;
-	color: var(--pb-muted);
+	color: rgba(255, 255, 255, 0.7);
 }
 
 .md-pb-index-header-actions {
@@ -308,7 +319,7 @@ body {
 	background: transparent;
 	border: none;
 	padding: 0;
-	color: var(--pb-text);
+	color: #e2e8f0;
 	text-align: left;
 	overflow: hidden;
 	white-space: nowrap;
@@ -337,7 +348,7 @@ body {
 	border: 1px solid var(--pb-border);
 	border-radius: 6px;
 	background: rgba(255, 255, 255, 0.03);
-	color: var(--pb-muted);
+	color: rgba(255, 255, 255, 0.6);
 	padding: 0;
 	cursor: pointer;
 	font-size: 12px;
@@ -350,6 +361,29 @@ body {
 	color: var(--pb-accent);
 }
 
+.md-pb-add-section-btn {
+	display: block;
+	width: calc(100% - 16px);
+	margin: 0 8px 8px;
+	height: 34px;
+	border: 1px dashed rgba(99, 179, 237, 0.5);
+	border-radius: 8px;
+	background: rgba(99, 179, 237, 0.06);
+	color: var(--pb-accent);
+	font-size: 12px;
+	font-weight: 600;
+	font-family: inherit;
+	cursor: pointer;
+	transition: all 0.15s ease;
+	flex-shrink: 0;
+}
+
+.md-pb-add-section-btn:hover {
+	background: rgba(99, 179, 237, 0.14);
+	border-color: var(--pb-accent);
+	box-shadow: 0 0 0 2px rgba(99, 179, 237, 0.12);
+}
+
 .md-pb-meta {
 	border-top: 1px solid var(--pb-border);
 	padding: 8px;
@@ -360,7 +394,7 @@ body {
 	font-size: 11px;
 	text-transform: uppercase;
 	letter-spacing: 0.08em;
-	color: var(--pb-muted);
+	color: rgba(255, 255, 255, 0.65);
 	margin-bottom: 6px;
 }
 
@@ -490,7 +524,7 @@ body {
 	font-size: 11px;
 	text-transform: uppercase;
 	letter-spacing: 0.08em;
-	color: var(--pb-muted);
+	color: rgba(255, 255, 255, 0.65);
 }
 
 .md-pb-options {
@@ -498,7 +532,7 @@ body {
 	align-items: center;
 	gap: 8px;
 	font-size: 12px;
-	color: var(--pb-muted);
+	color: rgba(255, 255, 255, 0.6);
 }
 
 .md-pb-chip {
@@ -654,7 +688,7 @@ body {
 }
 
 .md-pb-code-pane .CodeMirror-linenumber {
-	color: rgba(255, 255, 255, 0.4);
+	color: rgba(255, 255, 255, 0.5);
 	text-align: right;
 }
 
@@ -716,7 +750,7 @@ body {
 	border-top: 1px solid var(--pb-border);
 	background: #121623;
 	font-size: 11px;
-	color: var(--pb-muted);
+	color: rgba(255, 255, 255, 0.6);
 }
 
 .md-pb-live-dot {
