@@ -135,6 +135,7 @@
 			css: '',
 			js: '',
 			jsLocation: 'footer',
+			output: 'inline',
 			format: false,
 			phpExec: false,
 			collapsed: false
@@ -149,6 +150,7 @@
 		section.css = typeof source.css === 'string' ? source.css : '';
 		section.js = typeof source.js === 'string' ? source.js : '';
 		section.jsLocation = source.jsLocation === 'inline' ? 'inline' : 'footer';
+		section.output = source.output === 'file' ? 'file' : 'inline';
 		section.format = !!source.format;
 		section.phpExec = !!source.phpExec;
 		section.collapsed = !!source.collapsed;
@@ -1131,6 +1133,7 @@
 				css: normalized.css,
 				js: normalized.js,
 				jsLocation: normalized.jsLocation,
+				output: normalized.output,
 				format: normalized.format,
 				phpExec: normalized.phpExec
 			};
@@ -2193,16 +2196,23 @@
 	}
 
 	function captureSelectionAndOpenPrompt() {
-		var ed = state.editors.html;
-		var cm = ed && ed.codemirror ? ed.codemirror : null;
 		state.aiSelection = '';
 		state.aiSelectionEditor = null;
 
-		if (cm && typeof cm.getSelection === 'function') {
-			var sel = cm.getSelection();
-			if (sel && sel.length > 0) {
-				state.aiSelection = sel;
-				state.aiSelectionEditor = 'html';
+		var activeTab = getActiveTab();
+		var editorKeys = [activeTab].concat(['html', 'css', 'js'].filter(function(k) { return k !== activeTab; }));
+
+		for (var i = 0; i < editorKeys.length; i++) {
+			var key = editorKeys[i];
+			var ed = state.editors[key];
+			var cm = ed && ed.codemirror ? ed.codemirror : null;
+			if (cm && typeof cm.getSelection === 'function') {
+				var sel = cm.getSelection();
+				if (sel && sel.length > 0) {
+					state.aiSelection = sel;
+					state.aiSelectionEditor = key;
+					break;
+				}
 			}
 		}
 
@@ -2210,6 +2220,7 @@
 
 		if (state.aiSelection && dom.aiSelectionBadge) {
 			dom.aiSelectionBadge.style.display = '';
+			dom.aiSelectionBadge.textContent = state.aiSelectionEditor.toUpperCase() + ' Selection';
 		}
 	}
 
@@ -2335,13 +2346,13 @@
 			state.aiModel = dom.aiModelSelect.value;
 		}
 
-		var tab = 'html';
+		var tab = state.aiSelection ? 'html' : getActiveTab();
 		var fieldMap = { html: 'content', css: 'css', js: 'js' };
 		var section = getCurrentSection();
 		var existing = section ? (section[fieldMap[tab]] || '') : '';
 		var ctxHtml = section ? (section.content || '') : '';
 		var ctxCss = section ? (section.css || '') : '';
-		var selection = state.aiSelectionEditor === 'html' ? (state.aiSelection || '') : '';
+		var selection = state.aiSelectionEditor === tab ? (state.aiSelection || '') : '';
 
 		state.aiBusy = true;
 		if (dom.aiStatus) {
@@ -2412,6 +2423,9 @@
 			}
 
 			var field = fieldMap[tab];
+			if (tab === 'css' || tab === 'js') {
+				setRightPaneMode(tab);
+			}
 			var editor = state.editors[tab];
 			var cm = editor && editor.codemirror ? editor.codemirror : null;
 

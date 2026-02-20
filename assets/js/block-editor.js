@@ -298,7 +298,8 @@
 			js:         { type: 'string', default: '' },
 			jsLocation: { type: 'string', default: 'footer' },
 			format:     { type: 'boolean', default: false },
-			phpExec:    { type: 'boolean', default: false }
+			phpExec:    { type: 'boolean', default: false },
+			output:     { type: 'string', default: 'inline' }
 		},
 
 		edit: function( props ) {

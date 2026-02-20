@@ -271,11 +271,11 @@ class GT_Page_Blocks_Builder {
 			);
 
 			$preview_styles = array( get_stylesheet_uri() );
-		if ( is_child_theme() ) {
-			$preview_styles[] = get_template_directory_uri() . '/style.css';
-		}
+			if ( is_child_theme() ) {
+				$preview_styles[] = get_template_directory_uri() . '/style.css';
+			}
 
-		wp_localize_script(
+			wp_localize_script(
 				'gt-page-block-editor',
 				'mdPageBlockEditor',
 				array(
@@ -1514,7 +1514,10 @@ class GT_Page_Blocks_Builder {
 
 		$this->css_in_head = true;
 
-		$post    = get_queried_object();
+		$post = get_queried_object();
+		if ( ! $post || ! isset( $post->ID ) ) {
+			return;
+		}
 		$post_id = $post->ID;
 
 		if ( ! empty( $file_parts ) ) {
@@ -1564,7 +1567,10 @@ class GT_Page_Blocks_Builder {
 			return;
 		}
 
-		$post    = get_queried_object();
+		$post = get_queried_object();
+		if ( ! $post || ! isset( $post->ID ) ) {
+			return;
+		}
 		$post_id = $post->ID;
 
 		if ( ! $this->css_file_exists( $post_id, 'gb-', 'js' ) ) {
@@ -1828,11 +1834,26 @@ class GT_Page_Blocks_Builder {
 	 */
 	public static function minify_js( $js ) {
 		$js = (string) $js;
+
+		$preserved = array();
+		$js = preg_replace_callback(
+			'/([\'"`])(?:(?!\\1)[^\\\\]|\\\\.)*\\1/s',
+			function ( $matches ) use ( &$preserved ) {
+				$key               = '___JSSTR_' . count( $preserved ) . '___';
+				$preserved[ $key ] = $matches[0];
+				return $key;
+			},
+			$js
+		);
+
 		$js = preg_replace( '#/\*(?!!).*?\*/#s', '', $js );
 		$js = preg_replace( '#(?<=[\s;{}(,=])//(?!/)[^\n]*#', '', $js );
 		$js = str_replace( array( "\r\n", "\r", "\n", "\t" ), ' ', $js );
 		$js = preg_replace( '/\s+/', ' ', $js );
 		$js = preg_replace( '/\s*([{};,])\s*/', '$1', $js );
+
+		$js = str_replace( array_keys( $preserved ), array_values( $preserved ), $js );
+
 		return trim( (string) $js );
 	}
 
