@@ -30,7 +30,16 @@
 			styleUrls: [],
 			inlineStyles: [],
 			scriptUrls: []
-		}
+		},
+		aiPromptOpen: false,
+		aiSelection: '',
+		aiSelectionEditor: null,
+		aiBusy: false,
+		aiModel: (config.aiDefaultModel || 'gpt-5.2'),
+		terminalHistory: [],
+		terminalHistoryIndex: -1,
+		terminalCwd: '',
+		terminalBusy: false
 	};
 	var dom = {};
 
@@ -586,21 +595,56 @@
 	}
 
 	function setRightPaneMode(mode) {
-		state.rightPaneMode = mode === 'js' ? 'js' : 'css';
+		var validModes = ['css', 'js'];
+		if (config.terminalEnabled) {
+			validModes.push('terminal');
+		}
+		state.rightPaneMode = validModes.indexOf(mode) !== -1 ? mode : 'css';
 
 		if (dom.shell) {
-			dom.shell.classList.toggle('is-pane-js', state.rightPaneMode === 'js');
+			dom.shell.classList.remove('is-pane-js', 'is-pane-terminal');
+			if (state.rightPaneMode === 'js') {
+				dom.shell.classList.add('is-pane-js');
+			} else if (state.rightPaneMode === 'terminal') {
+				dom.shell.classList.add('is-pane-terminal');
+			}
 		}
 
 		if (dom.rightPaneLabel) {
-			dom.rightPaneLabel.textContent = state.rightPaneMode === 'js' ? 'JS' : 'CSS';
+			var labels = { css: 'CSS', js: 'JS', terminal: 'Term' };
+			dom.rightPaneLabel.textContent = labels[state.rightPaneMode] || 'CSS';
 		}
 
 		if (dom.swapRightPaneButton) {
-			dom.swapRightPaneButton.textContent = state.rightPaneMode === 'js' ? 'CSS' : 'JS';
+			var nextMode = getNextRightPaneMode();
+			if (nextMode === 'terminal') {
+				dom.swapRightPaneButton.textContent = '';
+				var termText = document.createTextNode('Term ');
+				var betaBadge = document.createElement('sup');
+				betaBadge.textContent = 'B';
+				betaBadge.className = 'md-pb-beta-badge';
+				dom.swapRightPaneButton.appendChild(termText);
+				dom.swapRightPaneButton.appendChild(betaBadge);
+			} else {
+				var swapLabels = { css: 'CSS', js: 'JS' };
+				dom.swapRightPaneButton.textContent = swapLabels[nextMode] || 'JS';
+			}
+		}
+
+		if (state.rightPaneMode === 'terminal' && dom.terminalInput) {
+			dom.terminalInput.focus();
 		}
 
 		refreshCodeEditors();
+	}
+
+	function getNextRightPaneMode() {
+		var modes = ['css', 'js'];
+		if (config.terminalEnabled) {
+			modes.push('terminal');
+		}
+		var idx = modes.indexOf(state.rightPaneMode);
+		return modes[(idx + 1) % modes.length];
 	}
 
 	function getPreviewViewportWidth(mode) {
@@ -700,7 +744,7 @@
 					}
 					dom.previewFrame.srcdoc = buildPreviewDoc();
 				});
-		}, 3000);
+		}, 1000);
 	}
 
 	function setApplyButtonBusy(isBusy, label) {
@@ -1309,6 +1353,7 @@
 					'<button type="button" class="md-pb-toggle-btn is-active" data-role="toggle-sections" aria-pressed="true">☰ Sections</button>' +
 					'<button type="button" class="md-pb-toggle-btn is-active" data-role="toggle-code" aria-pressed="true">&lt;/&gt; Code</button>' +
 					'<button type="button" class="md-pb-toggle-btn is-active" data-role="toggle-preview" aria-pressed="true">&#9655; Preview</button>' +
+					'<button type="button" class="md-pb-toggle-btn" data-role="toggle-ai">AI</button>' +
 				'</div>' +
 				'<div class="md-pb-topbar-actions">' +
 					'<button type="button" class="md-pb-button md-pb-button-primary" data-role="apply">Apply to Gutenberg</button>' +
@@ -1360,6 +1405,16 @@
 						'<label class="md-pb-select-wrap">JS: <select data-role="js-location"><option value="footer">Footer</option><option value="inline">Inline</option></select></label>' +
 					'</div>' +
 				'</div>' +
+				'<div class="md-pb-ai-bar" data-role="ai-bar" style="display:none">' +
+					'<select class="md-pb-ai-model-select" data-role="ai-model-select"></select>' +
+					'<div class="md-pb-ai-input-wrap">' +
+						'<span class="md-pb-ai-selection-badge" data-role="ai-selection-badge" style="display:none">Selection</span>' +
+						'<input type="text" class="md-pb-ai-input" data-role="ai-input" placeholder="Describe what to generate..." autocomplete="off" spellcheck="false">' +
+					'</div>' +
+					'<span class="md-pb-ai-status" data-role="ai-status" style="display:none">Generating...</span>' +
+					'<button type="button" class="md-pb-button md-pb-button-primary md-pb-ai-generate-btn" data-role="ai-generate">Generate</button>' +
+					'<button type="button" class="md-pb-icon-btn md-pb-ai-close-btn" data-role="ai-close">&times;</button>' +
+				'</div>' +
 				'<div class="md-pb-code-wrap">' +
 					'<div class="md-pb-code-grid">' +
 						'<div class="md-pb-code-column">' +
@@ -1370,6 +1425,13 @@
 							'<div class="md-pb-code-title md-pb-code-title-swap"><span data-role="right-pane-label">CSS</span><button type="button" class="md-pb-icon-btn" data-role="swap-right-pane">JS</button></div>' +
 							'<div class="md-pb-code-pane md-pb-code-pane--css"><textarea class="md-pb-code-textarea" data-role="textarea-css" spellcheck="false"></textarea></div>' +
 							'<div class="md-pb-code-pane md-pb-code-pane--js"><textarea class="md-pb-code-textarea" data-role="textarea-js" spellcheck="false"></textarea></div>' +
+							'<div class="md-pb-code-pane md-pb-code-pane--terminal">' +
+								'<div class="md-pb-terminal-output" data-role="terminal-output"></div>' +
+								'<div class="md-pb-terminal-input-row">' +
+									'<span class="md-pb-terminal-prompt" data-role="terminal-cwd">$</span>' +
+									'<input type="text" class="md-pb-terminal-input" data-role="terminal-input" placeholder="Type a command..." autocomplete="off" spellcheck="false">' +
+								'</div>' +
+							'</div>' +
 						'</div>' +
 					'</div>' +
 				'</div>' +
@@ -1407,7 +1469,19 @@
 		dom.splitterHandle = shell.querySelector('[data-role="splitter-handle"]');
 		dom.bottom = shell.querySelector('.md-pb-bottom');
 		dom.viewportButtons = Array.prototype.slice.call(shell.querySelectorAll('[data-role="viewport-button"]'));
+		dom.toggleAiButton = shell.querySelector('[data-role="toggle-ai"]');
+		dom.aiBar = shell.querySelector('[data-role="ai-bar"]');
+		dom.aiInput = shell.querySelector('[data-role="ai-input"]');
+		dom.aiModelSelect = shell.querySelector('[data-role="ai-model-select"]');
+		dom.aiSelectionBadge = shell.querySelector('[data-role="ai-selection-badge"]');
+		dom.aiStatus = shell.querySelector('[data-role="ai-status"]');
+		dom.aiGenerateButton = shell.querySelector('[data-role="ai-generate"]');
+		dom.aiCloseButton = shell.querySelector('[data-role="ai-close"]');
+		dom.terminalOutput = shell.querySelector('[data-role="terminal-output"]');
+		dom.terminalInput = shell.querySelector('[data-role="terminal-input"]');
+		dom.terminalCwd = shell.querySelector('[data-role="terminal-cwd"]');
 
+		populateAiModelSelect();
 		applyPreviewTemplateClass(shell);
 		applyPreviewViewport();
 		setBottomHeight(state.bottomHeight);
@@ -1650,7 +1724,77 @@
 
 		if (dom.swapRightPaneButton) {
 			dom.swapRightPaneButton.addEventListener('click', function() {
-				setRightPaneMode(state.rightPaneMode === 'css' ? 'js' : 'css');
+				setRightPaneMode(getNextRightPaneMode());
+			});
+		}
+
+		if (dom.toggleAiButton) {
+			dom.toggleAiButton.addEventListener('click', function() {
+				captureSelectionAndOpenPrompt();
+			});
+		}
+
+		if (dom.aiGenerateButton) {
+			dom.aiGenerateButton.addEventListener('click', function() {
+				submitAiPrompt();
+			});
+		}
+
+		if (dom.aiCloseButton) {
+			dom.aiCloseButton.addEventListener('click', function() {
+				toggleAiPrompt(false);
+			});
+		}
+
+		if (dom.aiInput) {
+			dom.aiInput.addEventListener('keydown', function(event) {
+				if (event.key === 'Enter') {
+					event.preventDefault();
+					submitAiPrompt();
+				}
+				if (event.key === 'Escape') {
+					event.preventDefault();
+					toggleAiPrompt(false);
+				}
+			});
+		}
+
+		if (dom.aiModelSelect) {
+			dom.aiModelSelect.addEventListener('change', function() {
+				state.aiModel = dom.aiModelSelect.value;
+			});
+		}
+
+		if (dom.terminalInput) {
+			dom.terminalInput.addEventListener('keydown', function(event) {
+				if (event.key === 'Enter') {
+					event.preventDefault();
+					var cmd = dom.terminalInput.value.trim();
+					if (cmd) {
+						executeTerminalCommand(cmd);
+					}
+				}
+				if (event.key === 'ArrowUp') {
+					event.preventDefault();
+					if (state.terminalHistory.length > 0 && state.terminalHistoryIndex > 0) {
+						state.terminalHistoryIndex--;
+						dom.terminalInput.value = state.terminalHistory[state.terminalHistoryIndex] || '';
+					}
+				}
+				if (event.key === 'ArrowDown') {
+					event.preventDefault();
+					if (state.terminalHistoryIndex < state.terminalHistory.length - 1) {
+						state.terminalHistoryIndex++;
+						dom.terminalInput.value = state.terminalHistory[state.terminalHistoryIndex] || '';
+					} else {
+						state.terminalHistoryIndex = state.terminalHistory.length;
+						dom.terminalInput.value = '';
+					}
+				}
+				if (event.ctrlKey && event.key === 'l') {
+					event.preventDefault();
+					clearTerminal();
+				}
 			});
 		}
 
@@ -1691,6 +1835,16 @@
 			var key = String(event.key || '').toLowerCase();
 
 			if (event.key === 'Escape') {
+				if (state.aiPromptOpen) {
+					event.preventDefault();
+					toggleAiPrompt(false);
+				}
+				return;
+			}
+
+			if (isMeta && key === 'k') {
+				event.preventDefault();
+				captureSelectionAndOpenPrompt();
 				return;
 			}
 
@@ -1903,6 +2057,300 @@
 			if (window.console) {
 				window.console.error('Page Blocks Builder:', data.payload.message);
 			}
+		}
+	}
+
+	function populateAiModelSelect() {
+		if (!dom.aiModelSelect || !Array.isArray(config.aiModels)) {
+			return;
+		}
+
+		var providerFlags = {
+			openai: !!config.aiHasOpenAI,
+			anthropic: !!config.aiHasAnthropic,
+			gemini: !!config.aiHasGemini
+		};
+
+		var groups = {};
+		config.aiModels.forEach(function(m) {
+			if (!providerFlags[m.provider]) {
+				return;
+			}
+			if (!groups[m.provider]) {
+				groups[m.provider] = [];
+			}
+			groups[m.provider].push(m);
+		});
+
+		var providerLabels = { openai: 'OpenAI', anthropic: 'Anthropic', gemini: 'Google' };
+		dom.aiModelSelect.textContent = '';
+
+		Object.keys(groups).forEach(function(provider) {
+			var optgroup = document.createElement('optgroup');
+			optgroup.label = providerLabels[provider] || provider;
+			groups[provider].forEach(function(m) {
+				var opt = document.createElement('option');
+				opt.value = m.id;
+				opt.textContent = m.label;
+				if (m.id === state.aiModel) {
+					opt.selected = true;
+				}
+				optgroup.appendChild(opt);
+			});
+			dom.aiModelSelect.appendChild(optgroup);
+		});
+
+		if (dom.aiModelSelect.options.length === 0) {
+			var noOpt = document.createElement('option');
+			noOpt.textContent = 'No API keys configured';
+			noOpt.disabled = true;
+			dom.aiModelSelect.appendChild(noOpt);
+		}
+	}
+
+	function toggleAiPrompt(forceOpen) {
+		var shouldOpen = typeof forceOpen === 'boolean' ? forceOpen : !state.aiPromptOpen;
+		state.aiPromptOpen = shouldOpen;
+
+		if (dom.aiBar) {
+			dom.aiBar.style.display = shouldOpen ? '' : 'none';
+		}
+
+		if (shouldOpen && dom.aiInput) {
+			dom.aiInput.focus();
+		}
+
+		if (!shouldOpen) {
+			state.aiSelection = '';
+			state.aiSelectionEditor = null;
+			if (dom.aiSelectionBadge) {
+				dom.aiSelectionBadge.style.display = 'none';
+			}
+			if (dom.aiInput) {
+				dom.aiInput.value = '';
+			}
+		}
+	}
+
+	function captureSelectionAndOpenPrompt() {
+		var editorKeys = ['html', 'css', 'js'];
+		var fieldMap = { html: 'content', css: 'css', js: 'js' };
+
+		for (var i = 0; i < editorKeys.length; i++) {
+			var key = editorKeys[i];
+			var cm = state.editors[fieldMap[key]];
+			if (cm && typeof cm.getSelection === 'function') {
+				var sel = cm.getSelection();
+				if (sel && sel.length > 0) {
+					state.aiSelection = sel;
+					state.aiSelectionEditor = key;
+					break;
+				}
+			}
+		}
+
+		toggleAiPrompt(true);
+
+		if (state.aiSelection && dom.aiSelectionBadge) {
+			dom.aiSelectionBadge.style.display = '';
+		}
+	}
+
+	function getActiveTab() {
+		if (state.rightPaneMode === 'css') {
+			return 'css';
+		}
+		if (state.rightPaneMode === 'js') {
+			return 'js';
+		}
+		return 'html';
+	}
+
+	function submitAiPrompt() {
+		if (state.aiBusy) {
+			return;
+		}
+
+		var prompt = dom.aiInput ? dom.aiInput.value.trim() : '';
+		if (!prompt) {
+			return;
+		}
+
+		if (dom.aiModelSelect) {
+			state.aiModel = dom.aiModelSelect.value;
+		}
+
+		var tab = state.aiSelectionEditor || getActiveTab();
+		var fieldMap = { html: 'content', css: 'css', js: 'js' };
+		var section = getCurrentSection();
+		var existing = section ? (section[fieldMap[tab]] || '') : '';
+		var ctxHtml = section ? (section.content || '') : '';
+		var ctxCss = section ? (section.css || '') : '';
+
+		state.aiBusy = true;
+		if (dom.aiStatus) {
+			dom.aiStatus.style.display = '';
+		}
+		if (dom.aiGenerateButton) {
+			dom.aiGenerateButton.disabled = true;
+		}
+
+		var formData = new FormData();
+		formData.append('action', config.aiAction || 'md_page_blocks_ai_generate');
+		formData.append('post_id', String(config.postId || 0));
+		formData.append('pb_nonce', config.applyNonce || '');
+		formData.append('prompt', prompt);
+		formData.append('tab', tab);
+		formData.append('existing_code', existing);
+		formData.append('selection', state.aiSelection || '');
+		formData.append('model', state.aiModel);
+		formData.append('context_html', ctxHtml);
+		formData.append('context_css', ctxCss);
+		formData.append('page_url', config.viewPostUrl || '');
+
+		var xhr = new XMLHttpRequest();
+		xhr.open('POST', config.aiEndpoint || config.applyEndpoint);
+		xhr.onload = function() {
+			state.aiBusy = false;
+			if (dom.aiStatus) {
+				dom.aiStatus.style.display = 'none';
+			}
+			if (dom.aiGenerateButton) {
+				dom.aiGenerateButton.disabled = false;
+			}
+
+			var result;
+			try {
+				result = JSON.parse(xhr.responseText);
+			} catch (e) {
+				window.alert('AI request failed: invalid response');
+				return;
+			}
+
+			if (!result || !result.success) {
+				window.alert('AI error: ' + ((result && result.data && result.data.message) || 'Unknown error'));
+				return;
+			}
+
+			var code = result.data && result.data.code ? result.data.code : '';
+			if (!code) {
+				return;
+			}
+
+			var field = fieldMap[tab];
+			var cm = state.editors[field];
+
+			if (state.aiSelection && cm && typeof cm.replaceSelection === 'function') {
+				cm.replaceSelection(code);
+			} else {
+				updateCurrentSectionField(field, code);
+				if (cm && typeof cm.setValue === 'function') {
+					state.syncingEditors = true;
+					cm.setValue(code);
+					state.syncingEditors = false;
+				}
+			}
+
+			queuePreviewRender();
+			toggleAiPrompt(false);
+		};
+		xhr.onerror = function() {
+			state.aiBusy = false;
+			if (dom.aiStatus) {
+				dom.aiStatus.style.display = 'none';
+			}
+			if (dom.aiGenerateButton) {
+				dom.aiGenerateButton.disabled = false;
+			}
+			window.alert('AI request failed: network error');
+		};
+		xhr.send(formData);
+	}
+
+	function executeTerminalCommand(command) {
+		if (state.terminalBusy || !command) {
+			return;
+		}
+
+		state.terminalBusy = true;
+		appendTerminalOutput('$ ' + command, 'command');
+
+		state.terminalHistory.push(command);
+		state.terminalHistoryIndex = state.terminalHistory.length;
+
+		if (dom.terminalInput) {
+			dom.terminalInput.value = '';
+			dom.terminalInput.placeholder = 'Running...';
+		}
+
+		var formData = new FormData();
+		formData.append('action', config.terminalAction || 'md_page_blocks_terminal_exec');
+		formData.append('post_id', String(config.postId || 0));
+		formData.append('pb_nonce', config.applyNonce || '');
+		formData.append('command', command);
+		formData.append('cwd', state.terminalCwd || '');
+
+		var xhr = new XMLHttpRequest();
+		xhr.open('POST', config.aiEndpoint || config.applyEndpoint);
+		xhr.onload = function() {
+			state.terminalBusy = false;
+			if (dom.terminalInput) {
+				dom.terminalInput.placeholder = 'Type a command...';
+			}
+
+			var result;
+			try {
+				result = JSON.parse(xhr.responseText);
+			} catch (e) {
+				appendTerminalOutput('Failed to parse response', 'stderr');
+				return;
+			}
+
+			if (!result || !result.success) {
+				appendTerminalOutput((result && result.data && result.data.message) || 'Command failed', 'stderr');
+				return;
+			}
+
+			var data = result.data || {};
+
+			if (data.output) {
+				appendTerminalOutput(data.output, 'stdout');
+			}
+			if (data.error) {
+				appendTerminalOutput(data.error, 'stderr');
+			}
+			if (data.cwd) {
+				state.terminalCwd = data.cwd;
+				if (dom.terminalCwd) {
+					dom.terminalCwd.textContent = data.cwd + ' $';
+				}
+			}
+		};
+		xhr.onerror = function() {
+			state.terminalBusy = false;
+			if (dom.terminalInput) {
+				dom.terminalInput.placeholder = 'Type a command...';
+			}
+			appendTerminalOutput('Network error', 'stderr');
+		};
+		xhr.send(formData);
+	}
+
+	function appendTerminalOutput(text, type) {
+		if (!dom.terminalOutput) {
+			return;
+		}
+
+		var line = document.createElement('div');
+		line.className = 'md-pb-terminal-line md-pb-terminal-line--' + (type || 'stdout');
+		line.textContent = text;
+		dom.terminalOutput.appendChild(line);
+		dom.terminalOutput.scrollTop = dom.terminalOutput.scrollHeight;
+	}
+
+	function clearTerminal() {
+		if (dom.terminalOutput) {
+			dom.terminalOutput.textContent = '';
 		}
 	}
 

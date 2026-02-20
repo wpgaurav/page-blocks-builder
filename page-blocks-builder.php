@@ -3,7 +3,7 @@
  * Plugin Name: GT Page Blocks Builder
  * Plugin URI: https://gauravtiwari.org/product/gt-page-blocks-builder/
  * Description: Standalone visual Page Blocks builder with HTML/CSS/JS sections synced to Gutenberg block content.
- * Version: 1.2.1
+ * Version: 1.3.0
  * Author: Gaurav Tiwari
  * Author URI: https://gauravtiwari.org
  * Text Domain: page-blocks-builder
@@ -14,7 +14,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 if ( ! defined( 'GT_PB_BUILDER_VERSION' ) ) {
-	define( 'GT_PB_BUILDER_VERSION', '1.2.1' );
+	define( 'GT_PB_BUILDER_VERSION', '1.3.0' );
 }
 
 if ( ! defined( 'GT_PB_BUILDER_FILE' ) ) {
@@ -168,6 +168,8 @@ class GT_Page_Blocks_Builder {
 
 		add_action( 'wp_ajax_md_page_blocks_builder_apply', array( $this, 'ajax_builder_apply' ) );
 		add_action( 'wp_ajax_md_page_blocks_builder_preview', array( $this, 'ajax_builder_preview' ) );
+		add_action( 'wp_ajax_md_page_blocks_ai_generate', array( $this, 'ajax_ai_generate' ) );
+		add_action( 'wp_ajax_md_page_blocks_terminal_exec', array( $this, 'ajax_terminal_exec' ) );
 
 		add_action( 'wp_footer', array( $this, 'output_footer_scripts' ), 99 );
 
@@ -538,6 +540,23 @@ class GT_Page_Blocks_Builder {
 						)
 					)
 				),
+				'aiEndpoint'      => admin_url( 'admin-ajax.php' ),
+				'aiAction'        => 'md_page_blocks_ai_generate',
+				'aiDefaultModel'  => get_option( 'gt_pb_ai_default_model', 'gpt-5.2' ),
+				'aiHasOpenAI'     => ! empty( get_option( 'gt_pb_ai_openai_key', '' ) ),
+				'aiHasAnthropic'  => ! empty( get_option( 'gt_pb_ai_anthropic_key', '' ) ),
+				'aiHasGemini'     => ! empty( get_option( 'gt_pb_ai_gemini_key', '' ) ),
+				'aiModels'        => array(
+					array( 'id' => 'gpt-5.2', 'label' => 'GPT-5.2', 'provider' => 'openai' ),
+					array( 'id' => 'gpt-5-mini', 'label' => 'GPT-5 Mini', 'provider' => 'openai' ),
+					array( 'id' => 'gpt-4o-mini', 'label' => 'GPT-4o Mini', 'provider' => 'openai' ),
+					array( 'id' => 'claude-sonnet-4-6', 'label' => 'Claude Sonnet 4.6', 'provider' => 'anthropic' ),
+					array( 'id' => 'claude-opus-4-6', 'label' => 'Claude Opus 4.6', 'provider' => 'anthropic' ),
+					array( 'id' => 'claude-haiku-4-5-20241022', 'label' => 'Claude Haiku 4.5', 'provider' => 'anthropic' ),
+					array( 'id' => 'gemini-3-flash-preview', 'label' => 'Gemini 3 Flash', 'provider' => 'gemini' ),
+				),
+				'terminalEnabled' => (bool) get_option( 'gt_pb_terminal_enabled', false ),
+				'terminalAction'  => 'md_page_blocks_terminal_exec',
 			)
 		);
 	}
@@ -1155,6 +1174,46 @@ class GT_Page_Blocks_Builder {
 				'default'           => array( 'post', 'page' ),
 			)
 		);
+
+		register_setting( 'gt_page_blocks_builder_settings', 'gt_pb_ai_openai_key', array(
+			'type'              => 'string',
+			'sanitize_callback' => 'sanitize_text_field',
+			'default'           => '',
+		) );
+
+		register_setting( 'gt_page_blocks_builder_settings', 'gt_pb_ai_anthropic_key', array(
+			'type'              => 'string',
+			'sanitize_callback' => 'sanitize_text_field',
+			'default'           => '',
+		) );
+
+		register_setting( 'gt_page_blocks_builder_settings', 'gt_pb_ai_gemini_key', array(
+			'type'              => 'string',
+			'sanitize_callback' => 'sanitize_text_field',
+			'default'           => '',
+		) );
+
+		register_setting( 'gt_page_blocks_builder_settings', 'gt_pb_ai_default_model', array(
+			'type'              => 'string',
+			'sanitize_callback' => array( $this, 'sanitize_ai_model' ),
+			'default'           => 'gpt-5.2',
+		) );
+
+		register_setting( 'gt_page_blocks_builder_settings', 'gt_pb_terminal_enabled', array(
+			'type'              => 'boolean',
+			'sanitize_callback' => 'rest_sanitize_boolean',
+			'default'           => false,
+		) );
+	}
+
+	public function sanitize_ai_model( $value ) {
+		$allowed = array(
+			'gpt-5.2', 'gpt-5-mini', 'gpt-4o-mini',
+			'claude-sonnet-4-6', 'claude-opus-4-6', 'claude-haiku-4-5-20241022',
+			'gemini-3-flash-preview',
+		);
+
+		return in_array( $value, $allowed, true ) ? $value : 'gpt-5.2';
 	}
 
 	/**
@@ -1783,6 +1842,315 @@ class GT_Page_Blocks_Builder {
 		$html = str_replace( array_keys( $preserved ), array_values( $preserved ), $html );
 
 		return trim( (string) $html );
+	}
+
+	public function ajax_ai_generate() {
+		if ( ! is_user_logged_in() ) {
+			wp_send_json_error( array( 'message' => __( 'Authentication required.', 'page-blocks-builder' ) ), 403 );
+		}
+
+		$post_id = isset( $_POST['post_id'] ) ? absint( $_POST['post_id'] ) : 0;
+		$nonce   = isset( $_POST['pb_nonce'] ) ? sanitize_text_field( wp_unslash( $_POST['pb_nonce'] ) ) : '';
+
+		if ( ! $this->can_access_builder( $post_id, $nonce ) ) {
+			wp_send_json_error( array( 'message' => __( 'Permission denied.', 'page-blocks-builder' ) ), 403 );
+		}
+
+		$prompt    = isset( $_POST['prompt'] ) ? sanitize_textarea_field( wp_unslash( $_POST['prompt'] ) ) : '';
+		$tab       = isset( $_POST['tab'] ) ? sanitize_key( $_POST['tab'] ) : 'html';
+		$model     = isset( $_POST['model'] ) ? sanitize_text_field( wp_unslash( $_POST['model'] ) ) : '';
+		$existing  = isset( $_POST['existing_code'] ) ? wp_unslash( $_POST['existing_code'] ) : '';
+		$selection = isset( $_POST['selection'] ) ? wp_unslash( $_POST['selection'] ) : '';
+		$ctx_html  = isset( $_POST['context_html'] ) ? wp_unslash( $_POST['context_html'] ) : '';
+		$ctx_css   = isset( $_POST['context_css'] ) ? wp_unslash( $_POST['context_css'] ) : '';
+		$page_url  = isset( $_POST['page_url'] ) ? esc_url_raw( wp_unslash( $_POST['page_url'] ) ) : '';
+
+		if ( empty( $prompt ) ) {
+			wp_send_json_error( array( 'message' => __( 'Prompt is required.', 'page-blocks-builder' ) ), 400 );
+		}
+
+		if ( ! in_array( $tab, array( 'html', 'css', 'js' ), true ) ) {
+			$tab = 'html';
+		}
+
+		$result = $this->call_ai_api( $model, $tab, $prompt, $existing, $selection, $ctx_html, $ctx_css, $page_url );
+
+		if ( is_wp_error( $result ) ) {
+			wp_send_json_error( array( 'message' => $result->get_error_message() ), 500 );
+		}
+
+		wp_send_json_success( array( 'code' => $result ) );
+	}
+
+	private function call_ai_api( $model, $tab, $prompt, $existing, $selection, $ctx_html, $ctx_css, $page_url ) {
+		if ( empty( $model ) ) {
+			$model = get_option( 'gt_pb_ai_default_model', 'gpt-5.2' );
+		}
+
+		$allowed = array(
+			'gpt-5.2', 'gpt-5-mini', 'gpt-4o-mini',
+			'claude-sonnet-4-6', 'claude-opus-4-6', 'claude-haiku-4-5-20241022',
+			'gemini-3-flash-preview',
+		);
+		if ( ! in_array( $model, $allowed, true ) ) {
+			$model = 'gpt-5.2';
+		}
+
+		if ( strpos( $model, 'gpt' ) === 0 ) {
+			$provider = 'openai';
+			$api_key  = get_option( 'gt_pb_ai_openai_key', '' );
+		} elseif ( strpos( $model, 'claude' ) === 0 ) {
+			$provider = 'anthropic';
+			$api_key  = get_option( 'gt_pb_ai_anthropic_key', '' );
+		} elseif ( strpos( $model, 'gemini' ) === 0 ) {
+			$provider = 'gemini';
+			$api_key  = get_option( 'gt_pb_ai_gemini_key', '' );
+		} else {
+			return new WP_Error( 'invalid_model', __( 'Unknown model.', 'page-blocks-builder' ) );
+		}
+
+		if ( empty( $api_key ) ) {
+			return new WP_Error( 'missing_key', sprintf(
+				__( 'No API key configured for %s. Add it in Settings > Page Blocks Builder.', 'page-blocks-builder' ),
+				ucfirst( $provider )
+			) );
+		}
+
+		$system_prompt = $this->get_ai_system_prompt( $tab, $page_url );
+		$user_message  = $this->build_ai_user_message( $prompt, $tab, $existing, $selection, $ctx_html, $ctx_css );
+
+		switch ( $provider ) {
+			case 'openai':
+				return $this->call_openai( $api_key, $model, $system_prompt, $user_message );
+			case 'anthropic':
+				return $this->call_anthropic( $api_key, $model, $system_prompt, $user_message );
+			case 'gemini':
+				return $this->call_gemini( $api_key, $model, $system_prompt, $user_message );
+			default:
+				return new WP_Error( 'invalid_provider', __( 'Invalid provider.', 'page-blocks-builder' ) );
+		}
+	}
+
+	private function get_ai_system_prompt( $tab, $page_url ) {
+		$base = 'You are generating code for a WordPress Page Block section.';
+		if ( ! empty( $page_url ) ) {
+			$base .= ' The page this code appears on is: ' . $page_url;
+		}
+
+		switch ( $tab ) {
+			case 'html':
+				$base .= "\nGenerate semantic HTML only. No style/script/doctype tags. Include descriptive class names.";
+				break;
+			case 'css':
+				$base .= "\nGenerate CSS rules only. No style tags. Use classes from the provided HTML context.";
+				break;
+			case 'js':
+				$base .= "\nGenerate vanilla JS only. No script tags. IIFE wrap if declaring variables.";
+				break;
+		}
+
+		$base .= "\nOutput raw code only. No markdown fences, no explanations.";
+
+		return $base;
+	}
+
+	private function build_ai_user_message( $prompt, $tab, $existing, $selection, $ctx_html, $ctx_css ) {
+		$parts = array();
+
+		if ( ! empty( $selection ) ) {
+			$parts[] = "Modify the following selected code. Output the complete modified code only.\n\nSelected code:\n" . $selection;
+		} elseif ( ! empty( $existing ) ) {
+			$parts[] = "Edit the following existing code. Output the complete modified code only.\n\nExisting code:\n" . $existing;
+		}
+
+		if ( $tab !== 'html' && ! empty( $ctx_html ) ) {
+			$parts[] = "HTML context:\n" . $ctx_html;
+		}
+		if ( $tab !== 'css' && ! empty( $ctx_css ) ) {
+			$parts[] = "CSS context:\n" . $ctx_css;
+		}
+
+		$parts[] = "Instruction: " . $prompt;
+
+		return implode( "\n\n", $parts );
+	}
+
+	private function call_openai( $api_key, $model, $system_prompt, $user_message ) {
+		$response = wp_remote_post( 'https://api.openai.com/v1/chat/completions', array(
+			'timeout' => 60,
+			'headers' => array(
+				'Authorization' => 'Bearer ' . $api_key,
+				'Content-Type'  => 'application/json',
+			),
+			'body' => wp_json_encode( array(
+				'model'       => $model,
+				'messages'    => array(
+					array( 'role' => 'system', 'content' => $system_prompt ),
+					array( 'role' => 'user', 'content' => $user_message ),
+				),
+				'temperature' => 0.3,
+				'max_tokens'  => 4096,
+			) ),
+		) );
+
+		return $this->parse_ai_response( $response, 'openai' );
+	}
+
+	private function call_anthropic( $api_key, $model, $system_prompt, $user_message ) {
+		$response = wp_remote_post( 'https://api.anthropic.com/v1/messages', array(
+			'timeout' => 60,
+			'headers' => array(
+				'x-api-key'         => $api_key,
+				'anthropic-version' => '2023-06-01',
+				'Content-Type'      => 'application/json',
+			),
+			'body' => wp_json_encode( array(
+				'model'       => $model,
+				'system'      => $system_prompt,
+				'messages'    => array(
+					array( 'role' => 'user', 'content' => $user_message ),
+				),
+				'max_tokens'  => 4096,
+				'temperature' => 0.3,
+			) ),
+		) );
+
+		return $this->parse_ai_response( $response, 'anthropic' );
+	}
+
+	private function call_gemini( $api_key, $model, $system_prompt, $user_message ) {
+		$url = 'https://generativelanguage.googleapis.com/v1beta/models/' . $model . ':generateContent';
+
+		$response = wp_remote_post( $url, array(
+			'timeout' => 60,
+			'headers' => array(
+				'x-goog-api-key' => $api_key,
+				'Content-Type'   => 'application/json',
+			),
+			'body' => wp_json_encode( array(
+				'system_instruction' => array(
+					'parts' => array( array( 'text' => $system_prompt ) ),
+				),
+				'contents' => array(
+					array( 'parts' => array( array( 'text' => $user_message ) ) ),
+				),
+				'generationConfig' => array(
+					'temperature'    => 0.3,
+					'maxOutputTokens' => 4096,
+				),
+			) ),
+		) );
+
+		return $this->parse_ai_response( $response, 'gemini' );
+	}
+
+	private function parse_ai_response( $response, $provider ) {
+		if ( is_wp_error( $response ) ) {
+			return $response;
+		}
+
+		$code = wp_remote_retrieve_response_code( $response );
+		$body = json_decode( wp_remote_retrieve_body( $response ), true );
+
+		if ( $code < 200 || $code >= 300 ) {
+			$error_msg = '';
+			if ( is_array( $body ) ) {
+				if ( isset( $body['error']['message'] ) ) {
+					$error_msg = $body['error']['message'];
+				} elseif ( isset( $body['error']['type'] ) ) {
+					$error_msg = $body['error']['type'];
+				}
+			}
+			return new WP_Error( 'api_error', $error_msg ?: sprintf( 'API returned HTTP %d', $code ) );
+		}
+
+		if ( ! is_array( $body ) ) {
+			return new WP_Error( 'invalid_response', __( 'Invalid API response.', 'page-blocks-builder' ) );
+		}
+
+		$text = '';
+
+		switch ( $provider ) {
+			case 'openai':
+				$text = $body['choices'][0]['message']['content'] ?? '';
+				break;
+			case 'anthropic':
+				$text = $body['content'][0]['text'] ?? '';
+				break;
+			case 'gemini':
+				$text = $body['candidates'][0]['content']['parts'][0]['text'] ?? '';
+				break;
+		}
+
+		$text = trim( $text );
+		$text = preg_replace( '/^```[a-z]*\s*/i', '', $text );
+		$text = preg_replace( '/\s*```$/', '', $text );
+
+		return $text;
+	}
+
+	public function ajax_terminal_exec() {
+		if ( ! is_user_logged_in() ) {
+			wp_send_json_error( array( 'message' => __( 'Authentication required.', 'page-blocks-builder' ) ), 403 );
+		}
+
+		$post_id = isset( $_POST['post_id'] ) ? absint( $_POST['post_id'] ) : 0;
+		$nonce   = isset( $_POST['pb_nonce'] ) ? sanitize_text_field( wp_unslash( $_POST['pb_nonce'] ) ) : '';
+
+		if ( ! $this->can_access_builder( $post_id, $nonce ) ) {
+			wp_send_json_error( array( 'message' => __( 'Permission denied.', 'page-blocks-builder' ) ), 403 );
+		}
+
+		if ( ! current_user_can( 'manage_options' ) ) {
+			wp_send_json_error( array( 'message' => __( 'Admin access required.', 'page-blocks-builder' ) ), 403 );
+		}
+
+		if ( ! get_option( 'gt_pb_terminal_enabled', false ) ) {
+			wp_send_json_error( array( 'message' => __( 'Terminal is not enabled.', 'page-blocks-builder' ) ), 403 );
+		}
+
+		$command = isset( $_POST['command'] ) ? wp_unslash( $_POST['command'] ) : '';
+		$cwd     = isset( $_POST['cwd'] ) && ! empty( $_POST['cwd'] ) ? wp_unslash( $_POST['cwd'] ) : ABSPATH;
+
+		if ( empty( $command ) ) {
+			wp_send_json_error( array( 'message' => __( 'No command provided.', 'page-blocks-builder' ) ), 400 );
+		}
+
+		if ( ! is_dir( $cwd ) ) {
+			$cwd = ABSPATH;
+		}
+
+		$descriptors = array(
+			0 => array( 'pipe', 'r' ),
+			1 => array( 'pipe', 'w' ),
+			2 => array( 'pipe', 'w' ),
+		);
+
+		$process = proc_open( $command, $descriptors, $pipes, $cwd );
+
+		if ( ! is_resource( $process ) ) {
+			wp_send_json_error( array( 'message' => __( 'Failed to execute command.', 'page-blocks-builder' ) ), 500 );
+		}
+
+		fclose( $pipes[0] );
+
+		stream_set_timeout( $pipes[1], 30 );
+		stream_set_timeout( $pipes[2], 30 );
+
+		$stdout = stream_get_contents( $pipes[1] );
+		$stderr = stream_get_contents( $pipes[2] );
+
+		fclose( $pipes[1] );
+		fclose( $pipes[2] );
+
+		$exit_code = proc_close( $process );
+
+		wp_send_json_success( array(
+			'output'    => (string) $stdout,
+			'error'     => (string) $stderr,
+			'exit_code' => $exit_code,
+			'cwd'       => $cwd,
+		) );
 	}
 }
 
