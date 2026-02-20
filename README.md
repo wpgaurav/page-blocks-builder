@@ -1,6 +1,6 @@
 # Page Blocks Builder (Standalone Plugin)
 
-This plugin ports the Page Blocks visual builder into a standalone WordPress plugin that works with any theme.
+This plugin ports the Page Blocks visual builder into a standalone WordPress plugin that works with any theme. Originally part of Marketers Delight's Page Blocks dropin (2018-2026, (c) Kolakube).
 
 ## Features
 
