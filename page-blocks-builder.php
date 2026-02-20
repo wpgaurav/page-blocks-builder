@@ -527,6 +527,7 @@ class GT_Page_Blocks_Builder {
 				'viewPostUrl'        => get_permalink( $post_id ) ?: '',
 				'initialSections'    => $this->get_builder_sections_from_post( $post_id ),
 				'postTemplate'       => $this->get_builder_post_template_slug( $post_id ),
+				'availableTemplates' => $this->get_available_page_templates( $post_id ),
 				'previewInjection'   => $this->get_builder_preview_injection( $post_id ),
 				'codeEditorSettings' => $editor_settings,
 				'themeStyleUrls'     => $this->get_theme_style_urls(),
@@ -624,6 +625,23 @@ class GT_Page_Blocks_Builder {
 		}
 
 		return $template;
+	}
+
+	private function get_available_page_templates( $post_id ) {
+		$post = get_post( $post_id );
+		$post_type = $post ? $post->post_type : 'page';
+
+		$wp_templates = wp_get_theme()->get_page_templates( $post, $post_type );
+
+		$templates = array(
+			array( 'slug' => 'default-template', 'label' => 'Default Template' ),
+		);
+
+		foreach ( $wp_templates as $slug => $label ) {
+			$templates[] = array( 'slug' => $slug, 'label' => $label );
+		}
+
+		return $templates;
 	}
 
 	/**
@@ -856,8 +874,9 @@ class GT_Page_Blocks_Builder {
 			wp_send_json_error( array( 'message' => __( 'You do not have permission to save Page Blocks.', 'page-blocks-builder' ) ), 403 );
 		}
 
-		$raw_sections = isset( $_POST['sections'] ) ? wp_unslash( $_POST['sections'] ) : '';
-		$decoded      = json_decode( (string) $raw_sections, true );
+		$raw_sections  = isset( $_POST['sections'] ) ? wp_unslash( $_POST['sections'] ) : '';
+		$page_template = isset( $_POST['page_template'] ) ? sanitize_text_field( wp_unslash( $_POST['page_template'] ) ) : '';
+		$decoded       = json_decode( (string) $raw_sections, true );
 		if ( ! is_array( $decoded ) ) {
 			wp_send_json_error( array( 'message' => __( 'Invalid builder payload.', 'page-blocks-builder' ) ), 400 );
 		}
@@ -916,20 +935,21 @@ class GT_Page_Blocks_Builder {
 			'post_content' => wp_slash( serialize_blocks( $next_blocks ) ),
 		);
 
-		if ( wp_is_block_theme() ) {
-			$current_template = get_post_meta( $post_id, '_wp_page_template', true );
-			if ( in_array( $current_template, array( 'page-blocks-builder.php', 'page-blocks-full-builder.php' ), true ) ) {
-				delete_post_meta( $post_id, '_wp_page_template' );
-			}
-		}
-
 		$updated = wp_update_post( $update_args, true );
 
 		if ( is_wp_error( $updated ) ) {
 			wp_send_json_error( array( 'message' => $updated->get_error_message() ), 500 );
 		}
 
-		$this->maybe_set_builder_template( $post_id );
+		if ( ! empty( $page_template ) ) {
+			if ( $page_template === 'default-template' ) {
+				delete_post_meta( $post_id, '_wp_page_template' );
+			} else {
+				update_post_meta( $post_id, '_wp_page_template', sanitize_file_name( $page_template ) );
+			}
+		} else {
+			$this->maybe_set_builder_template( $post_id );
+		}
 
 		wp_send_json_success(
 			array(
@@ -1932,24 +1952,24 @@ class GT_Page_Blocks_Builder {
 	}
 
 	private function get_ai_system_prompt( $tab, $page_url ) {
-		$base = 'You are generating code for a WordPress Page Block section.';
+		$base = 'You are generating code for a standalone WordPress Page Block section. Each section has its own HTML, CSS, and JS tabs. A page can have multiple sections. Your output goes directly into one tab of one section.';
 		if ( ! empty( $page_url ) ) {
-			$base .= ' The page this code appears on is: ' . $page_url;
+			$base .= "\nThe page this code appears on is: " . $page_url;
 		}
 
 		switch ( $tab ) {
 			case 'html':
-				$base .= "\nGenerate semantic HTML only. No style/script/doctype tags. Include descriptive class names.";
+				$base .= "\n\nHTML TAB RULES:\n- Generate section-level HTML only (the content inside a single section).\n- Use semantic elements with descriptive class names.\n- No <!DOCTYPE>, <html>, <head>, <body>, <style>, or <script> tags.\n- No boilerplate. Just the section content markup.";
 				break;
 			case 'css':
-				$base .= "\nGenerate CSS rules only. No style tags. Use classes from the provided HTML context.";
+				$base .= "\n\nCSS TAB RULES:\n- Generate CSS rules that target ONLY classes present in the HTML context provided.\n- No <style> tags. No unused selectors. No generic resets or normalizations.\n- Every rule must style an element that exists in this section's HTML.\n- Use the class names from the HTML context exactly as written.";
 				break;
 			case 'js':
-				$base .= "\nGenerate vanilla JS only. No script tags. IIFE wrap if declaring variables.";
+				$base .= "\n\nJS TAB RULES:\n- Generate vanilla JavaScript only. No <script> tags.\n- Wrap in an IIFE if declaring variables to avoid global scope pollution.\n- Target elements using the class names from this section's HTML context.\n- No jQuery unless explicitly requested.";
 				break;
 		}
 
-		$base .= "\nOutput raw code only. No markdown fences, no explanations.";
+		$base .= "\n\nOutput raw code only. No markdown fences, no explanations, no commentary.";
 
 		return $base;
 	}
@@ -1960,14 +1980,14 @@ class GT_Page_Blocks_Builder {
 		if ( ! empty( $selection ) ) {
 			$parts[] = "Modify the following selected code. Output the complete modified code only.\n\nSelected code:\n" . $selection;
 		} elseif ( ! empty( $existing ) ) {
-			$parts[] = "Edit the following existing code. Output the complete modified code only.\n\nExisting code:\n" . $existing;
+			$parts[] = "Here is the current code in this section's " . strtoupper( $tab ) . " tab. Edit it based on my instruction below. Output the complete modified code only.\n\nExisting code:\n" . $existing;
 		}
 
 		if ( $tab !== 'html' && ! empty( $ctx_html ) ) {
-			$parts[] = "HTML context:\n" . $ctx_html;
+			$parts[] = "This section's HTML (style only these elements and classes):\n" . $ctx_html;
 		}
 		if ( $tab !== 'css' && ! empty( $ctx_css ) ) {
-			$parts[] = "CSS context:\n" . $ctx_css;
+			$parts[] = "This section's CSS (for reference):\n" . $ctx_css;
 		}
 
 		$parts[] = "Instruction: " . $prompt;
@@ -1988,8 +2008,8 @@ class GT_Page_Blocks_Builder {
 					array( 'role' => 'system', 'content' => $system_prompt ),
 					array( 'role' => 'user', 'content' => $user_message ),
 				),
-				'temperature' => 0.3,
-				'max_tokens'  => 4096,
+				'temperature'           => 0.3,
+				'max_completion_tokens' => 4096,
 			) ),
 		) );
 

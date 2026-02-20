@@ -249,6 +249,42 @@ body {
 	min-height: 0;
 }
 
+.md-pb-template-bar {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	padding: 6px 8px;
+	border-bottom: 1px solid var(--pb-border);
+	background: var(--pb-surface);
+}
+
+.md-pb-template-label {
+	font-size: 10px;
+	font-weight: 700;
+	text-transform: uppercase;
+	letter-spacing: 0.06em;
+	color: var(--pb-muted);
+	white-space: nowrap;
+}
+
+.md-pb-template-select {
+	flex: 1;
+	min-width: 0;
+	appearance: auto;
+	background: var(--pb-bg);
+	border: 1px solid var(--pb-border);
+	color: var(--pb-text);
+	font-size: 11px;
+	padding: 3px 4px;
+	border-radius: 4px;
+	cursor: pointer;
+}
+
+.md-pb-template-select:focus {
+	border-color: var(--pb-accent);
+	outline: none;
+}
+
 .md-pb-index-header {
 	display: flex;
 	align-items: center;
@@ -343,16 +379,17 @@ body {
 }
 
 .md-pb-icon-btn {
-	width: 22px;
+	min-width: 22px;
 	height: 22px;
 	border: 1px solid var(--pb-border);
 	border-radius: 6px;
 	background: rgba(255, 255, 255, 0.03);
 	color: rgba(255, 255, 255, 0.6);
-	padding: 0;
+	padding: 0 5px;
 	cursor: pointer;
 	font-size: 12px;
 	line-height: 1;
+	white-space: nowrap;
 	transition: all 0.15s ease;
 }
 
@@ -931,11 +968,12 @@ body {
 .md-pb-beta-badge {
 	background: var(--pb-accent-dim);
 	color: var(--pb-accent);
-	font-size: 8px;
-	padding: 1px 4px;
+	font-size: 9px;
+	padding: 2px 4px;
 	border-radius: 3px;
 	vertical-align: super;
 	font-weight: 700;
+	letter-spacing: 0.03em;
 }
 
 @media (max-width: 980px) {

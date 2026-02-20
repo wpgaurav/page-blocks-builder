@@ -39,7 +39,8 @@
 		terminalHistory: [],
 		terminalHistoryIndex: -1,
 		terminalCwd: '',
-		terminalBusy: false
+		terminalBusy: false,
+		pageTemplate: config.postTemplate || 'default-template'
 	};
 	var dom = {};
 
@@ -713,10 +714,12 @@
 		refreshCodeEditors();
 	}
 
-	function queuePreviewRender() {
+	function queuePreviewRender(delay) {
 		if (state.previewTimer) {
 			window.clearTimeout(state.previewTimer);
 		}
+
+		var wait = typeof delay === 'number' ? delay : 0;
 
 		state.previewTimer = window.setTimeout(function() {
 			if (!dom.previewFrame) {
@@ -744,7 +747,7 @@
 					}
 					dom.previewFrame.srcdoc = buildPreviewDoc();
 				});
-		}, 1000);
+		}, wait);
 	}
 
 	function setApplyButtonBusy(isBusy, label) {
@@ -795,6 +798,7 @@
 		form.set('post_id', String(config.postId || 0));
 		form.set('pb_nonce', String(config.applyNonce || ''));
 		form.set('sections', JSON.stringify(Array.isArray(sections) ? sections : []));
+		form.set('page_template', state.pageTemplate || '');
 
 		window.fetch(config.applyEndpoint, {
 			method: 'POST',
@@ -847,7 +851,7 @@
 			renderIndexList();
 		}
 
-		queuePreviewRender();
+		queuePreviewRender(field === 'css' ? 1000 : 0);
 		queueAutosave();
 	}
 
@@ -1378,6 +1382,10 @@
 					'<iframe class="md-pb-preview-frame" sandbox="allow-scripts allow-same-origin" title="Page Blocks Preview"></iframe>' +
 				'</div>' +
 				'<aside class="md-pb-index">' +
+					'<div class="md-pb-template-bar">' +
+						'<label class="md-pb-template-label">Template</label>' +
+						'<select class="md-pb-template-select" data-role="template-select"></select>' +
+					'</div>' +
 					'<div class="md-pb-index-header">' +
 						'<span>Sections</span>' +
 						'<div class="md-pb-index-header-actions">' +
@@ -1480,7 +1488,9 @@
 		dom.terminalOutput = shell.querySelector('[data-role="terminal-output"]');
 		dom.terminalInput = shell.querySelector('[data-role="terminal-input"]');
 		dom.terminalCwd = shell.querySelector('[data-role="terminal-cwd"]');
+		dom.templateSelect = shell.querySelector('[data-role="template-select"]');
 
+		populateTemplateSelect();
 		populateAiModelSelect();
 		applyPreviewTemplateClass(shell);
 		applyPreviewViewport();
@@ -1630,11 +1640,12 @@
 
 	function activateApply() {
 		var sections = getApplyPayloadSections();
+		var template = state.pageTemplate || '';
 		var usedDirectApply = false;
 
 		try {
 			if (window.parent && typeof window.parent.mdPageBlocksBuilderApply === 'function') {
-				usedDirectApply = !!window.parent.mdPageBlocksBuilderApply(sections);
+				usedDirectApply = !!window.parent.mdPageBlocksBuilderApply(sections, template);
 			}
 		} catch (error) {
 			usedDirectApply = false;
@@ -1652,7 +1663,8 @@
 
 		clearAutosaveDraft();
 		postToParent('md_pb_builder_apply', {
-			sections: sections
+			sections: sections,
+			pageTemplate: template
 		});
 	}
 
@@ -1819,6 +1831,12 @@
 		dom.phpExec.addEventListener('change', function(event) {
 			updateCurrentSectionField('phpExec', !!event.target.checked);
 		});
+
+		if (dom.templateSelect) {
+			dom.templateSelect.addEventListener('change', function(event) {
+				state.pageTemplate = event.target.value;
+			});
+		}
 
 		document.addEventListener('keydown', function(event) {
 			var target = event.target;
@@ -2060,6 +2078,21 @@
 		}
 	}
 
+	function populateTemplateSelect() {
+		if (!dom.templateSelect || !Array.isArray(config.availableTemplates)) {
+			return;
+		}
+
+		config.availableTemplates.forEach(function(tpl) {
+			var opt = document.createElement('option');
+			opt.value = tpl.slug;
+			opt.textContent = tpl.label;
+			dom.templateSelect.appendChild(opt);
+		});
+
+		dom.templateSelect.value = state.pageTemplate;
+	}
+
 	function populateAiModelSelect() {
 		if (!dom.aiModelSelect || !Array.isArray(config.aiModels)) {
 			return;
@@ -2134,11 +2167,11 @@
 
 	function captureSelectionAndOpenPrompt() {
 		var editorKeys = ['html', 'css', 'js'];
-		var fieldMap = { html: 'content', css: 'css', js: 'js' };
 
 		for (var i = 0; i < editorKeys.length; i++) {
 			var key = editorKeys[i];
-			var cm = state.editors[fieldMap[key]];
+			var ed = state.editors[key];
+			var cm = ed && ed.codemirror ? ed.codemirror : null;
 			if (cm && typeof cm.getSelection === 'function') {
 				var sel = cm.getSelection();
 				if (sel && sel.length > 0) {
@@ -2157,11 +2190,19 @@
 	}
 
 	function getActiveTab() {
-		if (state.rightPaneMode === 'css') {
-			return 'css';
+		var editors = state.editors;
+		var keys = ['html', 'css', 'js'];
+		for (var i = 0; i < keys.length; i++) {
+			var ed = editors[keys[i]];
+			if (ed && ed.codemirror && ed.codemirror.hasFocus()) {
+				return keys[i];
+			}
 		}
 		if (state.rightPaneMode === 'js') {
 			return 'js';
+		}
+		if (state.rightPaneMode === 'css') {
+			return 'css';
 		}
 		return 'html';
 	}
@@ -2238,10 +2279,14 @@
 			}
 
 			var field = fieldMap[tab];
-			var cm = state.editors[field];
+			var editor = state.editors[tab];
+			var cm = editor && editor.codemirror ? editor.codemirror : null;
 
 			if (state.aiSelection && cm && typeof cm.replaceSelection === 'function') {
 				cm.replaceSelection(code);
+				state.syncingEditors = true;
+				updateCurrentSectionField(field, cm.getValue());
+				state.syncingEditors = false;
 			} else {
 				updateCurrentSectionField(field, code);
 				if (cm && typeof cm.setValue === 'function') {
@@ -2249,6 +2294,10 @@
 					cm.setValue(code);
 					state.syncingEditors = false;
 				}
+			}
+
+			if (cm && typeof cm.refresh === 'function') {
+				window.setTimeout(function() { cm.refresh(); }, 0);
 			}
 
 			queuePreviewRender();
