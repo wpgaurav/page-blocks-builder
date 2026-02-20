@@ -36,6 +36,7 @@
 		aiSelection: '',
 		aiSelectionEditor: null,
 		aiBusy: false,
+		aiXhr: null,
 		aiModel: (config.aiDefaultModel || 'gpt-5.2'),
 		terminalHistory: [],
 		terminalHistoryIndex: -1,
@@ -2169,6 +2170,17 @@
 		}
 
 		if (!shouldOpen) {
+			if (state.aiBusy && state.aiXhr) {
+				state.aiXhr.abort();
+				state.aiBusy = false;
+				state.aiXhr = null;
+				if (dom.aiStatus) {
+					dom.aiStatus.style.display = 'none';
+				}
+				if (dom.aiGenerateButton) {
+					dom.aiGenerateButton.disabled = false;
+				}
+			}
 			state.aiSelection = '';
 			state.aiSelectionEditor = null;
 			if (dom.aiSelectionBadge) {
@@ -2353,15 +2365,23 @@
 		formData.append('page_url', config.viewPostUrl || '');
 
 		var xhr = new XMLHttpRequest();
+		state.aiXhr = xhr;
 		xhr.open('POST', config.aiEndpoint || config.applyEndpoint);
-		xhr.onload = function() {
+		xhr.timeout = 90000;
+
+		function resetAiUi() {
 			state.aiBusy = false;
+			state.aiXhr = null;
 			if (dom.aiStatus) {
 				dom.aiStatus.style.display = 'none';
 			}
 			if (dom.aiGenerateButton) {
 				dom.aiGenerateButton.disabled = false;
 			}
+		}
+
+		xhr.onload = function() {
+			resetAiUi();
 
 			var result;
 			try {
@@ -2426,14 +2446,12 @@
 			toggleAiPrompt(false);
 		};
 		xhr.onerror = function() {
-			state.aiBusy = false;
-			if (dom.aiStatus) {
-				dom.aiStatus.style.display = 'none';
-			}
-			if (dom.aiGenerateButton) {
-				dom.aiGenerateButton.disabled = false;
-			}
+			resetAiUi();
 			window.alert('AI request failed: network error');
+		};
+		xhr.ontimeout = function() {
+			resetAiUi();
+			window.alert('AI request timed out. Try a shorter prompt or faster model.');
 		};
 		xhr.send(formData);
 	}
@@ -2463,11 +2481,17 @@
 
 		var xhr = new XMLHttpRequest();
 		xhr.open('POST', config.aiEndpoint || config.applyEndpoint);
-		xhr.onload = function() {
+		xhr.timeout = 35000;
+
+		function resetTerminalUi() {
 			state.terminalBusy = false;
 			if (dom.terminalInput) {
 				dom.terminalInput.placeholder = 'Type a command...';
 			}
+		}
+
+		xhr.onload = function() {
+			resetTerminalUi();
 
 			var result;
 			try {
@@ -2498,11 +2522,12 @@
 			}
 		};
 		xhr.onerror = function() {
-			state.terminalBusy = false;
-			if (dom.terminalInput) {
-				dom.terminalInput.placeholder = 'Type a command...';
-			}
+			resetTerminalUi();
 			appendTerminalOutput('Network error', 'stderr');
+		};
+		xhr.ontimeout = function() {
+			resetTerminalUi();
+			appendTerminalOutput('Request timed out', 'stderr');
 		};
 		xhr.send(formData);
 	}

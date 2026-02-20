@@ -3,7 +3,7 @@
  * Plugin Name: GT Page Blocks Builder
  * Plugin URI: https://gauravtiwari.org/product/gt-page-blocks-builder/
  * Description: Standalone visual Page Blocks builder with HTML/CSS/JS sections synced to Gutenberg block content.
- * Version: 1.3.4
+ * Version: 1.3.5
  * Author: Gaurav Tiwari
  * Author URI: https://gauravtiwari.org
  * Text Domain: page-blocks-builder
@@ -14,7 +14,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 if ( ! defined( 'GT_PB_BUILDER_VERSION' ) ) {
-	define( 'GT_PB_BUILDER_VERSION', '1.3.4' );
+	define( 'GT_PB_BUILDER_VERSION', '1.3.5' );
 }
 
 if ( ! defined( 'GT_PB_BUILDER_FILE' ) ) {
@@ -1939,6 +1939,26 @@ class GT_Page_Blocks_Builder {
 		$system_prompt = $this->get_ai_system_prompt( $tab, $page_url );
 		$user_message  = $this->build_ai_user_message( $prompt, $tab, $existing, $selection, $ctx_html, $ctx_css );
 
+		$result = $this->execute_ai_provider_call( $provider, $api_key, $model, $system_prompt, $user_message );
+		if ( ! $this->should_retry_ai_compact( $result ) ) {
+			return $result;
+		}
+
+		$this->maybe_log_ai_debug(
+			$provider,
+			'auto_retry',
+			array(
+				'trigger' => 'finish_reason=length',
+				'tab'     => $tab,
+				'model'   => $model,
+			)
+		);
+
+		$retry_user_message = $this->build_ai_compact_retry_message( $user_message, $tab );
+		return $this->execute_ai_provider_call( $provider, $api_key, $model, $system_prompt, $retry_user_message );
+	}
+
+	private function execute_ai_provider_call( $provider, $api_key, $model, $system_prompt, $user_message ) {
 		switch ( $provider ) {
 			case 'openai':
 				return $this->call_openai( $api_key, $model, $system_prompt, $user_message );
@@ -1949,6 +1969,45 @@ class GT_Page_Blocks_Builder {
 			default:
 				return new WP_Error( 'invalid_provider', __( 'Invalid provider.', 'page-blocks-builder' ) );
 		}
+	}
+
+	private function should_retry_ai_compact( $result ) {
+		if ( ! is_wp_error( $result ) || 'empty_ai_output' !== $result->get_error_code() ) {
+			return false;
+		}
+
+		$data = $result->get_error_data();
+		if ( ! is_array( $data ) || empty( $data['debug']['finish_reason'] ) || ! is_array( $data['debug']['finish_reason'] ) ) {
+			return false;
+		}
+
+		$token_limit_reasons = array(
+			'length',
+			'max_tokens',
+			'max_output_tokens',
+			'max_token_limit',
+			'token_limit',
+		);
+
+		foreach ( $data['debug']['finish_reason'] as $reason ) {
+			if ( in_array( strtolower( trim( (string) $reason ) ), $token_limit_reasons, true ) ) {
+				return true;
+			}
+		}
+
+		return false;
+	}
+
+	private function build_ai_compact_retry_message( $user_message, $tab ) {
+		$compact = array(
+			'html' => 'Retry in compact mode: previous output hit token length limit. Return concise section HTML only, keeping the full answer under about 120 lines. Include exactly one <style id="ai-generated"> and one <script id="ai-generated"> at the end, both compact.',
+			'css'  => 'Retry in compact mode: previous output hit token length limit. Return concise CSS only, under about 120 lines, with only essential rules used by this section.',
+			'js'   => 'Retry in compact mode: previous output hit token length limit. Return concise vanilla JS only, under about 100 lines, with only essential behavior.',
+		);
+
+		$instruction = isset( $compact[ $tab ] ) ? $compact[ $tab ] : $compact['html'];
+
+		return $user_message . "\n\n" . $instruction;
 	}
 
 	private function get_ai_system_prompt( $tab, $page_url ) {
@@ -1999,6 +2058,11 @@ class GT_Page_Blocks_Builder {
 		return implode( "\n\n", $parts );
 	}
 
+	private function get_ai_http_timeout( $provider = '' ) {
+		$timeout = (int) apply_filters( 'gt_pb_ai_request_timeout', 120, $provider );
+		return max( 30, $timeout );
+	}
+
 	private function call_openai( $api_key, $model, $system_prompt, $user_message ) {
 		$payload = array(
 			'model'       => $model,
@@ -2014,7 +2078,7 @@ class GT_Page_Blocks_Builder {
 		}
 
 		$response = wp_remote_post( 'https://api.openai.com/v1/chat/completions', array(
-			'timeout' => 60,
+			'timeout' => $this->get_ai_http_timeout( 'openai' ),
 			'headers' => array(
 				'Authorization' => 'Bearer ' . $api_key,
 				'Content-Type'  => 'application/json',
@@ -2027,7 +2091,7 @@ class GT_Page_Blocks_Builder {
 
 	private function call_anthropic( $api_key, $model, $system_prompt, $user_message ) {
 		$response = wp_remote_post( 'https://api.anthropic.com/v1/messages', array(
-			'timeout' => 60,
+			'timeout' => $this->get_ai_http_timeout( 'anthropic' ),
 			'headers' => array(
 				'x-api-key'         => $api_key,
 				'anthropic-version' => '2023-06-01',
@@ -2051,7 +2115,7 @@ class GT_Page_Blocks_Builder {
 		$url = 'https://generativelanguage.googleapis.com/v1beta/models/' . $model . ':generateContent';
 
 		$response = wp_remote_post( $url, array(
-			'timeout' => 60,
+			'timeout' => $this->get_ai_http_timeout( 'gemini' ),
 			'headers' => array(
 				'x-goog-api-key' => $api_key,
 				'Content-Type'   => 'application/json',
@@ -2075,6 +2139,20 @@ class GT_Page_Blocks_Builder {
 
 	private function parse_ai_response( $response, $provider ) {
 		if ( is_wp_error( $response ) ) {
+			if ( $this->is_ai_timeout_error( $response ) ) {
+				return new WP_Error(
+					'ai_timeout',
+					sprintf(
+						__( 'AI request timed out after %d seconds. Try again, reduce prompt/context size, or switch to a faster model.', 'page-blocks-builder' ),
+						$this->get_ai_http_timeout( $provider )
+					),
+					array(
+						'provider'        => $provider,
+						'transport_error' => $response->get_error_message(),
+					)
+				);
+			}
+
 			return $response;
 		}
 
@@ -2116,8 +2194,12 @@ class GT_Page_Blocks_Builder {
 		$this->maybe_log_ai_debug( $provider, 'raw_response', $body, true );
 
 		$text = is_string( $text ) ? trim( $text ) : '';
-		$text = preg_replace( '/^```[a-z]*\s*/i', '', $text );
-		$text = preg_replace( '/\s*```$/', '', $text );
+		if ( preg_match( '/^```[\w]*\s*\n([\s\S]*?)```\s*$/s', $text, $fenced ) ) {
+			$text = $fenced[1];
+		} else {
+			$text = preg_replace( '/^```[\w]*\s*/i', '', $text );
+			$text = preg_replace( '/\s*```$/', '', $text );
+		}
 		$text = trim( (string) $text );
 
 		if ( $text === '' ) {
@@ -2136,7 +2218,11 @@ class GT_Page_Blocks_Builder {
 
 			return new WP_Error(
 				'empty_ai_output',
-				$message
+				$message,
+				array(
+					'provider' => $provider,
+					'debug'    => $debug_summary,
+				)
 			);
 		}
 
@@ -2150,20 +2236,22 @@ class GT_Page_Blocks_Builder {
 	 * @return string
 	 */
 	private function extract_openai_text( $body ) {
-		$chunks = array();
+		$chunks  = array();
+		$choice  = isset( $body['choices'][0] ) && is_array( $body['choices'][0] ) ? $body['choices'][0] : array();
+		$message = isset( $choice['message'] ) && is_array( $choice['message'] ) ? $choice['message'] : array();
 
-		$content = $body['choices'][0]['message']['content'] ?? null;
+		$content = isset( $message['content'] ) ? $message['content'] : null;
 		if ( is_string( $content ) && $content !== '' ) {
 			$chunks[] = $content;
 		} elseif ( is_array( $content ) ) {
 			$this->collect_text_chunks( $content, $chunks );
 		}
 
-		if ( empty( $chunks ) && ! empty( $body['choices'][0]['text'] ) && is_string( $body['choices'][0]['text'] ) ) {
-			$chunks[] = $body['choices'][0]['text'];
+		if ( empty( $chunks ) && isset( $choice['text'] ) && is_string( $choice['text'] ) && $choice['text'] !== '' ) {
+			$chunks[] = $choice['text'];
 		}
 
-		$output_text = $body['output_text'] ?? null;
+		$output_text = isset( $body['output_text'] ) ? $body['output_text'] : null;
 		if ( is_string( $output_text ) && $output_text !== '' ) {
 			$chunks[] = $output_text;
 		} elseif ( is_array( $output_text ) ) {
@@ -2178,8 +2266,8 @@ class GT_Page_Blocks_Builder {
 			$this->collect_text_chunks( $body['output'], $chunks );
 		}
 
-		if ( empty( $chunks ) && ! empty( $body['choices'][0]['message']['refusal'] ) && is_string( $body['choices'][0]['message']['refusal'] ) ) {
-			$chunks[] = $body['choices'][0]['message']['refusal'];
+		if ( empty( $chunks ) && isset( $message['refusal'] ) && is_string( $message['refusal'] ) && $message['refusal'] !== '' ) {
+			$chunks[] = $message['refusal'];
 		}
 
 		$chunks = array_values( array_unique( array_filter( array_map( 'trim', $chunks ) ) ) );
@@ -2242,7 +2330,7 @@ class GT_Page_Blocks_Builder {
 
 		if ( ! empty( $body['candidates'] ) && is_array( $body['candidates'] ) ) {
 			foreach ( $body['candidates'] as $candidate ) {
-				$parts = $candidate['content']['parts'] ?? array();
+				$parts = isset( $candidate['content']['parts'] ) && is_array( $candidate['content']['parts'] ) ? $candidate['content']['parts'] : array();
 				if ( ! is_array( $parts ) ) {
 					continue;
 				}
@@ -2398,6 +2486,20 @@ class GT_Page_Blocks_Builder {
 		error_log( '[GT Page Blocks AI][' . $provider . '][' . $label . '] ' . $encoded );
 	}
 
+	private function is_ai_timeout_error( $error ) {
+		if ( ! is_wp_error( $error ) ) {
+			return false;
+		}
+
+		$message = strtolower( implode( ' ', $error->get_error_messages() ) );
+
+		if ( false !== strpos( $message, 'curl error 28' ) ) {
+			return true;
+		}
+
+		return false !== strpos( $message, 'timed out' );
+	}
+
 	public function ajax_terminal_exec() {
 		if ( ! is_user_logged_in() ) {
 			wp_send_json_error( array( 'message' => __( 'Authentication required.', 'page-blocks-builder' ) ), 403 );
@@ -2443,14 +2545,72 @@ class GT_Page_Blocks_Builder {
 
 		fclose( $pipes[0] );
 
-		stream_set_timeout( $pipes[1], 30 );
-		stream_set_timeout( $pipes[2], 30 );
+		stream_set_blocking( $pipes[1], false );
+		stream_set_blocking( $pipes[2], false );
 
-		$stdout = stream_get_contents( $pipes[1] );
-		$stderr = stream_get_contents( $pipes[2] );
+		$stdout   = '';
+		$stderr   = '';
+		$max_size = 1048576; // 1 MB
+		$deadline = time() + 30;
 
-		fclose( $pipes[1] );
-		fclose( $pipes[2] );
+		while ( true ) {
+			$read = array();
+			if ( is_resource( $pipes[1] ) ) {
+				$read[] = $pipes[1];
+			}
+			if ( is_resource( $pipes[2] ) ) {
+				$read[] = $pipes[2];
+			}
+			if ( empty( $read ) ) {
+				break;
+			}
+
+			$write  = null;
+			$except = null;
+			$ready  = @stream_select( $read, $write, $except, 1 );
+
+			if ( false === $ready ) {
+				break;
+			}
+
+			foreach ( $read as $pipe ) {
+				$chunk = fread( $pipe, 8192 );
+				if ( false === $chunk || '' === $chunk ) {
+					if ( feof( $pipe ) ) {
+						if ( $pipe === $pipes[1] ) {
+							fclose( $pipes[1] );
+							$pipes[1] = null;
+						} else {
+							fclose( $pipes[2] );
+							$pipes[2] = null;
+						}
+					}
+					continue;
+				}
+				if ( $pipe === $pipes[1] ) {
+					$stdout .= $chunk;
+				} else {
+					$stderr .= $chunk;
+				}
+			}
+
+			if ( strlen( $stdout ) + strlen( $stderr ) > $max_size ) {
+				$stderr .= "\n[Output truncated at 1 MB]";
+				break;
+			}
+
+			if ( time() >= $deadline ) {
+				$stderr .= "\n[Timed out after 30 seconds]";
+				break;
+			}
+		}
+
+		if ( is_resource( $pipes[1] ) ) {
+			fclose( $pipes[1] );
+		}
+		if ( is_resource( $pipes[2] ) ) {
+			fclose( $pipes[2] );
+		}
 
 		$exit_code = proc_close( $process );
 
