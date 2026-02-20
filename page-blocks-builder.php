@@ -3,7 +3,7 @@
  * Plugin Name: GT Page Blocks Builder
  * Plugin URI: https://gauravtiwari.org/product/gt-page-blocks-builder/
  * Description: Standalone visual Page Blocks builder with HTML/CSS/JS sections synced to Gutenberg block content.
- * Version: 1.3.0
+ * Version: 1.3.4
  * Author: Gaurav Tiwari
  * Author URI: https://gauravtiwari.org
  * Text Domain: page-blocks-builder
@@ -14,7 +14,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 if ( ! defined( 'GT_PB_BUILDER_VERSION' ) ) {
-	define( 'GT_PB_BUILDER_VERSION', '1.3.0' );
+	define( 'GT_PB_BUILDER_VERSION', '1.3.4' );
 }
 
 if ( ! defined( 'GT_PB_BUILDER_FILE' ) ) {
@@ -1959,7 +1959,7 @@ class GT_Page_Blocks_Builder {
 
 		switch ( $tab ) {
 			case 'html':
-				$base .= "\n\nHTML TAB RULES:\n- Generate section-level HTML only (the content inside a single section).\n- Use semantic elements with descriptive class names.\n- No <!DOCTYPE>, <html>, <head>, <body>, <style>, or <script> tags.\n- No boilerplate. Just the section content markup.";
+				$base .= "\n\nHTML TAB RULES:\n- Generate section-level HTML only (the content inside a single section).\n- Use semantic elements with descriptive class names.\n- No <!DOCTYPE>, <html>, <head>, or <body> tags.\n- Include section CSS and JS at the end using these exact tags so the builder can move them into their tabs:\n  <style id=\"ai-generated\">/* section CSS */</style>\n  <script id=\"ai-generated\">/* section JS */</script>\n- Keep selectors and JS targets aligned to classes in this section.";
 				break;
 			case 'css':
 				$base .= "\n\nCSS TAB RULES:\n- Generate CSS rules that target ONLY classes present in the HTML context provided.\n- No <style> tags. No unused selectors. No generic resets or normalizations.\n- Every rule must style an element that exists in this section's HTML.\n- Use the class names from the HTML context exactly as written.";
@@ -1990,27 +1990,36 @@ class GT_Page_Blocks_Builder {
 			$parts[] = "This section's CSS (for reference):\n" . $ctx_css;
 		}
 
+		if ( $tab === 'html' ) {
+			$parts[] = "When returning HTML, always append these exact tags at the end:\n<style id=\"ai-generated\">/* css */</style>\n<script id=\"ai-generated\">/* js */</script>";
+		}
+
 		$parts[] = "Instruction: " . $prompt;
 
 		return implode( "\n\n", $parts );
 	}
 
 	private function call_openai( $api_key, $model, $system_prompt, $user_message ) {
+		$payload = array(
+			'model'       => $model,
+			'messages'    => array(
+				array( 'role' => 'system', 'content' => $system_prompt ),
+				array( 'role' => 'user', 'content' => $user_message ),
+			),
+			'max_completion_tokens' => 4096,
+		);
+
+		if ( strpos( $model, 'gpt-5' ) !== 0 ) {
+			$payload['temperature'] = 0.3;
+		}
+
 		$response = wp_remote_post( 'https://api.openai.com/v1/chat/completions', array(
 			'timeout' => 60,
 			'headers' => array(
 				'Authorization' => 'Bearer ' . $api_key,
 				'Content-Type'  => 'application/json',
 			),
-			'body' => wp_json_encode( array(
-				'model'       => $model,
-				'messages'    => array(
-					array( 'role' => 'system', 'content' => $system_prompt ),
-					array( 'role' => 'user', 'content' => $user_message ),
-				),
-				'temperature'           => 0.3,
-				'max_completion_tokens' => 4096,
-			) ),
+			'body' => wp_json_encode( $payload ),
 		) );
 
 		return $this->parse_ai_response( $response, 'openai' );
@@ -2092,21 +2101,301 @@ class GT_Page_Blocks_Builder {
 
 		switch ( $provider ) {
 			case 'openai':
-				$text = $body['choices'][0]['message']['content'] ?? '';
+				$text = $this->extract_openai_text( $body );
 				break;
 			case 'anthropic':
-				$text = $body['content'][0]['text'] ?? '';
+				$text = $this->extract_anthropic_text( $body );
 				break;
 			case 'gemini':
-				$text = $body['candidates'][0]['content']['parts'][0]['text'] ?? '';
+				$text = $this->extract_gemini_text( $body );
 				break;
 		}
 
-		$text = trim( $text );
+		$debug_summary = $this->build_ai_provider_debug_summary( $provider, $body );
+		$this->maybe_log_ai_debug( $provider, 'summary', $debug_summary );
+		$this->maybe_log_ai_debug( $provider, 'raw_response', $body, true );
+
+		$text = is_string( $text ) ? trim( $text ) : '';
 		$text = preg_replace( '/^```[a-z]*\s*/i', '', $text );
 		$text = preg_replace( '/\s*```$/', '', $text );
+		$text = trim( (string) $text );
+
+		if ( $text === '' ) {
+			$details = array();
+			if ( ! empty( $debug_summary['finish_reason'] ) ) {
+				$details[] = 'finish_reason=' . implode( ',', array_slice( $debug_summary['finish_reason'], 0, 3 ) );
+			}
+			if ( ! empty( $debug_summary['refusal'] ) ) {
+				$details[] = 'refusal=' . $this->truncate_ai_debug_value( $debug_summary['refusal'][0], 180 );
+			}
+
+			$message = __( 'AI returned an empty response. Try again or switch the model.', 'page-blocks-builder' );
+			if ( ! empty( $details ) ) {
+				$message .= ' (' . implode( '; ', $details ) . ')';
+			}
+
+			return new WP_Error(
+				'empty_ai_output',
+				$message
+			);
+		}
 
 		return $text;
+	}
+
+	/**
+	 * Extract text output from OpenAI responses across known shapes.
+	 *
+	 * @param array $body Decoded response body.
+	 * @return string
+	 */
+	private function extract_openai_text( $body ) {
+		$chunks = array();
+
+		$content = $body['choices'][0]['message']['content'] ?? null;
+		if ( is_string( $content ) && $content !== '' ) {
+			$chunks[] = $content;
+		} elseif ( is_array( $content ) ) {
+			$this->collect_text_chunks( $content, $chunks );
+		}
+
+		if ( empty( $chunks ) && ! empty( $body['choices'][0]['text'] ) && is_string( $body['choices'][0]['text'] ) ) {
+			$chunks[] = $body['choices'][0]['text'];
+		}
+
+		$output_text = $body['output_text'] ?? null;
+		if ( is_string( $output_text ) && $output_text !== '' ) {
+			$chunks[] = $output_text;
+		} elseif ( is_array( $output_text ) ) {
+			foreach ( $output_text as $line ) {
+				if ( is_string( $line ) && $line !== '' ) {
+					$chunks[] = $line;
+				}
+			}
+		}
+
+		if ( ! empty( $body['output'] ) && is_array( $body['output'] ) ) {
+			$this->collect_text_chunks( $body['output'], $chunks );
+		}
+
+		if ( empty( $chunks ) && ! empty( $body['choices'][0]['message']['refusal'] ) && is_string( $body['choices'][0]['message']['refusal'] ) ) {
+			$chunks[] = $body['choices'][0]['message']['refusal'];
+		}
+
+		$chunks = array_values( array_unique( array_filter( array_map( 'trim', $chunks ) ) ) );
+
+		return implode( "\n", $chunks );
+	}
+
+	/**
+	 * Recursively collect text-like chunks from nested API payloads.
+	 *
+	 * @param mixed $node   Node to inspect.
+	 * @param array $chunks Collected chunks (by reference).
+	 */
+	private function collect_text_chunks( $node, &$chunks ) {
+		if ( ! is_array( $node ) ) {
+			return;
+		}
+
+		foreach ( $node as $key => $value ) {
+			if ( is_string( $key ) && in_array( $key, array( 'text', 'output_text' ), true ) && is_string( $value ) && $value !== '' ) {
+				$chunks[] = $value;
+				continue;
+			}
+
+			if ( is_array( $value ) ) {
+				$this->collect_text_chunks( $value, $chunks );
+			}
+		}
+	}
+
+	/**
+	 * Extract text blocks from Anthropic response payload.
+	 *
+	 * @param array $body Decoded response body.
+	 * @return string
+	 */
+	private function extract_anthropic_text( $body ) {
+		$chunks = array();
+
+		if ( ! empty( $body['content'] ) && is_array( $body['content'] ) ) {
+			foreach ( $body['content'] as $block ) {
+				if ( isset( $block['text'] ) && is_string( $block['text'] ) && $block['text'] !== '' ) {
+					$chunks[] = $block['text'];
+				}
+			}
+		}
+
+		$chunks = array_values( array_unique( array_filter( array_map( 'trim', $chunks ) ) ) );
+		return implode( "\n", $chunks );
+	}
+
+	/**
+	 * Extract text parts from Gemini response payload.
+	 *
+	 * @param array $body Decoded response body.
+	 * @return string
+	 */
+	private function extract_gemini_text( $body ) {
+		$chunks = array();
+
+		if ( ! empty( $body['candidates'] ) && is_array( $body['candidates'] ) ) {
+			foreach ( $body['candidates'] as $candidate ) {
+				$parts = $candidate['content']['parts'] ?? array();
+				if ( ! is_array( $parts ) ) {
+					continue;
+				}
+
+				foreach ( $parts as $part ) {
+					if ( isset( $part['text'] ) && is_string( $part['text'] ) && $part['text'] !== '' ) {
+						$chunks[] = $part['text'];
+					}
+				}
+			}
+		}
+
+		$chunks = array_values( array_unique( array_filter( array_map( 'trim', $chunks ) ) ) );
+		return implode( "\n", $chunks );
+	}
+
+	/**
+	 * Build compact debug summary for a provider response.
+	 *
+	 * @param string $provider Provider key.
+	 * @param array  $body     Decoded response body.
+	 * @return array
+	 */
+	private function build_ai_provider_debug_summary( $provider, $body ) {
+		$finish_reason = array();
+		$refusal       = $this->collect_scalar_values_by_key( $body, 'refusal' );
+		$model         = '';
+		$usage         = array();
+
+		switch ( $provider ) {
+			case 'openai':
+				$finish_reason = $this->collect_scalar_values_by_key( $body, 'finish_reason' );
+				$model         = isset( $body['model'] ) && is_string( $body['model'] ) ? $body['model'] : '';
+				$usage         = isset( $body['usage'] ) && is_array( $body['usage'] ) ? $body['usage'] : array();
+				break;
+			case 'anthropic':
+				$finish_reason = $this->collect_scalar_values_by_key( $body, 'stop_reason' );
+				$model         = isset( $body['model'] ) && is_string( $body['model'] ) ? $body['model'] : '';
+				$usage         = isset( $body['usage'] ) && is_array( $body['usage'] ) ? $body['usage'] : array();
+				break;
+			case 'gemini':
+				$finish_reason = $this->collect_scalar_values_by_key( $body, 'finishReason' );
+				$model         = isset( $body['modelVersion'] ) && is_string( $body['modelVersion'] ) ? $body['modelVersion'] : '';
+				$usage         = isset( $body['usageMetadata'] ) && is_array( $body['usageMetadata'] ) ? $body['usageMetadata'] : array();
+				$refusal       = array_merge( $refusal, $this->collect_scalar_values_by_key( $body, 'blockReason' ) );
+				break;
+		}
+
+		$finish_reason = array_values( array_unique( array_filter( array_map( 'trim', $finish_reason ) ) ) );
+		$refusal       = array_values( array_unique( array_filter( array_map( 'trim', $refusal ) ) ) );
+
+		return array(
+			'provider'      => $provider,
+			'model'         => $model,
+			'finish_reason' => $finish_reason,
+			'refusal'       => array_slice( $refusal, 0, 3 ),
+			'usage'         => $usage,
+		);
+	}
+
+	/**
+	 * Collect scalar values for a specific key recursively.
+	 *
+	 * @param mixed  $node Node to inspect.
+	 * @param string $key  Key to collect.
+	 * @return array
+	 */
+	private function collect_scalar_values_by_key( $node, $key ) {
+		$values = array();
+		$this->collect_scalar_values_by_key_recursive( $node, $key, $values );
+		return $values;
+	}
+
+	/**
+	 * Recursive implementation for scalar value collection by key.
+	 *
+	 * @param mixed  $node   Node to inspect.
+	 * @param string $key    Key to collect.
+	 * @param array  $values Accumulator (by reference).
+	 */
+	private function collect_scalar_values_by_key_recursive( $node, $key, &$values ) {
+		if ( ! is_array( $node ) ) {
+			return;
+		}
+
+		foreach ( $node as $node_key => $value ) {
+			if ( (string) $node_key === (string) $key ) {
+				if ( is_scalar( $value ) || $value === null ) {
+					$values[] = $value === null ? 'null' : (string) $value;
+				} elseif ( is_array( $value ) ) {
+					foreach ( $value as $item ) {
+						if ( is_scalar( $item ) || $item === null ) {
+							$values[] = $item === null ? 'null' : (string) $item;
+						}
+					}
+				}
+			}
+
+			if ( is_array( $value ) ) {
+				$this->collect_scalar_values_by_key_recursive( $value, $key, $values );
+			}
+		}
+	}
+
+	/**
+	 * Truncate debug values to keep errors/logs readable.
+	 *
+	 * @param string $value Input string.
+	 * @param int    $limit Max characters.
+	 * @return string
+	 */
+	private function truncate_ai_debug_value( $value, $limit = 180 ) {
+		$value = trim( (string) $value );
+		$limit = max( 20, absint( $limit ) );
+
+		if ( strlen( $value ) <= $limit ) {
+			return $value;
+		}
+
+		return substr( $value, 0, $limit ) . '...';
+	}
+
+	/**
+	 * Log AI diagnostics when debug is enabled.
+	 *
+	 * @param string $provider Provider key.
+	 * @param string $label    Diagnostic label.
+	 * @param mixed  $payload  Diagnostic payload.
+	 * @param bool   $is_raw   Whether payload is full raw API response.
+	 */
+	private function maybe_log_ai_debug( $provider, $label, $payload, $is_raw = false ) {
+		$enabled = apply_filters( 'gt_pb_ai_debug_enabled', defined( 'WP_DEBUG' ) && WP_DEBUG );
+		if ( ! $enabled ) {
+			return;
+		}
+
+		if ( $is_raw && ! apply_filters( 'gt_pb_ai_debug_log_raw_payload', false, $provider, $label ) ) {
+			return;
+		}
+
+		$max_len = (int) apply_filters( 'gt_pb_ai_debug_max_length', 6000, $provider, $label );
+		$max_len = $max_len > 0 ? $max_len : 6000;
+
+		$encoded = wp_json_encode( $payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES );
+		if ( ! is_string( $encoded ) ) {
+			$encoded = print_r( $payload, true );
+		}
+
+		if ( strlen( $encoded ) > $max_len ) {
+			$encoded = substr( $encoded, 0, $max_len ) . '...[truncated]';
+		}
+
+		error_log( '[GT Page Blocks AI][' . $provider . '][' . $label . '] ' . $encoded );
 	}
 
 	public function ajax_terminal_exec() {

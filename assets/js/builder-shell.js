@@ -18,6 +18,7 @@
 		showPreview: true,
 		showSidebar: true,
 		previewViewport: 'desktop',
+		activeEditorKey: 'html',
 		rightPaneMode: 'css',
 		bottomHeight: 360,
 		resizeActive: false,
@@ -1289,6 +1290,15 @@
 			dom.textareaJs.addEventListener('input', function(event) {
 				updateCurrentSectionField('js', event.target.value);
 			});
+			dom.textareaHtml.addEventListener('focus', function() {
+				state.activeEditorKey = 'html';
+			});
+			dom.textareaCss.addEventListener('focus', function() {
+				state.activeEditorKey = 'css';
+			});
+			dom.textareaJs.addEventListener('focus', function() {
+				state.activeEditorKey = 'js';
+			});
 			return;
 		}
 
@@ -1324,6 +1334,9 @@
 			}
 
 			state.editors[item.key] = editor;
+			editor.codemirror.on('focus', function() {
+				state.activeEditorKey = item.key;
+			});
 			editor.codemirror.on('change', function(instance) {
 				if (state.syncingEditors) {
 					return;
@@ -1596,6 +1609,8 @@
 	}
 
 	function focusEditor(editorKey) {
+		state.activeEditorKey = editorKey;
+
 		if (editorKey === 'css') {
 			setRightPaneMode('css');
 		}
@@ -2166,19 +2181,16 @@
 	}
 
 	function captureSelectionAndOpenPrompt() {
-		var editorKeys = ['html', 'css', 'js'];
+		var ed = state.editors.html;
+		var cm = ed && ed.codemirror ? ed.codemirror : null;
+		state.aiSelection = '';
+		state.aiSelectionEditor = null;
 
-		for (var i = 0; i < editorKeys.length; i++) {
-			var key = editorKeys[i];
-			var ed = state.editors[key];
-			var cm = ed && ed.codemirror ? ed.codemirror : null;
-			if (cm && typeof cm.getSelection === 'function') {
-				var sel = cm.getSelection();
-				if (sel && sel.length > 0) {
-					state.aiSelection = sel;
-					state.aiSelectionEditor = key;
-					break;
-				}
+		if (cm && typeof cm.getSelection === 'function') {
+			var sel = cm.getSelection();
+			if (sel && sel.length > 0) {
+				state.aiSelection = sel;
+				state.aiSelectionEditor = 'html';
 			}
 		}
 
@@ -2198,6 +2210,9 @@
 				return keys[i];
 			}
 		}
+		if (keys.indexOf(state.activeEditorKey) !== -1) {
+			return state.activeEditorKey;
+		}
 		if (state.rightPaneMode === 'js') {
 			return 'js';
 		}
@@ -2205,6 +2220,93 @@
 			return 'css';
 		}
 		return 'html';
+	}
+
+	function hasAiGeneratedId(attributes) {
+		if (!attributes || typeof attributes !== 'string') {
+			return false;
+		}
+
+		if (/\bid\s*=\s*(['"])ai-generated\1/i.test(attributes)) {
+			return true;
+		}
+
+		return /\bid\s*=\s*ai-generated(?:\s|$)/i.test(attributes);
+	}
+
+	function extractAiGeneratedAssets(htmlCode) {
+		var source = typeof htmlCode === 'string' ? htmlCode : '';
+		var result = {
+			html: source,
+			css: '',
+			js: '',
+			hasBundle: false,
+			hasCssTag: false,
+			hasJsTag: false
+		};
+
+		if (!source) {
+			return result;
+		}
+
+		var html = source.replace(/<style\b([^>]*)>([\s\S]*?)<\/style>/gi, function(match, attrs, inner) {
+			if (!hasAiGeneratedId(attrs)) {
+				return match;
+			}
+
+			result.hasBundle = true;
+			result.hasCssTag = true;
+			var cssChunk = (inner || '').trim();
+			if (cssChunk) {
+				result.css = result.css ? (result.css + '\n\n' + cssChunk) : cssChunk;
+			}
+			return '';
+		});
+
+		html = html.replace(/<script\b([^>]*)>([\s\S]*?)<\/script>/gi, function(match, attrs, inner) {
+			if (!hasAiGeneratedId(attrs)) {
+				return match;
+			}
+
+			result.hasBundle = true;
+			result.hasJsTag = true;
+			var jsChunk = (inner || '').trim();
+			if (jsChunk) {
+				result.js = result.js ? (result.js + '\n\n' + jsChunk) : jsChunk;
+			}
+			return '';
+		});
+
+		result.html = html.replace(/\n{3,}/g, '\n\n').trim();
+		return result;
+	}
+
+	function setSectionFieldFromAi(editorKey, field, value) {
+		updateCurrentSectionField(field, value);
+
+		var editor = state.editors[editorKey];
+		var cm = editor && editor.codemirror ? editor.codemirror : null;
+		if (cm && typeof cm.setValue === 'function') {
+			state.syncingEditors = true;
+			cm.setValue(value);
+			state.syncingEditors = false;
+			if (typeof cm.refresh === 'function') {
+				window.setTimeout(function() { cm.refresh(); }, 0);
+			}
+			return;
+		}
+
+		if (editorKey === 'html' && dom.textareaHtml) {
+			dom.textareaHtml.value = value;
+			return;
+		}
+		if (editorKey === 'css' && dom.textareaCss) {
+			dom.textareaCss.value = value;
+			return;
+		}
+		if (editorKey === 'js' && dom.textareaJs) {
+			dom.textareaJs.value = value;
+		}
 	}
 
 	function submitAiPrompt() {
@@ -2221,12 +2323,13 @@
 			state.aiModel = dom.aiModelSelect.value;
 		}
 
-		var tab = state.aiSelectionEditor || getActiveTab();
+		var tab = 'html';
 		var fieldMap = { html: 'content', css: 'css', js: 'js' };
 		var section = getCurrentSection();
 		var existing = section ? (section[fieldMap[tab]] || '') : '';
 		var ctxHtml = section ? (section.content || '') : '';
 		var ctxCss = section ? (section.css || '') : '';
+		var selection = state.aiSelectionEditor === 'html' ? (state.aiSelection || '') : '';
 
 		state.aiBusy = true;
 		if (dom.aiStatus) {
@@ -2243,7 +2346,7 @@
 		formData.append('prompt', prompt);
 		formData.append('tab', tab);
 		formData.append('existing_code', existing);
-		formData.append('selection', state.aiSelection || '');
+		formData.append('selection', selection);
 		formData.append('model', state.aiModel);
 		formData.append('context_html', ctxHtml);
 		formData.append('context_css', ctxCss);
@@ -2278,11 +2381,21 @@
 				return;
 			}
 
+			var extracted = null;
+			if (tab === 'html') {
+				extracted = extractAiGeneratedAssets(code);
+				if (extracted.hasBundle && extracted.html) {
+					code = extracted.html;
+				} else if (extracted.hasBundle) {
+					extracted = null;
+				}
+			}
+
 			var field = fieldMap[tab];
 			var editor = state.editors[tab];
 			var cm = editor && editor.codemirror ? editor.codemirror : null;
 
-			if (state.aiSelection && cm && typeof cm.replaceSelection === 'function') {
+			if (selection && cm && typeof cm.replaceSelection === 'function') {
 				cm.replaceSelection(code);
 				state.syncingEditors = true;
 				updateCurrentSectionField(field, cm.getValue());
@@ -2298,6 +2411,15 @@
 
 			if (cm && typeof cm.refresh === 'function') {
 				window.setTimeout(function() { cm.refresh(); }, 0);
+			}
+
+			if (extracted && extracted.hasBundle) {
+				if (extracted.hasCssTag) {
+					setSectionFieldFromAi('css', 'css', extracted.css);
+				}
+				if (extracted.hasJsTag) {
+					setSectionFieldFromAi('js', 'js', extracted.js);
+				}
 			}
 
 			queuePreviewRender();

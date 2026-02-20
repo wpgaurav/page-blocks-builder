@@ -4,7 +4,7 @@ Tags: page builder, html blocks, css sections, gutenberg, visual builder
 Requires at least: 6.0
 Tested up to: 6.9.1
 Requires PHP: 8.1
-Stable tag: 1.2.1
+Stable tag: 1.3.4
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -54,6 +54,24 @@ Yes. Enable PHP execution per block. PHP runs on the frontend and in server-rend
 When set to "file", CSS and JS for that block are written to external files in `wp-content/uploads/gt-page-blocks/` and served as cacheable resources instead of inline output.
 
 == Changelog ==
+
+= 1.3.4 =
+* Fix OpenAI GPT-5 model compatibility by omitting custom `temperature` for `gpt-5*` models
+* Add provider debug diagnostics (finish reason, refusal summary, usage) for AI responses
+* Add optional raw payload logging via filters for AI troubleshooting
+
+= 1.3.3 =
+* Improve OpenAI response parsing for newer output shapes used by GPT-5 models
+* Return a clear error when AI output is empty instead of silently doing nothing
+
+= 1.3.2 =
+* Lock AI Generate to HTML mode in visual builder and ignore non-HTML text selections
+* Prevent HTML from being emptied when AI returns only bundled `<style id="ai-generated">` / `<script id="ai-generated">` tags
+
+= 1.3.1 =
+* Default AI generation target to the HTML tab in the visual builder
+* Add HTML AI bundle support with `<style id="ai-generated">` and `<script id="ai-generated">`
+* Move bundled AI CSS/JS out of HTML and into the CSS/JS editors automatically
 
 = 1.2.1 =
 * Add "Preview on Frontend" button in the visual builder topbar to open the live page in a new tab
