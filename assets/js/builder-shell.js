@@ -15,6 +15,7 @@
 		previewTimer: null,
 		hasCodeMirror: false,
 		showCode: true,
+		showPreview: true,
 		showSidebar: true,
 		previewViewport: 'desktop',
 		rightPaneMode: 'css',
@@ -647,7 +648,13 @@
 		}
 
 		dom.shell.classList.toggle('is-code-hidden', !state.showCode);
+		dom.shell.classList.toggle('is-preview-hidden', !state.showPreview);
 		dom.shell.classList.toggle('is-sidebar-hidden', !state.showSidebar);
+
+		if (dom.togglePreviewButton) {
+			dom.togglePreviewButton.classList.toggle('is-active', state.showPreview);
+			dom.togglePreviewButton.setAttribute('aria-pressed', state.showPreview ? 'true' : 'false');
+		}
 
 		if (dom.toggleCodeButton) {
 			dom.toggleCodeButton.classList.toggle('is-active', state.showCode);
@@ -693,7 +700,7 @@
 					}
 					dom.previewFrame.srcdoc = buildPreviewDoc();
 				});
-		}, 110);
+		}, 3000);
 	}
 
 	function setApplyButtonBusy(isBusy, label) {
@@ -1301,6 +1308,7 @@
 					'<span class="md-pb-divider" aria-hidden="true"></span>' +
 					'<button type="button" class="md-pb-toggle-btn is-active" data-role="toggle-sections" aria-pressed="true">☰ Sections</button>' +
 					'<button type="button" class="md-pb-toggle-btn is-active" data-role="toggle-code" aria-pressed="true">&lt;/&gt; Code</button>' +
+					'<button type="button" class="md-pb-toggle-btn is-active" data-role="toggle-preview" aria-pressed="true">&#9655; Preview</button>' +
 				'</div>' +
 				'<div class="md-pb-topbar-actions">' +
 					'<button type="button" class="md-pb-button md-pb-button-primary" data-role="apply">Apply to Gutenberg</button>' +
@@ -1390,6 +1398,7 @@
 		dom.cancelButton = shell.querySelector('[data-role="cancel"]');
 		dom.addSectionButton = shell.querySelector('[data-role="add-section"]');
 		dom.toggleCodeButton = shell.querySelector('[data-role="toggle-code"]');
+		dom.togglePreviewButton = shell.querySelector('[data-role="toggle-preview"]');
 		dom.toggleSectionsButton = shell.querySelector('[data-role="toggle-sections"]');
 		dom.activeSectionId = shell.querySelector('[data-role="active-section-id"]');
 		dom.activeSectionClasses = shell.querySelector('[data-role="active-section-classes"]');
@@ -1621,6 +1630,13 @@
 		if (dom.toggleCodeButton) {
 			dom.toggleCodeButton.addEventListener('click', function() {
 				state.showCode = !state.showCode;
+				updatePanelVisibility();
+			});
+		}
+
+		if (dom.togglePreviewButton) {
+			dom.togglePreviewButton.addEventListener('click', function() {
+				state.showPreview = !state.showPreview;
 				updatePanelVisibility();
 			});
 		}

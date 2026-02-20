@@ -1777,7 +1777,7 @@ class GT_Page_Blocks_Builder {
 			$html
 		);
 
-		$html = preg_replace( '/<!--(?!\\[if\\s).*?-->/s', '', $html );
+		$html = preg_replace( '/<!--(?!\\[if\\s|PRESERVED_).*?-->/s', '', $html );
 		$html = preg_replace( '/>\\s+</', '> <', $html );
 		$html = preg_replace( '/\\s+/', ' ', $html );
 		$html = str_replace( array_keys( $preserved ), array_values( $preserved ), $html );

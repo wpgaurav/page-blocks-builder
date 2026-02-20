@@ -501,6 +501,18 @@ body {
 	display: none;
 }
 
+.md-pb-shell.is-preview-hidden {
+	grid-template-rows: 48px 0 2px 1fr 24px;
+}
+
+.md-pb-shell.is-preview-hidden .md-pb-main {
+	overflow: hidden;
+}
+
+.md-pb-shell.is-preview-hidden.is-code-hidden {
+	grid-template-rows: 48px minmax(220px, 1fr) 0 0 24px;
+}
+
 .md-pb-bottom {
 	display: flex;
 	flex-direction: column;
