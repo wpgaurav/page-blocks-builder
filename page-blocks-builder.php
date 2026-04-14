@@ -159,7 +159,7 @@ class GT_Page_Blocks_Builder {
 
 	public function __construct() {
 		add_action( 'init', array( $this, 'register_block' ) );
-		add_filter( 'block_categories_all', array( $this, 'register_block_category' ), 10, 2 );
+		add_filter( 'block_categories_all', array( $this, 'register_block_category' ), 10, 1 );
 		add_action( 'enqueue_block_editor_assets', array( $this, 'enqueue_block_editor_assets' ) );
 
 		add_filter( 'template_include', array( $this, 'builder_template_include' ), 0 );
@@ -354,7 +354,7 @@ class GT_Page_Blocks_Builder {
 	 * Print queued footer scripts.
 	 */
 	public function output_footer_scripts() {
-		if ( empty( $this->footer_scripts ) || ! is_array( $this->footer_scripts ) ) {
+		if ( empty( $this->footer_scripts ) ) {
 			return;
 		}
 
@@ -576,9 +576,7 @@ class GT_Page_Blocks_Builder {
 		}
 
 		$template_uri = trailingslashit( get_template_directory_uri() ) . 'style.css';
-		if ( is_string( $template_uri ) && $template_uri !== '' ) {
-			$urls[] = esc_url_raw( $template_uri );
-		}
+		$urls[]       = esc_url_raw( $template_uri );
 
 		$dir_to_uri = array(
 			wp_normalize_path( get_stylesheet_directory() ) => trailingslashit( get_stylesheet_directory_uri() ),
@@ -1792,13 +1790,13 @@ class GT_Page_Blocks_Builder {
 			return;
 		}
 
-		$version = filemtime( $info['path'] );
-		$id      = 'gt-page-blocks-' . $prefix . esc_attr( $post_id );
+		$version = (string) ( filemtime( $info['path'] ) ?: '0' );
+		$id      = 'gt-page-blocks-' . $prefix . (string) $post_id;
 
 		if ( $extension === 'js' ) {
 			echo '<script src="' . esc_url( $info['url'] ) . '?ver=' . esc_attr( $version ) . '"></script>' . "\n";
 		} else {
-			echo '<link rel="stylesheet" id="' . $id . '" href="' . esc_url( $info['url'] ) . '?ver=' . esc_attr( $version ) . '" media="all" />' . "\n";
+			echo '<link rel="stylesheet" id="' . esc_attr( $id ) . '" href="' . esc_url( $info['url'] ) . '?ver=' . esc_attr( $version ) . '" media="all" />' . "\n";
 		}
 	}
 
@@ -2470,9 +2468,6 @@ class GT_Page_Blocks_Builder {
 		if ( ! empty( $body['candidates'] ) && is_array( $body['candidates'] ) ) {
 			foreach ( $body['candidates'] as $candidate ) {
 				$parts = isset( $candidate['content']['parts'] ) && is_array( $candidate['content']['parts'] ) ? $candidate['content']['parts'] : array();
-				if ( ! is_array( $parts ) ) {
-					continue;
-				}
 
 				foreach ( $parts as $part ) {
 					if ( isset( $part['text'] ) && is_string( $part['text'] ) && $part['text'] !== '' ) {

@@ -2,3 +2,10 @@
 assets/.DS_Store
 *.DS_Store*
 assets/.DS_Store
+
+# Composer / dev tooling
+vendor/
+composer.json
+composer.lock
+phpstan.neon
+phpcs.xml
