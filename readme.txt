@@ -4,7 +4,7 @@ Tags: page builder, html blocks, css sections, gutenberg, visual builder
 Requires at least: 6.0
 Tested up to: 6.9.1
 Requires PHP: 8.1
-Stable tag: 2.0.0
+Stable tag: 2.0.1
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -64,6 +64,13 @@ Yes. Enable PHP execution per block. PHP runs on the frontend and in server-rend
 When set to "file", CSS and JS for that block are written to external files in `wp-content/uploads/gt-page-blocks/` and served as cacheable resources instead of inline output.
 
 == Changelog ==
+
+= 2.0.1 =
+* Fix `block_categories_all` filter signature mismatch
+* Fix `esc_attr()` type errors when emitting asset tags (cast post_id and filemtime to string)
+* Properly escape stylesheet `id` attribute in external file output
+* Remove redundant defensive type checks (PHPStan level 5 cleanup)
+* No functional changes — all fixes are internal hardening
 
 = 2.0.0 =
 * **MAJOR**: AI chat sidebar replaces inline AI bar — multi-turn conversation with persistent context
