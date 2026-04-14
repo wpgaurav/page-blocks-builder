@@ -4,7 +4,7 @@ Tags: page builder, html blocks, css sections, gutenberg, visual builder
 Requires at least: 6.0
 Tested up to: 6.9.1
 Requires PHP: 8.1
-Stable tag: 1.3.4
+Stable tag: 2.0.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -18,10 +18,20 @@ GT Page Blocks Builder lets you create section-based pages with full control ove
 
 * **Gutenberg block** with tabbed code editors and live preview
 * **Frontend visual builder** launched from the admin bar on any singular post/page
+* **AI chat sidebar** with multi-turn conversation (OpenAI, Anthropic, Gemini)
+* **Inline text editing in preview** — click any heading, paragraph, link, or list item to edit it directly
+* **Live preview patching** — no flicker on edits, only structural changes trigger full reload
+* **HTML snippet buttons** — quick-insert sec, div, h1-h3, p, a, img, ul, ol, span, b, i with selection wrapping
+* **Section management** — drag-and-drop reorder, duplicate, delete, hide, rename (double-click)
+* **Export/Import** — JSON download/upload with append or replace modes
+* **Keyboard shortcuts** — Cmd+S save, Cmd+K AI, Cmd+N add section, and more
+* **Page template switcher** — change post template from the builder sidebar
+* **Preview customization** — add custom CSS, head HTML, footer JS via settings (no PHP filter needed)
 * **Server-rendered preview** with `wpautop`, shortcode, and PHP execution support
 * **External file output** for cacheable CSS/JS served from the uploads directory
 * **CSS-in-head optimization** that combines all block CSS into a single `<style>` tag in `<head>`
-* **Theme class suggestions** in the HTML editor, extracted from your active theme stylesheets
+* **Theme class suggestions** in HTML/CSS editors, extracted from your active theme stylesheets
+* **Theme CSS context for AI** — CSS variables and utility classes sent to AI as system context
 * **Post type allowlist** under Settings > Page Blocks Builder
 * **Page templates** for full-width builder layouts
 * **Rank Math SEO integration** for content analysis of Page Block content
@@ -54,6 +64,24 @@ Yes. Enable PHP execution per block. PHP runs on the frontend and in server-rend
 When set to "file", CSS and JS for that block are written to external files in `wp-content/uploads/gt-page-blocks/` and served as cacheable resources instead of inline output.
 
 == Changelog ==
+
+= 2.0.0 =
+* **MAJOR**: AI chat sidebar replaces inline AI bar — multi-turn conversation with persistent context
+* **MAJOR**: Inline text editing in preview — click headings/paragraphs/links to edit them directly
+* **MAJOR**: Live preview patching — no more flicker on every edit, only structural changes reload
+* **MAJOR**: HTML snippet buttons on HTML editor title bar
+* **MAJOR**: Section renaming via double-click on section name
+* **MAJOR**: Better SVG icons for hide/duplicate/delete (replaces unicode glyphs)
+* **MAJOR**: Keyboard shortcuts overlay (? button)
+* **MAJOR**: Export/Import sections as JSON
+* **NEW**: Preview customization settings (CSS, head HTML, footer JS) — no PHP filter required
+* **NEW**: Theme CSS context sent to AI as system prompt (variables + utility classes)
+* **NEW**: HTTPS enforcement on all preview style URLs
+* **FIX**: Script injection in preview iframe (post-load via createElement, fixes srcdoc parsing errors)
+* **FIX**: Click delegation for SVG icon buttons
+* **FIX**: AI generation supports conversation history across all providers (OpenAI, Anthropic, Gemini)
+* **CHANGE**: Default AI model changed from gpt-5.2 to claude-sonnet-4-6
+* **REMOVED**: Terminal feature (was beta) — replaced with safer features
 
 = 1.3.4 =
 * Fix OpenAI GPT-5 model compatibility by omitting custom `temperature` for `gpt-5*` models

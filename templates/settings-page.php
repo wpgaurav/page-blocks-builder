@@ -3,15 +3,17 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-$ai_openai_key    = get_option( 'gt_pb_ai_openai_key', '' );
-$ai_anthropic_key = get_option( 'gt_pb_ai_anthropic_key', '' );
-$ai_gemini_key    = get_option( 'gt_pb_ai_gemini_key', '' );
-$ai_default_model = get_option( 'gt_pb_ai_default_model', 'gpt-5.2' );
-$terminal_enabled = (bool) get_option( 'gt_pb_terminal_enabled', false );
+$ai_openai_key       = get_option( 'gt_pb_ai_openai_key', '' );
+$ai_anthropic_key    = get_option( 'gt_pb_ai_anthropic_key', '' );
+$ai_gemini_key       = get_option( 'gt_pb_ai_gemini_key', '' );
+$ai_default_model    = get_option( 'gt_pb_ai_default_model', 'claude-sonnet-4-6' );
+$preview_css         = get_option( 'gt_pb_preview_css', '' );
+$preview_head_html   = get_option( 'gt_pb_preview_head_html', '' );
+$preview_js_footer   = get_option( 'gt_pb_preview_js_footer', '' );
 ?>
 <div class="wrap">
 	<h1><?php esc_html_e( 'Page Blocks Builder', 'page-blocks-builder' ); ?></h1>
-	<p><?php esc_html_e( 'Configure where the frontend visual builder is available.', 'page-blocks-builder' ); ?></p>
+	<p><?php esc_html_e( 'Configure where the frontend visual builder is available, your AI providers, and preview customization.', 'page-blocks-builder' ); ?></p>
 
 	<form method="post" action="options.php">
 		<?php settings_fields( 'gt_page_blocks_builder_settings' ); ?>
@@ -33,14 +35,8 @@ $terminal_enabled = (bool) get_option( 'gt_pb_terminal_enabled', false );
 					<?php endforeach; ?>
 				</td>
 			</tr>
-			<tr>
-				<th scope="row"><?php esc_html_e( 'Preview Injection Filter', 'page-blocks-builder' ); ?></th>
-				<td>
-					<p><?php esc_html_e( 'Use this filter to inject extra HTML, CSS, or JS into the preview iframe.', 'page-blocks-builder' ); ?></p>
-					<pre style="white-space: pre-wrap; margin-top: 10px;"><code><?php echo esc_html( "add_filter('md_page_blocks_builder_preview_injection', function(\$injection, \$post_id) {\n\t\$injection['headHtml'] .= '<meta name=\"pb-preview\" content=\"1\">';\n\t\$injection['css'] .= '.pb-preview-note{display:none;}';\n\t\$injection['jsHead'] .= 'window.PB_PREVIEW=true;';\n\treturn \$injection;\n}, 10, 2);" ); ?></code></pre>
-				</td>
-			</tr>
-			<tr><td colspan="2"><h2><?php esc_html_e( 'AI Integration', 'page-blocks-builder' ); ?></h2></td></tr>
+
+			<tr><td colspan="2"><h2 style="margin-top: 1em;"><?php esc_html_e( 'AI Integration', 'page-blocks-builder' ); ?></h2><p class="description"><?php esc_html_e( 'Configure AI providers for the builder\'s code generation chat sidebar (Cmd+K).', 'page-blocks-builder' ); ?></p></td></tr>
 			<tr>
 				<th scope="row"><label for="gt_pb_ai_openai_key"><?php esc_html_e( 'OpenAI API Key', 'page-blocks-builder' ); ?></label></th>
 				<td>
@@ -79,14 +75,36 @@ $terminal_enabled = (bool) get_option( 'gt_pb_terminal_enabled', false );
 					</select>
 				</td>
 			</tr>
-			<tr><td colspan="2"><h2><?php esc_html_e( 'Terminal (Beta)', 'page-blocks-builder' ); ?></h2></td></tr>
+
+			<tr><td colspan="2"><h2 style="margin-top: 1em;"><?php esc_html_e( 'Preview Customization', 'page-blocks-builder' ); ?></h2><p class="description"><?php esc_html_e( 'Add custom CSS, HTML, or JS to the builder preview iframe. Use this for custom fonts, design tokens, or scripts the preview needs.', 'page-blocks-builder' ); ?></p></td></tr>
 			<tr>
-				<th scope="row"><?php esc_html_e( 'Enable Terminal', 'page-blocks-builder' ); ?></th>
+				<th scope="row"><label for="gt_pb_preview_css"><?php esc_html_e( 'Preview CSS', 'page-blocks-builder' ); ?></label></th>
 				<td>
-					<label>
-						<input type="checkbox" name="gt_pb_terminal_enabled" value="1" <?php checked( $terminal_enabled ); ?>>
-						<?php esc_html_e( 'Enable integrated terminal in the builder (admin only)', 'page-blocks-builder' ); ?>
-					</label>
+					<textarea id="gt_pb_preview_css" name="gt_pb_preview_css" rows="6" class="large-text code" placeholder="/* Custom @font-face, variables, overrides */"><?php echo esc_textarea( $preview_css ); ?></textarea>
+					<p class="description"><?php esc_html_e( 'Injected into a <style> tag in the preview <head>. Example: @font-face rules, CSS custom properties.', 'page-blocks-builder' ); ?></p>
+				</td>
+			</tr>
+			<tr>
+				<th scope="row"><label for="gt_pb_preview_head_html"><?php esc_html_e( 'Preview Head HTML', 'page-blocks-builder' ); ?></label></th>
+				<td>
+					<textarea id="gt_pb_preview_head_html" name="gt_pb_preview_head_html" rows="3" class="large-text code" placeholder='<link rel="preconnect" href="https://fonts.example.com">'><?php echo esc_textarea( $preview_head_html ); ?></textarea>
+					<p class="description"><?php esc_html_e( 'Raw HTML added to the preview <head>. Use for preconnect hints, external stylesheets, or meta tags.', 'page-blocks-builder' ); ?></p>
+				</td>
+			</tr>
+			<tr>
+				<th scope="row"><label for="gt_pb_preview_js_footer"><?php esc_html_e( 'Preview Footer JS', 'page-blocks-builder' ); ?></label></th>
+				<td>
+					<textarea id="gt_pb_preview_js_footer" name="gt_pb_preview_js_footer" rows="3" class="large-text code" placeholder="// Custom JS for preview"><?php echo esc_textarea( $preview_js_footer ); ?></textarea>
+					<p class="description"><?php esc_html_e( 'JavaScript added before </body> in the preview. No <script> tags needed.', 'page-blocks-builder' ); ?></p>
+				</td>
+			</tr>
+
+			<tr><td colspan="2"><h2 style="margin-top: 1em;"><?php esc_html_e( 'Preview Injection Filter (Advanced)', 'page-blocks-builder' ); ?></h2></td></tr>
+			<tr>
+				<th scope="row"><?php esc_html_e( 'PHP Filter', 'page-blocks-builder' ); ?></th>
+				<td>
+					<p class="description"><?php esc_html_e( 'For dynamic/conditional injection, use this filter in functions.php. Settings above feed the defaults.', 'page-blocks-builder' ); ?></p>
+					<pre style="white-space: pre-wrap; margin-top: 10px; background: #f6f7f7; padding: 10px; border-radius: 4px;"><code><?php echo esc_html( "add_filter('md_page_blocks_builder_preview_injection', function(\$injection, \$post_id) {\n\t\$injection['headHtml'] .= '<meta name=\"pb-preview\" content=\"1\">';\n\t\$injection['css'] .= '.pb-preview-note{display:none;}';\n\treturn \$injection;\n}, 10, 2);" ); ?></code></pre>
 				</td>
 			</tr>
 			</tbody>

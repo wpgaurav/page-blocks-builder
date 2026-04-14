@@ -3,7 +3,7 @@
  * Plugin Name: GT Page Blocks Builder
  * Plugin URI: https://gauravtiwari.org/product/gt-page-blocks-builder/
  * Description: Standalone visual Page Blocks builder with HTML/CSS/JS sections synced to Gutenberg block content.
- * Version: 1.3.5
+ * Version: 2.0.0
  * Author: Gaurav Tiwari
  * Author URI: https://gauravtiwari.org
  * Text Domain: page-blocks-builder
@@ -14,7 +14,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 if ( ! defined( 'GT_PB_BUILDER_VERSION' ) ) {
-	define( 'GT_PB_BUILDER_VERSION', '1.3.5' );
+	define( 'GT_PB_BUILDER_VERSION', '2.0.0' );
 }
 
 if ( ! defined( 'GT_PB_BUILDER_FILE' ) ) {
@@ -513,16 +513,19 @@ class GT_Page_Blocks_Builder {
 
 		wp_localize_script(
 			'gt-page-block-builder-shell',
-			'mdPageBlocksBuilderShell',
+			'mdPbBuilder',
 			array(
 				'postId'             => $post_id,
 				'blockName'          => self::BLOCK_NAME,
-				'applyEndpoint'      => admin_url( 'admin-ajax.php' ),
-				'applyAction'        => 'md_page_blocks_builder_apply',
-				'applyNonce'         => $nonce,
+				// Save endpoint (dropin naming)
+				'saveEndpoint'       => admin_url( 'admin-ajax.php' ),
+				'saveAction'         => 'md_page_blocks_builder_apply',
+				'saveNonce'          => $nonce,
+				// Preview endpoint
 				'previewEndpoint'    => admin_url( 'admin-ajax.php' ),
 				'previewAction'      => 'md_page_blocks_builder_preview',
-				'previewNonce'       => wp_create_nonce( md_page_blocks_preview_nonce_action( $post_id ) ),
+				'previewNonce'       => $nonce, // Use same nonce for both
+				'previewCssUrl'      => '', // Plugin doesn't compile theme CSS; uses themeStyleUrls
 				'editPostUrl'        => get_edit_post_link( $post_id, 'raw' ) ?: '',
 				'viewPostUrl'        => get_permalink( $post_id ) ?: '',
 				'initialSections'    => $this->get_builder_sections_from_post( $post_id ),
@@ -531,23 +534,16 @@ class GT_Page_Blocks_Builder {
 				'previewInjection'   => $this->get_builder_preview_injection( $post_id ),
 				'codeEditorSettings' => $editor_settings,
 				'themeStyleUrls'     => $this->get_theme_style_urls(),
-				'themeBaseUrls'      => array_values(
-					array_unique(
-						array_filter(
-							array(
-								trailingslashit( get_stylesheet_directory_uri() ),
-								trailingslashit( get_template_directory_uri() ),
-							)
-						)
-					)
-				),
-				'aiEndpoint'      => admin_url( 'admin-ajax.php' ),
-				'aiAction'        => 'md_page_blocks_ai_generate',
-				'aiDefaultModel'  => get_option( 'gt_pb_ai_default_model', 'gpt-5.2' ),
-				'aiHasOpenAI'     => ! empty( get_option( 'gt_pb_ai_openai_key', '' ) ),
-				'aiHasAnthropic'  => ! empty( get_option( 'gt_pb_ai_anthropic_key', '' ) ),
-				'aiHasGemini'     => ! empty( get_option( 'gt_pb_ai_gemini_key', '' ) ),
-				'aiModels'        => array(
+				'cssClasses'         => $this->get_theme_css_classes_for_builder(),
+				// AI
+				'aiEndpoint'         => admin_url( 'admin-ajax.php' ),
+				'aiAction'           => 'md_page_blocks_ai_generate',
+				'aiDefaultModel'     => get_option( 'gt_pb_ai_default_model', 'claude-sonnet-4-6' ),
+				'aiHasOpenAI'        => ! empty( get_option( 'gt_pb_ai_openai_key', '' ) ),
+				'aiHasAnthropic'     => ! empty( get_option( 'gt_pb_ai_anthropic_key', '' ) ),
+				'aiHasGemini'        => ! empty( get_option( 'gt_pb_ai_gemini_key', '' ) ),
+				'aiCssContext'       => $this->get_ai_css_context(),
+				'aiModels'           => array(
 					array( 'id' => 'gpt-5.2', 'label' => 'GPT-5.2', 'provider' => 'openai' ),
 					array( 'id' => 'gpt-5-mini', 'label' => 'GPT-5 Mini', 'provider' => 'openai' ),
 					array( 'id' => 'gpt-4o-mini', 'label' => 'GPT-4o Mini', 'provider' => 'openai' ),
@@ -556,8 +552,12 @@ class GT_Page_Blocks_Builder {
 					array( 'id' => 'claude-haiku-4-5-20241022', 'label' => 'Claude Haiku 4.5', 'provider' => 'anthropic' ),
 					array( 'id' => 'gemini-3-flash-preview', 'label' => 'Gemini 3 Flash', 'provider' => 'gemini' ),
 				),
-				'terminalEnabled' => (bool) get_option( 'gt_pb_terminal_enabled', false ),
-				'terminalAction'  => 'md_page_blocks_terminal_exec',
+				// Library/export/import stubs (plugin uses post_content only, no DB library)
+				'libraryEndpoint'    => '',
+				'librarySaveAction'  => '',
+				'libraryListAction'  => '',
+				'exportAction'       => '',
+				'importAction'       => '',
 			)
 		);
 	}
@@ -652,12 +652,12 @@ class GT_Page_Blocks_Builder {
 	 */
 	private function get_builder_preview_injection( $post_id ) {
 		$defaults = array(
-			'headHtml'      => '',
+			'headHtml'      => (string) get_option( 'gt_pb_preview_head_html', '' ),
 			'bodyStartHtml' => '',
 			'bodyEndHtml'   => '',
-			'css'           => '',
+			'css'           => (string) get_option( 'gt_pb_preview_css', '' ),
 			'jsHead'        => '',
-			'jsFooter'      => '',
+			'jsFooter'      => (string) get_option( 'gt_pb_preview_js_footer', '' ),
 		);
 
 		$injection = apply_filters( 'md_page_blocks_builder_preview_injection', $defaults, $post_id );
@@ -1216,13 +1216,29 @@ class GT_Page_Blocks_Builder {
 		register_setting( 'gt_page_blocks_builder_settings', 'gt_pb_ai_default_model', array(
 			'type'              => 'string',
 			'sanitize_callback' => array( $this, 'sanitize_ai_model' ),
-			'default'           => 'gpt-5.2',
+			'default'           => 'claude-sonnet-4-6',
 		) );
 
 		register_setting( 'gt_page_blocks_builder_settings', 'gt_pb_terminal_enabled', array(
 			'type'              => 'boolean',
 			'sanitize_callback' => 'rest_sanitize_boolean',
 			'default'           => false,
+		) );
+
+		// Preview customization settings
+		register_setting( 'gt_page_blocks_builder_settings', 'gt_pb_preview_css', array(
+			'type'    => 'string',
+			'default' => '',
+		) );
+
+		register_setting( 'gt_page_blocks_builder_settings', 'gt_pb_preview_head_html', array(
+			'type'    => 'string',
+			'default' => '',
+		) );
+
+		register_setting( 'gt_page_blocks_builder_settings', 'gt_pb_preview_js_footer', array(
+			'type'    => 'string',
+			'default' => '',
 		) );
 	}
 
@@ -1233,7 +1249,7 @@ class GT_Page_Blocks_Builder {
 			'gemini-3-flash-preview',
 		);
 
-		return in_array( $value, $allowed, true ) ? $value : 'gpt-5.2';
+		return in_array( $value, $allowed, true ) ? $value : 'claude-sonnet-4-6';
 	}
 
 	/**
@@ -1346,6 +1362,68 @@ class GT_Page_Blocks_Builder {
 
 		$this->theme_class_suggestions = $classes;
 		return $this->theme_class_suggestions;
+	}
+
+	/**
+	 * Public alias for theme CSS classes (used by builder JS config).
+	 *
+	 * @return array
+	 */
+	public function get_theme_css_classes_for_builder() {
+		return $this->get_theme_class_suggestions();
+	}
+
+	/**
+	 * Get condensed CSS context for AI prompts.
+	 *
+	 * Reads the theme's stylesheet to extract CSS variables (custom properties)
+	 * and a sample of utility class names. Sent to AI as system prompt context.
+	 *
+	 * @return string CSS context (max ~8KB).
+	 */
+	public function get_ai_css_context() {
+		$cache_key = 'gt_pb_ai_css_context_' . md5( get_stylesheet() );
+		$cached    = get_transient( $cache_key );
+
+		if ( is_string( $cached ) && $cached !== '' ) {
+			return $cached;
+		}
+
+		$context = '';
+		$files   = $this->get_theme_style_files();
+
+		// Extract :root { --* : value; } CSS variable definitions
+		$variables_block = '';
+		foreach ( $files as $file ) {
+			$contents = file_get_contents( $file );
+			if ( ! $contents ) continue;
+
+			if ( preg_match_all( '/--[A-Za-z0-9_-]+\s*:\s*[^;]+;/', $contents, $vm ) && ! empty( $vm[0] ) ) {
+				foreach ( array_slice( $vm[0], 0, 100 ) as $v ) {
+					$variables_block .= trim( $v ) . "\n";
+				}
+				if ( strlen( $variables_block ) > 4000 ) break;
+			}
+		}
+
+		if ( ! empty( $variables_block ) ) {
+			$context .= ":root {\n" . $variables_block . "}\n\n";
+		}
+
+		// Sample of utility classes
+		$classes = $this->get_theme_class_suggestions();
+		if ( ! empty( $classes ) ) {
+			$context .= '/* Available utility classes: */ ' . implode( ' ', array_slice( $classes, 0, 200 ) );
+		}
+
+		// Cap at ~8KB
+		if ( strlen( $context ) > 8000 ) {
+			$context = substr( $context, 0, 8000 ) . "\n/* ... truncated ... */";
+		}
+
+		set_transient( $cache_key, $context, DAY_IN_SECONDS );
+
+		return $context;
 	}
 
 	/**
@@ -1897,14 +1975,16 @@ class GT_Page_Blocks_Builder {
 			wp_send_json_error( array( 'message' => __( 'Permission denied.', 'page-blocks-builder' ) ), 403 );
 		}
 
-		$prompt    = isset( $_POST['prompt'] ) ? sanitize_textarea_field( wp_unslash( $_POST['prompt'] ) ) : '';
-		$tab       = isset( $_POST['tab'] ) ? sanitize_key( $_POST['tab'] ) : 'html';
-		$model     = isset( $_POST['model'] ) ? sanitize_text_field( wp_unslash( $_POST['model'] ) ) : '';
-		$existing  = isset( $_POST['existing_code'] ) ? wp_unslash( $_POST['existing_code'] ) : '';
-		$selection = isset( $_POST['selection'] ) ? wp_unslash( $_POST['selection'] ) : '';
-		$ctx_html  = isset( $_POST['context_html'] ) ? wp_unslash( $_POST['context_html'] ) : '';
-		$ctx_css   = isset( $_POST['context_css'] ) ? wp_unslash( $_POST['context_css'] ) : '';
-		$page_url  = isset( $_POST['page_url'] ) ? esc_url_raw( wp_unslash( $_POST['page_url'] ) ) : '';
+		$prompt      = isset( $_POST['prompt'] ) ? sanitize_textarea_field( wp_unslash( $_POST['prompt'] ) ) : '';
+		$tab         = isset( $_POST['tab'] ) ? sanitize_key( $_POST['tab'] ) : 'html';
+		$model       = isset( $_POST['model'] ) ? sanitize_text_field( wp_unslash( $_POST['model'] ) ) : '';
+		$existing    = isset( $_POST['existing_code'] ) ? wp_unslash( $_POST['existing_code'] ) : '';
+		$selection   = isset( $_POST['selection'] ) ? wp_unslash( $_POST['selection'] ) : '';
+		$ctx_html    = isset( $_POST['context_html'] ) ? wp_unslash( $_POST['context_html'] ) : '';
+		$ctx_css     = isset( $_POST['context_css'] ) ? wp_unslash( $_POST['context_css'] ) : '';
+		$css_ctx     = isset( $_POST['css_context'] ) ? wp_unslash( $_POST['css_context'] ) : '';
+		$history_raw = isset( $_POST['history'] ) ? wp_unslash( $_POST['history'] ) : '';
+		$page_url    = isset( $_POST['page_url'] ) ? esc_url_raw( wp_unslash( $_POST['page_url'] ) ) : '';
 
 		if ( empty( $prompt ) ) {
 			wp_send_json_error( array( 'message' => __( 'Prompt is required.', 'page-blocks-builder' ) ), 400 );
@@ -1914,7 +1994,16 @@ class GT_Page_Blocks_Builder {
 			$tab = 'html';
 		}
 
-		$result = $this->call_ai_api( $model, $tab, $prompt, $existing, $selection, $ctx_html, $ctx_css, $page_url );
+		// Parse conversation history
+		$history = array();
+		if ( ! empty( $history_raw ) ) {
+			$decoded = json_decode( (string) $history_raw, true );
+			if ( is_array( $decoded ) ) {
+				$history = $decoded;
+			}
+		}
+
+		$result = $this->call_ai_api( $model, $tab, $prompt, $existing, $selection, $ctx_html, $ctx_css, $page_url, $css_ctx, $history );
 
 		if ( is_wp_error( $result ) ) {
 			wp_send_json_error( array( 'message' => $result->get_error_message() ), 500 );
@@ -1923,7 +2012,7 @@ class GT_Page_Blocks_Builder {
 		wp_send_json_success( array( 'code' => $result ) );
 	}
 
-	private function call_ai_api( $model, $tab, $prompt, $existing, $selection, $ctx_html, $ctx_css, $page_url ) {
+	private function call_ai_api( $model, $tab, $prompt, $existing, $selection, $ctx_html, $ctx_css, $page_url, $css_context = '', $history = array() ) {
 		if ( empty( $model ) ) {
 			$model = get_option( 'gt_pb_ai_default_model', 'gpt-5.2' );
 		}
@@ -1958,9 +2047,15 @@ class GT_Page_Blocks_Builder {
 		}
 
 		$system_prompt = $this->get_ai_system_prompt( $tab, $page_url );
-		$user_message  = $this->build_ai_user_message( $prompt, $tab, $existing, $selection, $ctx_html, $ctx_css );
 
-		$result = $this->execute_ai_provider_call( $provider, $api_key, $model, $system_prompt, $user_message );
+		// Add CSS context to system prompt when provided
+		if ( ! empty( $css_context ) ) {
+			$system_prompt .= "\n\nAVAILABLE CSS VARIABLES AND UTILITY CLASSES:\n" . $css_context;
+		}
+
+		$user_message = $this->build_ai_user_message( $prompt, $tab, $existing, $selection, $ctx_html, $ctx_css );
+
+		$result = $this->execute_ai_provider_call( $provider, $api_key, $model, $system_prompt, $user_message, $history );
 		if ( ! $this->should_retry_ai_compact( $result ) ) {
 			return $result;
 		}
@@ -1976,17 +2071,17 @@ class GT_Page_Blocks_Builder {
 		);
 
 		$retry_user_message = $this->build_ai_compact_retry_message( $user_message, $tab );
-		return $this->execute_ai_provider_call( $provider, $api_key, $model, $system_prompt, $retry_user_message );
+		return $this->execute_ai_provider_call( $provider, $api_key, $model, $system_prompt, $retry_user_message, $history );
 	}
 
-	private function execute_ai_provider_call( $provider, $api_key, $model, $system_prompt, $user_message ) {
+	private function execute_ai_provider_call( $provider, $api_key, $model, $system_prompt, $user_message, $history = array() ) {
 		switch ( $provider ) {
 			case 'openai':
-				return $this->call_openai( $api_key, $model, $system_prompt, $user_message );
+				return $this->call_openai( $api_key, $model, $system_prompt, $user_message, $history );
 			case 'anthropic':
-				return $this->call_anthropic( $api_key, $model, $system_prompt, $user_message );
+				return $this->call_anthropic( $api_key, $model, $system_prompt, $user_message, $history );
 			case 'gemini':
-				return $this->call_gemini( $api_key, $model, $system_prompt, $user_message );
+				return $this->call_gemini( $api_key, $model, $system_prompt, $user_message, $history );
 			default:
 				return new WP_Error( 'invalid_provider', __( 'Invalid provider.', 'page-blocks-builder' ) );
 		}
@@ -2084,13 +2179,20 @@ class GT_Page_Blocks_Builder {
 		return max( 30, $timeout );
 	}
 
-	private function call_openai( $api_key, $model, $system_prompt, $user_message ) {
+	private function call_openai( $api_key, $model, $system_prompt, $user_message, $history = array() ) {
+		// Build messages array with conversation history
+		$messages = array( array( 'role' => 'system', 'content' => $system_prompt ) );
+		foreach ( (array) $history as $msg ) {
+			if ( isset( $msg['role'], $msg['content'] ) ) {
+				$role       = $msg['role'] === 'assistant' ? 'assistant' : 'user';
+				$messages[] = array( 'role' => $role, 'content' => (string) $msg['content'] );
+			}
+		}
+		$messages[] = array( 'role' => 'user', 'content' => $user_message );
+
 		$payload = array(
 			'model'       => $model,
-			'messages'    => array(
-				array( 'role' => 'system', 'content' => $system_prompt ),
-				array( 'role' => 'user', 'content' => $user_message ),
-			),
+			'messages'    => $messages,
 			'max_completion_tokens' => 4096,
 		);
 
@@ -2110,7 +2212,17 @@ class GT_Page_Blocks_Builder {
 		return $this->parse_ai_response( $response, 'openai' );
 	}
 
-	private function call_anthropic( $api_key, $model, $system_prompt, $user_message ) {
+	private function call_anthropic( $api_key, $model, $system_prompt, $user_message, $history = array() ) {
+		// Build messages with history
+		$messages = array();
+		foreach ( (array) $history as $msg ) {
+			if ( isset( $msg['role'], $msg['content'] ) ) {
+				$role       = $msg['role'] === 'assistant' ? 'assistant' : 'user';
+				$messages[] = array( 'role' => $role, 'content' => (string) $msg['content'] );
+			}
+		}
+		$messages[] = array( 'role' => 'user', 'content' => $user_message );
+
 		$response = wp_remote_post( 'https://api.anthropic.com/v1/messages', array(
 			'timeout' => $this->get_ai_http_timeout( 'anthropic' ),
 			'headers' => array(
@@ -2121,9 +2233,7 @@ class GT_Page_Blocks_Builder {
 			'body' => wp_json_encode( array(
 				'model'       => $model,
 				'system'      => $system_prompt,
-				'messages'    => array(
-					array( 'role' => 'user', 'content' => $user_message ),
-				),
+				'messages'    => $messages,
 				'max_tokens'  => 4096,
 				'temperature' => 0.3,
 			) ),
@@ -2132,8 +2242,18 @@ class GT_Page_Blocks_Builder {
 		return $this->parse_ai_response( $response, 'anthropic' );
 	}
 
-	private function call_gemini( $api_key, $model, $system_prompt, $user_message ) {
+	private function call_gemini( $api_key, $model, $system_prompt, $user_message, $history = array() ) {
 		$url = 'https://generativelanguage.googleapis.com/v1beta/models/' . $model . ':generateContent';
+
+		// Build contents with history (Gemini uses 'role' = 'user' or 'model')
+		$contents = array();
+		foreach ( (array) $history as $msg ) {
+			if ( isset( $msg['role'], $msg['content'] ) ) {
+				$role       = $msg['role'] === 'assistant' ? 'model' : 'user';
+				$contents[] = array( 'role' => $role, 'parts' => array( array( 'text' => (string) $msg['content'] ) ) );
+			}
+		}
+		$contents[] = array( 'role' => 'user', 'parts' => array( array( 'text' => $user_message ) ) );
 
 		$response = wp_remote_post( $url, array(
 			'timeout' => $this->get_ai_http_timeout( 'gemini' ),
@@ -2145,9 +2265,7 @@ class GT_Page_Blocks_Builder {
 				'system_instruction' => array(
 					'parts' => array( array( 'text' => $system_prompt ) ),
 				),
-				'contents' => array(
-					array( 'parts' => array( array( 'text' => $user_message ) ) ),
-				),
+				'contents' => $contents,
 				'generationConfig' => array(
 					'temperature'    => 0.3,
 					'maxOutputTokens' => 4096,
