@@ -22,8 +22,8 @@ if ( ! defined( 'ABSPATH' ) ) {
 </head>
 <body class="md-page-blocks-builder-shell">
 <?php wp_body_open(); ?>
-<div id="md-page-block-builder-app" class="md-page-block-builder-root">
-	<div class="md-page-block-builder-loading"><?php esc_html_e( 'Loading Page Blocks Builder...', 'page-blocks-builder' ); ?></div>
+<div id="md-pb-builder-app" class="md-pb-builder-root">
+	<div class="md-pb-builder-loading"><?php esc_html_e( 'Loading Page Blocks Builder...', 'page-blocks-builder' ); ?></div>
 </div>
 <?php wp_footer(); ?>
 </body>

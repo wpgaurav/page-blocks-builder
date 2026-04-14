@@ -4,7 +4,7 @@ Tags: page builder, html blocks, css sections, gutenberg, visual builder
 Requires at least: 6.0
 Tested up to: 6.9.1
 Requires PHP: 8.1
-Stable tag: 2.0.1
+Stable tag: 2.0.2
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -64,6 +64,9 @@ Yes. Enable PHP execution per block. PHP runs on the frontend and in server-rend
 When set to "file", CSS and JS for that block are written to external files in `wp-content/uploads/gt-page-blocks/` and served as cacheable resources instead of inline output.
 
 == Changelog ==
+
+= 2.0.2 =
+* **CRITICAL FIX**: "Loading Page Blocks Builder..." stuck on screen — template HTML used old element ID (`md-page-block-builder-app`) but the v2.0.0 JS expects new ID (`md-pb-builder-app`). Updated template to match.
 
 = 2.0.1 =
 * Fix `block_categories_all` filter signature mismatch
