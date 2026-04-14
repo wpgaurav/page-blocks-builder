@@ -10,6 +10,9 @@ $ai_default_model    = get_option( 'gt_pb_ai_default_model', 'claude-sonnet-4-6'
 $preview_css         = get_option( 'gt_pb_preview_css', '' );
 $preview_head_html   = get_option( 'gt_pb_preview_head_html', '' );
 $preview_js_footer   = get_option( 'gt_pb_preview_js_footer', '' );
+$load_reset          = (bool) get_option( 'gt_pb_load_reset', false );
+$load_typography     = (bool) get_option( 'gt_pb_load_typography', false );
+$load_utilities      = (bool) get_option( 'gt_pb_load_utilities', false );
 ?>
 <div class="wrap">
 	<h1><?php esc_html_e( 'Page Blocks Builder', 'page-blocks-builder' ); ?></h1>
@@ -33,6 +36,42 @@ $preview_js_footer   = get_option( 'gt_pb_preview_js_footer', '' );
 							<?php echo esc_html( $post_type->label . ' (' . $post_type->name . ')' ); ?>
 						</label>
 					<?php endforeach; ?>
+				</td>
+			</tr>
+
+			<tr><td colspan="2"><h2 style="margin-top: 1em;"><?php esc_html_e( 'Frontend CSS', 'page-blocks-builder' ); ?></h2><p class="description"><?php esc_html_e( 'Optional CSS layers loaded inline on the frontend. Both are theme-agnostic and load only what\'s needed.', 'page-blocks-builder' ); ?></p></td></tr>
+			<tr>
+				<th scope="row"><?php esc_html_e( 'Semantic Reset', 'page-blocks-builder' ); ?></th>
+				<td>
+					<label>
+						<input type="checkbox" name="gt_pb_load_reset" value="1" <?php checked( $load_reset ); ?>>
+						<?php esc_html_e( 'Load minified semantic reset CSS in <head>', 'page-blocks-builder' ); ?>
+					</label>
+					<p class="description"><?php esc_html_e( 'Modern reset: box-sizing, list/heading defaults, accessible images, prefers-reduced-motion. ~1KB inlined when enabled.', 'page-blocks-builder' ); ?></p>
+				</td>
+			</tr>
+			<tr>
+				<th scope="row"><?php esc_html_e( 'Typography', 'page-blocks-builder' ); ?></th>
+				<td>
+					<label>
+						<input type="checkbox" name="gt_pb_load_typography" value="1" <?php checked( $load_typography ); ?>>
+						<?php esc_html_e( 'Load minified typography defaults in <head>', 'page-blocks-builder' ); ?>
+					</label>
+					<p class="description"><?php esc_html_e( 'System fonts (no external requests), responsive heading sizes via clamp(), proper measure (65ch), styled lists, blockquotes, code, kbd, tables, dark-mode adjustments. ~3KB inlined when enabled.', 'page-blocks-builder' ); ?></p>
+				</td>
+			</tr>
+			<tr>
+				<th scope="row"><?php esc_html_e( 'Utility Classes', 'page-blocks-builder' ); ?></th>
+				<td>
+					<label>
+						<input type="checkbox" name="gt_pb_load_utilities" value="1" <?php checked( $load_utilities ); ?>>
+						<?php esc_html_e( 'Inline utility classes that are actually used on the page', 'page-blocks-builder' ); ?>
+					</label>
+					<p class="description">
+						<?php esc_html_e( 'Tailwind-inspired utilities (grid, flex, spacing, typography, colors, etc.). The plugin scans your post content for class names and inlines ONLY the matching rules — no bloat.', 'page-blocks-builder' ); ?>
+						<br>
+						<?php esc_html_e( 'In the builder, the full utility set is always available for autocomplete.', 'page-blocks-builder' ); ?>
+					</p>
 				</td>
 			</tr>
 

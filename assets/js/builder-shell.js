@@ -1241,6 +1241,195 @@
 		return Object.keys(classMap).sort();
 	}
 
+	// -------------------------------------------------------------------------
+	// Emmet expansion (minimal parser for 90% cases)
+	// Supports: tag, .class, #id, [attr="val"], {text}, >, +, *N, $ numbering
+	// -------------------------------------------------------------------------
+
+	var EMMET_VOID_TAGS = {
+		area:1,base:1,br:1,col:1,embed:1,hr:1,img:1,input:1,
+		link:1,meta:1,param:1,source:1,track:1,wbr:1
+	};
+
+	function emmetParse(input) {
+		var pos = 0;
+		var len = input.length;
+
+		function peek() { return pos < len ? input.charAt(pos) : ''; }
+		function consume() { return input.charAt(pos++); }
+		function match(re) { return re.test(peek()); }
+
+		function parseIdentifier() {
+			var s = '';
+			while (pos < len && /[\w-]/.test(input.charAt(pos))) s += consume();
+			return s;
+		}
+
+		function parseElement() {
+			var tag = '';
+			if (match(/[a-zA-Z]/)) tag = parseIdentifier();
+			if (!tag) tag = 'div';
+
+			var node = { tag: tag, classes: [], id: '', attrs: [], text: '', children: [], multiply: 1 };
+
+			while (pos < len) {
+				var c = peek();
+				if (c === '.') {
+					consume();
+					var cls = parseIdentifier();
+					if (cls) node.classes.push(cls);
+				} else if (c === '#') {
+					consume();
+					node.id = parseIdentifier();
+				} else if (c === '[') {
+					consume();
+					var attrStr = '';
+					while (pos < len && peek() !== ']') attrStr += consume();
+					if (peek() === ']') consume();
+					node.attrs.push(attrStr.trim());
+				} else if (c === '{') {
+					consume();
+					var text = '';
+					while (pos < len && peek() !== '}') text += consume();
+					if (peek() === '}') consume();
+					node.text = text;
+				} else if (c === '*') {
+					consume();
+					var num = '';
+					while (pos < len && /\d/.test(peek())) num += consume();
+					node.multiply = parseInt(num, 10) || 1;
+				} else {
+					break;
+				}
+			}
+
+			return node;
+		}
+
+		function parseSequence() {
+			var first = parseElement();
+			if (peek() === '>') {
+				consume();
+				first.children.push(parseSequence());
+			}
+			if (peek() === '+') {
+				consume();
+				var sibling = parseSequence();
+				return { siblings: [first, sibling] };
+			}
+			return first;
+		}
+
+		return parseSequence();
+	}
+
+	function emmetRender(node, index) {
+		// Flatten sibling wrappers
+		if (node.siblings) {
+			var parts = [];
+			node.siblings.forEach(function(n) {
+				parts.push(emmetRender(n, index));
+			});
+			return parts.join('\n');
+		}
+
+		var out = '';
+		var count = node.multiply || 1;
+		for (var i = 1; i <= count; i++) {
+			var currentIdx = i;
+			var classes = node.classes.map(function(c) { return c.replace(/\$+/g, currentIdx); });
+			var id = node.id.replace(/\$+/g, currentIdx);
+			var text = node.text.replace(/\$+/g, currentIdx);
+
+			var attrs = '';
+			if (id) attrs += ' id="' + id + '"';
+			if (classes.length) attrs += ' class="' + classes.join(' ') + '"';
+			node.attrs.forEach(function(a) { attrs += ' ' + a; });
+
+			if (EMMET_VOID_TAGS[node.tag]) {
+				out += '<' + node.tag + attrs + '>';
+			} else {
+				var childrenHtml = '';
+				node.children.forEach(function(c) { childrenHtml += emmetRender(c, currentIdx); });
+
+				if (text && !childrenHtml) {
+					out += '<' + node.tag + attrs + '>' + text + '</' + node.tag + '>';
+				} else if (childrenHtml) {
+					out += '<' + node.tag + attrs + '>\n\t' + childrenHtml.split('\n').join('\n\t') + '\n</' + node.tag + '>';
+				} else {
+					out += '<' + node.tag + attrs + '></' + node.tag + '>';
+				}
+			}
+			if (i < count) out += '\n';
+		}
+		return out;
+	}
+
+	function tryEmmetExpand(cm) {
+		var cursor = cm.getCursor();
+		var line = cm.getLine(cursor.line);
+		if (typeof line !== 'string') return false;
+
+		var uptoCursor = line.slice(0, cursor.ch);
+
+		// Don't expand if cursor is inside a tag or attribute value
+		var lastLt = uptoCursor.lastIndexOf('<');
+		var lastGt = uptoCursor.lastIndexOf('>');
+		if (lastLt > lastGt) return false;
+
+		// Match abbreviation at end: tag chars followed by emmet operators
+		// Characters allowed: a-zA-Z0-9 . # > + * [ ] { } = " ' - _ $
+		var match = uptoCursor.match(/([a-zA-Z][a-zA-Z0-9]*[\w.#>+*\[\]\{\}="'\-\$]*)$/);
+		if (!match) return false;
+
+		var abbr = match[1];
+
+		// Require some emmet operator to trigger (avoid expanding plain words)
+		if (!/[.#>+*\[\{]/.test(abbr)) return false;
+
+		var expanded;
+		try {
+			var tree = emmetParse(abbr);
+			expanded = emmetRender(tree, 1);
+		} catch (e) {
+			return false;
+		}
+
+		if (!expanded || expanded.indexOf('<') === -1) return false;
+
+		// Replace abbreviation with expansion
+		cm.replaceRange(
+			expanded,
+			{ line: cursor.line, ch: cursor.ch - abbr.length },
+			cursor
+		);
+
+		// Place cursor at first empty text slot
+		var newPos = findFirstCursorSlot(cm, cursor.line, cursor.ch - abbr.length, expanded);
+		if (newPos) cm.setCursor(newPos);
+
+		return true;
+	}
+
+	function findFirstCursorSlot(cm, startLine, startCh, expanded) {
+		// Find first empty >< pair or empty "" attr
+		var lines = expanded.split('\n');
+		for (var i = 0; i < lines.length; i++) {
+			var ln = lines[i];
+			// Empty attribute value: class="" / href=""
+			var attrMatch = ln.match(/\w+=""/);
+			if (attrMatch) {
+				return { line: startLine + i, ch: (i === 0 ? startCh : 0) + attrMatch.index + attrMatch[0].indexOf('"') + 1 };
+			}
+			// Empty element body: ><
+			var bodyMatch = ln.match(/><\//);
+			if (bodyMatch) {
+				return { line: startLine + i, ch: (i === 0 ? startCh : 0) + bodyMatch.index + 1 };
+			}
+		}
+		return null;
+	}
+
 	function getHtmlClassHintData(cm) {
 		if (!window.CodeMirror || !window.CodeMirror.Pos) {
 			return null;
@@ -1397,20 +1586,20 @@
 		map.forEach(function(item) {
 			var settings = config.codeEditorSettings && config.codeEditorSettings[item.key] ? config.codeEditorSettings[item.key] : {};
 
-			// Add Ctrl-Space class completion to both HTML and CSS editors
+			// Tab in HTML editor = Emmet expansion
 			if (item.key === 'html') {
 				var htmlCmSettings = settings.codemirror || {};
 				var htmlExtraKeys = htmlCmSettings.extraKeys || {};
-				htmlExtraKeys['Ctrl-Space'] = function(cm) {
-					var hintData = getHtmlClassHintData(cm);
-					if (hintData && cm.showHint) {
-						cm.showHint({
-							hint: function() { return getHtmlClassHintData(cm); },
-							completeSingle: false
-						});
+				htmlExtraKeys['Tab'] = function(cm) {
+					if (cm.somethingSelected()) {
+						// If text is selected, indent it (default Tab behavior)
+						return window.CodeMirror ? window.CodeMirror.Pass : undefined;
 					}
+					var expanded = tryEmmetExpand(cm);
+					if (expanded) return;
+					// Otherwise, default Tab (insert tab/indent)
+					return window.CodeMirror ? window.CodeMirror.Pass : undefined;
 				};
-				htmlExtraKeys['Cmd-Space'] = htmlExtraKeys['Ctrl-Space'];
 				htmlCmSettings.extraKeys = htmlExtraKeys;
 				settings.codemirror = htmlCmSettings;
 			}
@@ -1458,16 +1647,6 @@
 					}, 400);
 				});
 
-				// Auto-trigger class suggestions when typing inside class="..."
-				editor.codemirror.on('inputRead', function(instance, change) {
-					if (state.syncingEditors) {
-						return;
-					}
-					// Only trigger on single character inserts (typing)
-					if (change.origin === '+input' || change.origin === 'complete') {
-						triggerHtmlClassHint(instance);
-					}
-				});
 			}
 		});
 	}

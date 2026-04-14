@@ -59,9 +59,9 @@ class GT_PB_License_Manager {
 
 	public function add_submenu_page() {
 		add_submenu_page(
-			'options-general.php',
-			__( 'Page Blocks License', 'page-blocks-builder' ),
-			__( 'Page Blocks License', 'page-blocks-builder' ),
+			'gt_page_blocks',
+			__( 'License', 'page-blocks-builder' ),
+			__( 'License', 'page-blocks-builder' ),
 			'manage_options',
 			'gt-pb-builder-license',
 			array( $this, 'render_license_page' )

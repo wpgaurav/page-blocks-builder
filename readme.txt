@@ -4,7 +4,7 @@ Tags: page builder, html blocks, css sections, gutenberg, visual builder
 Requires at least: 6.0
 Tested up to: 6.9.1
 Requires PHP: 8.1
-Stable tag: 2.0.2
+Stable tag: 2.4.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -64,6 +64,29 @@ Yes. Enable PHP execution per block. PHP runs on the frontend and in server-rend
 When set to "file", CSS and JS for that block are written to external files in `wp-content/uploads/gt-page-blocks/` and served as cacheable resources instead of inline output.
 
 == Changelog ==
+
+= 2.4.0 =
+* **NEW**: Emmet-style expansion in the HTML editor. Type an abbreviation like `section.hero>h1{Title}+p{Body}+a.btn[href="#"]{Click}` and press Tab to expand into nested HTML. Supports tags, `.class`, `#id`, `[attr="val"]`, `{text}`, `>` (child), `+` (sibling), `*N` (multiply), `$` (numbering).
+* Removed HTML class autocomplete (was noisy and unreliable).
+* Cursor auto-jumps to the first empty slot after expansion.
+
+= 2.3.1 =
+* **FIX**: CSS class autocomplete was broken because PHP sent `cssClasses` as a JSON object (due to `array_unique` key gaps) instead of a JSON array. Added `array_values()` wrapper so `Array.isArray()` passes on the JS side.
+
+= 2.3.0 =
+* **NEW**: Typography.min.css toggle — system-font-based typography defaults with responsive heading sizes via `clamp()`, proper measure (65ch), styled lists, blockquotes, code, kbd, tables. ~3KB inlined when enabled.
+* Three independent toggles under Settings → Page Blocks → Frontend CSS: Semantic Reset, Typography, Utility Classes.
+
+= 2.2.0 =
+* **NEW**: Semantic Reset CSS (~1KB) — modern reset with box-sizing, list defaults, accessible images, prefers-reduced-motion support. Inlined in `<head>` when enabled.
+* **NEW**: Utility Classes — ~330 Tailwind-inspired utilities (grid, flex, spacing, typography, colors, borders, shadows, etc. + `sm:/md:/lg:` responsive variants). Frontend inlines ONLY the rules actually used on the page (parses post_content for class names). Builder loads the full set for autocomplete.
+
+= 2.1.0 =
+* **NEW**: Top-level "Page Blocks" admin menu (moved out of Settings) with sub-pages: All Page Blocks (list table), Add New, Settings, License.
+* **NEW**: Database-backed reusable blocks with `[page_block id="123"]` and `[page_block slug="hero-section"]` shortcodes.
+* **NEW**: Admin list table with bulk actions (trash/restore/delete), search, status filtering.
+* **NEW**: Admin edit form with Monaco editors for HTML/CSS/JS, live preview, position picker.
+* **NEW**: `gt_pb_get_positions()` filter — theme-independent WP core hooks (wp_head, wp_footer, the_content, loop_start, etc.).
 
 = 2.0.2 =
 * **CRITICAL FIX**: "Loading Page Blocks Builder..." stuck on screen — template HTML used old element ID (`md-page-block-builder-app`) but the v2.0.0 JS expects new ID (`md-pb-builder-app`). Updated template to match.

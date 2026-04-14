@@ -3,7 +3,7 @@
  * Plugin Name: GT Page Blocks Builder
  * Plugin URI: https://gauravtiwari.org/product/gt-page-blocks-builder/
  * Description: Standalone visual Page Blocks builder with HTML/CSS/JS sections synced to Gutenberg block content.
- * Version: 2.0.2
+ * Version: 2.4.0
  * Author: Gaurav Tiwari
  * Author URI: https://gauravtiwari.org
  * Text Domain: page-blocks-builder
@@ -14,7 +14,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 if ( ! defined( 'GT_PB_BUILDER_VERSION' ) ) {
-	define( 'GT_PB_BUILDER_VERSION', '2.0.2' );
+	define( 'GT_PB_BUILDER_VERSION', '2.4.0' );
 }
 
 if ( ! defined( 'GT_PB_BUILDER_FILE' ) ) {
@@ -97,6 +97,79 @@ if ( ! function_exists( 'md_page_blocks_preview_nonce_action' ) ) {
 	}
 }
 
+if ( ! function_exists( 'gt_pb_get_positions' ) ) {
+	/**
+	 * Available position hooks for library page blocks.
+	 *
+	 * Theme-independent — uses WordPress core action hooks. Themes can
+	 * extend via the `gt_pb_positions` filter.
+	 *
+	 * @return array<string,string>
+	 */
+	function gt_pb_get_positions(): array {
+		$positions = array(
+			''                       => __( 'None (shortcode only)', 'page-blocks-builder' ),
+			'wp_head'                => __( 'wp_head', 'page-blocks-builder' ),
+			'wp_body_open'           => __( 'wp_body_open (after <body>)', 'page-blocks-builder' ),
+			'wp_footer'              => __( 'wp_footer (before </body>)', 'page-blocks-builder' ),
+			'the_content_before'     => __( 'Before The Content', 'page-blocks-builder' ),
+			'the_content_after'      => __( 'After The Content', 'page-blocks-builder' ),
+			'loop_start'             => __( 'Loop Start', 'page-blocks-builder' ),
+			'loop_end'               => __( 'Loop End', 'page-blocks-builder' ),
+			'get_header'             => __( 'get_header', 'page-blocks-builder' ),
+			'get_footer'             => __( 'get_footer', 'page-blocks-builder' ),
+			'get_sidebar'            => __( 'get_sidebar', 'page-blocks-builder' ),
+		);
+
+		return apply_filters( 'gt_pb_positions', $positions );
+	}
+}
+
+if ( ! function_exists( 'gt_pb_execute_php' ) ) {
+	/**
+	 * Execute PHP in page block content.
+	 *
+	 * @param string $content Content with PHP tags.
+	 * @return string Executed content.
+	 */
+	function gt_pb_execute_php( string $content ): string {
+		if ( strpos( $content, '<?php' ) === false && strpos( $content, '<?=' ) === false ) {
+			return $content;
+		}
+
+		$is_frontend = ! is_admin() && ! wp_doing_ajax() && ! ( defined( 'REST_REQUEST' ) && REST_REQUEST );
+		$can_execute = (bool) apply_filters(
+			'gt_pb_can_execute_php',
+			current_user_can( 'manage_options' ) || $is_frontend,
+			$content
+		);
+
+		if ( ! $can_execute ) {
+			return preg_replace( '/<\?(?:php|=).*?\?>/is', '', $content );
+		}
+
+		$temp_file = tempnam( sys_get_temp_dir(), 'gt_pb_' );
+		if ( ! $temp_file ) {
+			return $content;
+		}
+
+		file_put_contents( $temp_file, $content );
+
+		ob_start();
+		try {
+			include $temp_file;
+		} catch ( \Throwable $e ) {
+			if ( defined( 'WP_DEBUG' ) && WP_DEBUG ) {
+				echo '<!-- Page Blocks PHP Error: ' . esc_html( $e->getMessage() ) . ' -->';
+			}
+		} finally {
+			unlink( $temp_file );
+		}
+
+		return (string) ob_get_clean();
+	}
+}
+
 if ( ! function_exists( 'md_page_blocks_builder_url' ) ) {
 	/**
 	 * Build frontend visual builder URL.
@@ -157,7 +230,23 @@ class GT_Page_Blocks_Builder {
 	 */
 	private $upload_dir_cache = null;
 
+	/**
+	 * Database layer for reusable Page Blocks (shortcode-driven library).
+	 *
+	 * @var gt_pb_db|null
+	 */
+	public $db = null;
+
 	public function __construct() {
+		// Load includes
+		require_once GT_PB_BUILDER_DIR . 'includes/class-db.php';
+		require_once GT_PB_BUILDER_DIR . 'includes/class-shortcode.php';
+		require_once GT_PB_BUILDER_DIR . 'includes/class-list-table.php';
+		require_once GT_PB_BUILDER_DIR . 'includes/class-css-loader.php';
+
+		$this->db = new gt_pb_db();
+		gt_pb_css_loader::init();
+
 		add_action( 'init', array( $this, 'register_block' ) );
 		add_filter( 'block_categories_all', array( $this, 'register_block_category' ), 10, 1 );
 		add_action( 'enqueue_block_editor_assets', array( $this, 'enqueue_block_editor_assets' ) );
@@ -171,6 +260,10 @@ class GT_Page_Blocks_Builder {
 		add_action( 'wp_ajax_md_page_blocks_ai_generate', array( $this, 'ajax_ai_generate' ) );
 		add_action( 'wp_ajax_md_page_blocks_terminal_exec', array( $this, 'ajax_terminal_exec' ) );
 
+		// Reusable blocks AJAX (admin edit page)
+		add_action( 'wp_ajax_gt_pb_admin_preview', array( $this, 'ajax_admin_preview' ) );
+		add_action( 'wp_ajax_gt_pb_admin_preview_css', array( $this, 'ajax_admin_preview_css' ) );
+
 		add_action( 'wp_footer', array( $this, 'output_footer_scripts' ), 99 );
 
 		add_action( 'template_redirect', array( $this, 'collect_css_for_head' ) );
@@ -180,7 +273,14 @@ class GT_Page_Blocks_Builder {
 		add_action( 'delete_post', array( $this, 'on_post_delete' ) );
 
 		add_action( 'admin_init', array( $this, 'register_settings' ) );
-		add_action( 'admin_menu', array( $this, 'register_settings_page' ) );
+		add_action( 'admin_init', array( $this->db, 'maybe_create_table' ) );
+		add_action( 'admin_init', array( $this, 'handle_admin_form_submission' ) );
+		add_action( 'admin_menu', array( $this, 'register_admin_menu' ) );
+		add_action( 'admin_enqueue_scripts', array( $this, 'enqueue_admin_assets' ) );
+
+		// Shortcode for reusable library blocks
+		$shortcode = new gt_pb_shortcode( $this->db, $this );
+		$shortcode->init();
 
 		add_action( 'admin_footer', array( $this, 'output_rankmath_integration' ) );
 
@@ -533,8 +633,11 @@ class GT_Page_Blocks_Builder {
 				'availableTemplates' => $this->get_available_page_templates( $post_id ),
 				'previewInjection'   => $this->get_builder_preview_injection( $post_id ),
 				'codeEditorSettings' => $editor_settings,
-				'themeStyleUrls'     => $this->get_theme_style_urls(),
-				'cssClasses'         => $this->get_theme_css_classes_for_builder(),
+				'themeStyleUrls'     => $this->get_builder_style_urls(),
+				'cssClasses'         => array_values( array_unique( array_merge(
+					$this->get_theme_css_classes_for_builder(),
+					$this->get_utility_class_names()
+				) ) ),
 				// AI
 				'aiEndpoint'         => admin_url( 'admin-ajax.php' ),
 				'aiAction'           => 'md_page_blocks_ai_generate',
@@ -602,6 +705,66 @@ class GT_Page_Blocks_Builder {
 
 		$urls = array_values( array_unique( array_filter( $urls ) ) );
 		return $urls;
+	}
+
+	/**
+	 * Style URLs to load in the BUILDER preview iframe.
+	 *
+	 * Includes theme stylesheets PLUS the plugin's reset/utilities files
+	 * (always loaded in builder so authors see the full system).
+	 *
+	 * @return array
+	 */
+	private function get_builder_style_urls() {
+		$urls = $this->get_theme_style_urls();
+
+		// Always include reset + typography + utilities in builder so the builder preview
+		// matches what would be available with the toggles enabled on frontend.
+		$urls[] = GT_PB_BUILDER_URL . 'assets/css/reset.min.css';
+		$urls[] = GT_PB_BUILDER_URL . 'assets/css/typography.min.css';
+		$urls[] = GT_PB_BUILDER_URL . 'assets/css/utilities.css';
+
+		return array_values( array_unique( array_filter( $urls ) ) );
+	}
+
+	/**
+	 * Get all utility class names from utilities.css.
+	 *
+	 * Used for editor autocomplete in the builder.
+	 *
+	 * @return array<string>
+	 */
+	private function get_utility_class_names(): array {
+		$cache_key = 'gt_pb_utility_class_names_v' . GT_PB_BUILDER_VERSION;
+		$cached    = get_transient( $cache_key );
+		if ( is_array( $cached ) ) {
+			return $cached;
+		}
+
+		$path = GT_PB_BUILDER_DIR . 'assets/css/utilities.css';
+		if ( ! file_exists( $path ) ) {
+			return array();
+		}
+
+		$css     = file_get_contents( $path );
+		$classes = array();
+
+		if ( preg_match_all( '/\.([\w\\\\\/:-]+)\s*\{/', $css, $matches ) ) {
+			foreach ( $matches[1] as $cls ) {
+				// Un-escape backslashes (e.g. md\:flex → md:flex)
+				$cls = str_replace( '\\', '', $cls );
+				if ( strlen( $cls ) > 0 ) {
+					$classes[ $cls ] = true;
+				}
+			}
+		}
+
+		$names = array_keys( $classes );
+		sort( $names, SORT_NATURAL );
+
+		set_transient( $cache_key, $names, DAY_IN_SECONDS );
+
+		return $names;
 	}
 
 	/**
@@ -1238,6 +1401,25 @@ class GT_Page_Blocks_Builder {
 			'type'    => 'string',
 			'default' => '',
 		) );
+
+		// Frontend CSS settings
+		register_setting( 'gt_page_blocks_builder_settings', 'gt_pb_load_reset', array(
+			'type'              => 'boolean',
+			'sanitize_callback' => 'rest_sanitize_boolean',
+			'default'           => false,
+		) );
+
+		register_setting( 'gt_page_blocks_builder_settings', 'gt_pb_load_typography', array(
+			'type'              => 'boolean',
+			'sanitize_callback' => 'rest_sanitize_boolean',
+			'default'           => false,
+		) );
+
+		register_setting( 'gt_page_blocks_builder_settings', 'gt_pb_load_utilities', array(
+			'type'              => 'boolean',
+			'sanitize_callback' => 'rest_sanitize_boolean',
+			'default'           => false,
+		) );
 	}
 
 	public function sanitize_ai_model( $value ) {
@@ -1282,14 +1464,323 @@ class GT_Page_Blocks_Builder {
 	/**
 	 * Add settings page.
 	 */
-	public function register_settings_page() {
-		add_options_page(
-			__( 'Page Blocks Builder', 'page-blocks-builder' ),
-			__( 'Page Blocks Builder', 'page-blocks-builder' ),
+	/**
+	 * Register top-level "Page Blocks" admin menu with sub-pages:
+	 * - All Page Blocks (list table)
+	 * - Add New
+	 * - Settings
+	 */
+	public function register_admin_menu() {
+		add_menu_page(
+			__( 'Page Blocks', 'page-blocks-builder' ),
+			__( 'Page Blocks', 'page-blocks-builder' ),
 			'manage_options',
-			'gt-page-blocks-builder',
+			'gt_page_blocks',
+			array( $this, 'render_list_page' ),
+			'dashicons-layout',
+			26
+		);
+
+		add_submenu_page(
+			'gt_page_blocks',
+			__( 'All Page Blocks', 'page-blocks-builder' ),
+			__( 'All Page Blocks', 'page-blocks-builder' ),
+			'manage_options',
+			'gt_page_blocks',
+			array( $this, 'render_list_page' )
+		);
+
+		add_submenu_page(
+			'gt_page_blocks',
+			__( 'Add New', 'page-blocks-builder' ),
+			__( 'Add New', 'page-blocks-builder' ),
+			'manage_options',
+			'gt_pb_edit',
+			array( $this, 'render_edit_page' )
+		);
+
+		add_submenu_page(
+			'gt_page_blocks',
+			__( 'Settings', 'page-blocks-builder' ),
+			__( 'Settings', 'page-blocks-builder' ),
+			'manage_options',
+			'gt_pb_settings',
 			array( $this, 'render_settings_page' )
 		);
+	}
+
+	/**
+	 * @deprecated Use register_admin_menu() — kept as alias for back-compat.
+	 */
+	public function register_settings_page() {
+		// no-op (replaced by register_admin_menu)
+	}
+
+	/**
+	 * Render the list table admin page.
+	 */
+	public function render_list_page() {
+		$list_table = new gt_pb_list_table( $this->db );
+		$list_table->prepare_items();
+		?>
+		<div class="wrap">
+			<h1 class="wp-heading-inline"><?php esc_html_e( 'Page Blocks', 'page-blocks-builder' ); ?></h1>
+			<a href="<?php echo esc_url( admin_url( 'admin.php?page=gt_pb_edit&action=new' ) ); ?>" class="page-title-action">
+				<?php esc_html_e( 'Add New', 'page-blocks-builder' ); ?>
+			</a>
+			<hr class="wp-header-end">
+
+			<?php $this->render_admin_notices(); ?>
+
+			<form method="get">
+				<input type="hidden" name="page" value="gt_page_blocks">
+				<?php
+				$list_table->search_box( __( 'Search Page Blocks', 'page-blocks-builder' ), 'gt-pb-search' );
+				$list_table->display();
+				?>
+			</form>
+		</div>
+		<?php
+	}
+
+	/**
+	 * Render the edit/add admin page.
+	 */
+	public function render_edit_page() {
+		$action = isset( $_GET['action'] ) ? sanitize_text_field( $_GET['action'] ) : '';
+		$id     = isset( $_GET['id'] ) ? (int) $_GET['id'] : 0;
+		$block  = null;
+
+		if ( $action !== 'new' && $id > 0 ) {
+			$block = $this->db->get( $id );
+			if ( ! $block ) {
+				wp_die( esc_html__( 'Page block not found.', 'page-blocks-builder' ) );
+			}
+		}
+
+		include GT_PB_BUILDER_DIR . 'templates/admin-edit.php';
+	}
+
+	private function render_admin_notices() {
+		if ( ! isset( $_GET['msg'] ) ) {
+			return;
+		}
+		$msg     = sanitize_key( $_GET['msg'] );
+		$mapping = array(
+			'created' => __( 'Page block created.', 'page-blocks-builder' ),
+			'updated' => __( 'Page block updated.', 'page-blocks-builder' ),
+			'trashed' => __( 'Page block moved to trash.', 'page-blocks-builder' ),
+			'restored' => __( 'Page block restored.', 'page-blocks-builder' ),
+			'deleted' => __( 'Page block permanently deleted.', 'page-blocks-builder' ),
+		);
+		if ( isset( $mapping[ $msg ] ) ) {
+			echo '<div class="notice notice-success is-dismissible"><p>' . esc_html( $mapping[ $msg ] ) . '</p></div>';
+		}
+	}
+
+	/**
+	 * Handle save / row actions on admin pages.
+	 */
+	public function handle_admin_form_submission() {
+		// Save (create/update)
+		if ( isset( $_POST['gt_pb_save'] ) ) {
+			$this->handle_block_save();
+			return;
+		}
+
+		// Row actions: trash, restore, delete
+		if ( isset( $_GET['page'], $_GET['action'], $_GET['id'] ) && $_GET['page'] === 'gt_page_blocks' ) {
+			$action = sanitize_key( $_GET['action'] );
+			$id     = (int) $_GET['id'];
+			$nonce  = $_GET['_wpnonce'] ?? '';
+
+			if ( $action === 'trash' && wp_verify_nonce( $nonce, 'md_pb_trash_' . $id ) ) {
+				$this->db->trash( $id );
+				wp_safe_redirect( admin_url( 'admin.php?page=gt_page_blocks&msg=trashed' ) );
+				exit;
+			}
+			if ( $action === 'restore' && wp_verify_nonce( $nonce, 'md_pb_restore_' . $id ) ) {
+				$this->db->restore( $id );
+				wp_safe_redirect( admin_url( 'admin.php?page=gt_page_blocks&msg=restored' ) );
+				exit;
+			}
+			if ( $action === 'delete' && wp_verify_nonce( $nonce, 'md_pb_delete_' . $id ) ) {
+				$this->db->delete( $id );
+				wp_safe_redirect( admin_url( 'admin.php?page=gt_page_blocks&msg=deleted' ) );
+				exit;
+			}
+		}
+	}
+
+	/**
+	 * Save handler for the edit form.
+	 */
+	private function handle_block_save() {
+		if ( ! current_user_can( 'manage_options' ) ) {
+			wp_die( esc_html__( 'Permission denied.', 'page-blocks-builder' ) );
+		}
+
+		check_admin_referer( 'gt_pb_save_block' );
+
+		$id   = isset( $_POST['block_id'] ) ? (int) $_POST['block_id'] : 0;
+		// phpcs:disable WordPress.Security.ValidatedSanitizedInput.InputNotSanitized
+		$data = array(
+			'title'       => sanitize_text_field( wp_unslash( $_POST['block_title'] ?? '' ) ),
+			'slug'        => sanitize_title( wp_unslash( $_POST['block_slug'] ?? '' ) ),
+			'status'      => sanitize_text_field( wp_unslash( $_POST['block_status'] ?? 'publish' ) ),
+			'content'     => wp_unslash( $_POST['block_content'] ?? '' ),
+			'css'         => wp_unslash( $_POST['block_css'] ?? '' ),
+			'js'          => wp_unslash( $_POST['block_js'] ?? '' ),
+			'js_location' => sanitize_text_field( wp_unslash( $_POST['block_js_location'] ?? 'footer' ) ),
+			'output'      => sanitize_text_field( wp_unslash( $_POST['block_output'] ?? 'inline' ) ),
+			'php_exec'    => isset( $_POST['block_php_exec'] ) ? 1 : 0,
+			'format'      => isset( $_POST['block_format'] ) ? 1 : 0,
+			'position'    => sanitize_text_field( wp_unslash( $_POST['block_position'] ?? '' ) ),
+			'priority'    => isset( $_POST['block_priority'] ) ? (int) $_POST['block_priority'] : 10,
+			'author'      => get_current_user_id(),
+		);
+		// phpcs:enable
+
+		if ( $id > 0 ) {
+			$this->db->update( $id, $data );
+			$msg = 'updated';
+		} else {
+			$id  = $this->db->insert( $data );
+			$msg = 'created';
+		}
+
+		wp_safe_redirect( admin_url( "admin.php?page=gt_pb_edit&id={$id}&msg={$msg}" ) );
+		exit;
+	}
+
+	/**
+	 * Enqueue admin assets on Page Blocks admin pages.
+	 */
+	public function enqueue_admin_assets( $hook ) {
+		// Match our admin pages: toplevel_page_gt_page_blocks or page-blocks_page_gt_pb_*
+		if ( strpos( $hook, 'gt_page_blocks' ) === false && strpos( $hook, 'gt_pb_edit' ) === false ) {
+			return;
+		}
+
+		wp_enqueue_style(
+			'gt-pb-admin-edit',
+			GT_PB_BUILDER_URL . 'assets/css/admin-edit.css',
+			array(),
+			GT_PB_BUILDER_VERSION
+		);
+
+		wp_enqueue_script(
+			'gt-pb-admin-edit',
+			GT_PB_BUILDER_URL . 'assets/js/admin-edit.js',
+			array(),
+			GT_PB_BUILDER_VERSION,
+			true
+		);
+
+		wp_localize_script( 'gt-pb-admin-edit', 'gtPbPreview', array(
+			'ajaxUrl'       => admin_url( 'admin-ajax.php' ),
+			'nonce'         => wp_create_nonce( 'gt_pb_admin_preview' ),
+			'previewCssUrl' => add_query_arg( array(
+				'action' => 'gt_pb_admin_preview_css',
+				'nonce'  => wp_create_nonce( 'gt_pb_admin_preview' ),
+			), admin_url( 'admin-ajax.php' ) ),
+			'cssClasses'    => $this->get_theme_class_suggestions(),
+		) );
+	}
+
+	/**
+	 * AJAX: render preview HTML for admin edit page (single block).
+	 */
+	public function ajax_admin_preview() {
+		check_ajax_referer( 'gt_pb_admin_preview', 'nonce' );
+
+		if ( ! current_user_can( 'manage_options' ) ) {
+			wp_send_json_error( 'Unauthorized', 403 );
+		}
+
+		// phpcs:disable WordPress.Security.ValidatedSanitizedInput.InputNotSanitized
+		$content = isset( $_POST['content'] ) ? wp_unslash( $_POST['content'] ) : '';
+		$css     = isset( $_POST['css'] ) ? wp_unslash( $_POST['css'] ) : '';
+		$js      = isset( $_POST['js'] ) ? wp_unslash( $_POST['js'] ) : '';
+		// phpcs:enable
+		$php     = ! empty( $_POST['php_exec'] );
+		$format  = ! empty( $_POST['format'] );
+
+		$html = $content;
+		if ( $php ) {
+			$html = $this->execute_php( $html );
+		}
+		if ( $format ) {
+			$html = wpautop( $html );
+		}
+		$html = do_shortcode( $html );
+
+		wp_send_json_success( array(
+			'html' => $html,
+			'css'  => $css,
+			'js'   => $js,
+		) );
+	}
+
+	/**
+	 * AJAX: serve theme CSS for admin edit page preview iframe.
+	 */
+	public function ajax_admin_preview_css() {
+		check_ajax_referer( 'gt_pb_admin_preview', 'nonce' );
+
+		if ( ! current_user_can( 'manage_options' ) ) {
+			wp_die( 'Unauthorized', 'Unauthorized', array( 'response' => 403 ) );
+		}
+
+		$urls = $this->get_theme_style_urls();
+		$css  = '';
+		foreach ( $urls as $url ) {
+			$css .= "@import url('" . esc_url_raw( $url ) . "');\n";
+		}
+
+		header( 'Content-Type: text/css; charset=UTF-8' );
+		header( 'Cache-Control: public, max-age=3600' );
+		echo $css;
+		wp_die();
+	}
+
+	/**
+	 * Render a library block (used by [page_block] shortcode).
+	 *
+	 * @param object $block DB row.
+	 * @return string Rendered HTML.
+	 */
+	public function render_library_block( $block ) {
+		$content = $block->content ?? '';
+		$css     = $block->css ?? '';
+		$js      = $block->js ?? '';
+
+		if ( ! empty( $block->php_exec ) ) {
+			$content = $this->execute_php( $content );
+		}
+
+		if ( ! empty( $block->format ) ) {
+			$content = apply_filters( 'the_content', $content );
+		} else {
+			$content = do_shortcode( $content );
+		}
+
+		// Wrap with inline CSS/JS (simple approach for shortcode)
+		$out = '';
+		if ( ! empty( $css ) ) {
+			$out .= '<style id="gt-pb-block-' . (int) $block->id . '">' . $css . '</style>';
+		}
+		$out .= $content;
+		if ( ! empty( $js ) ) {
+			$location = $block->js_location ?? 'footer';
+			if ( $location === 'inline' ) {
+				$out .= '<script>' . $js . '</script>';
+			} else {
+				$this->footer_scripts[ 'block-' . $block->id ] = $js;
+			}
+		}
+
+		return $out;
 	}
 
 	/**
