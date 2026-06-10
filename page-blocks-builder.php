@@ -3,7 +3,7 @@
  * Plugin Name: GT Page Blocks Builder
  * Plugin URI: https://gauravtiwari.org/product/gt-page-blocks-builder/
  * Description: Standalone visual Page Blocks builder with HTML/CSS/JS sections synced to Gutenberg block content.
- * Version: 2.4.0
+ * Version: 2.6.0
  * Author: Gaurav Tiwari
  * Author URI: https://gauravtiwari.org
  * Text Domain: page-blocks-builder
@@ -14,7 +14,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 if ( ! defined( 'GT_PB_BUILDER_VERSION' ) ) {
-	define( 'GT_PB_BUILDER_VERSION', '2.4.0' );
+	define( 'GT_PB_BUILDER_VERSION', '2.6.0' );
 }
 
 if ( ! defined( 'GT_PB_BUILDER_FILE' ) ) {
@@ -193,7 +193,14 @@ if ( ! function_exists( 'md_page_blocks_builder_url' ) ) {
 }
 
 class GT_Page_Blocks_Builder {
-	const BLOCK_NAME = 'marketers-delight/page-block';
+	const BLOCK_NAME = 'gt-page-block/page-block';
+
+	/**
+	 * Pre-2.6.0 block name. Stays registered server-side so un-migrated
+	 * content keeps rendering; run `wp gt-pb migrate-blocks` (or
+	 * Settings -> Tools) to rewrite stored content to BLOCK_NAME.
+	 */
+	const LEGACY_BLOCK_NAME = 'marketers-delight/page-block';
 
 	/**
 	 * Footer JS queue.
@@ -243,6 +250,9 @@ class GT_Page_Blocks_Builder {
 		require_once GT_PB_BUILDER_DIR . 'includes/class-shortcode.php';
 		require_once GT_PB_BUILDER_DIR . 'includes/class-list-table.php';
 		require_once GT_PB_BUILDER_DIR . 'includes/class-css-loader.php';
+		require_once GT_PB_BUILDER_DIR . 'includes/class-rest-api.php';
+		require_once GT_PB_BUILDER_DIR . 'includes/class-theme-builder.php';
+		require_once GT_PB_BUILDER_DIR . 'includes/class-migration.php';
 
 		$this->db = new gt_pb_db();
 		gt_pb_css_loader::init();
@@ -261,6 +271,7 @@ class GT_Page_Blocks_Builder {
 		add_action( 'wp_ajax_md_page_blocks_terminal_exec', array( $this, 'ajax_terminal_exec' ) );
 
 		// Reusable blocks AJAX (admin edit page)
+		add_action( 'wp_ajax_gt_pb_save_to_library', array( $this, 'ajax_save_to_library' ) );
 		add_action( 'wp_ajax_gt_pb_admin_preview', array( $this, 'ajax_admin_preview' ) );
 		add_action( 'wp_ajax_gt_pb_admin_preview_css', array( $this, 'ajax_admin_preview_css' ) );
 
@@ -280,6 +291,9 @@ class GT_Page_Blocks_Builder {
 
 		// Shortcode for reusable library blocks
 		$shortcode = new gt_pb_shortcode( $this->db, $this );
+		new gt_pb_rest_api( $this->db, $this );
+		$GLOBALS['gt_pb_theme_builder'] = new gt_pb_theme_builder( $this->db, $this );
+		new gt_pb_migration();
 		$shortcode->init();
 
 		add_action( 'admin_footer', array( $this, 'output_rankmath_integration' ) );
@@ -307,14 +321,14 @@ class GT_Page_Blocks_Builder {
 		}
 
 		foreach ( $categories as $category ) {
-			if ( ! empty( $category['slug'] ) && $category['slug'] === 'marketers-delight' ) {
+			if ( ! empty( $category['slug'] ) && $category['slug'] === 'gt-page-blocks' ) {
 				return $categories;
 			}
 		}
 
 		$categories[] = array(
-			'slug'  => 'marketers-delight',
-			'title' => __( 'Marketers Delight', 'page-blocks-builder' ),
+			'slug'  => 'gt-page-blocks',
+			'title' => __( 'Page Blocks', 'page-blocks-builder' ),
 		);
 
 		return $categories;
@@ -324,21 +338,30 @@ class GT_Page_Blocks_Builder {
 	 * Register block type.
 	 */
 	public function register_block() {
-		register_block_type(
-			self::BLOCK_NAME,
-			array(
-				'render_callback' => array( $this, 'render_block' ),
-				'attributes'      => array(
-					'content'    => array( 'type' => 'string', 'default' => '' ),
-					'css'        => array( 'type' => 'string', 'default' => '' ),
-					'js'         => array( 'type' => 'string', 'default' => '' ),
-					'jsLocation' => array( 'type' => 'string', 'default' => 'footer' ),
-					'format'     => array( 'type' => 'boolean', 'default' => false ),
-					'phpExec'    => array( 'type' => 'boolean', 'default' => false ),
-					'output'     => array( 'type' => 'string', 'default' => 'inline' ),
-				),
-			)
+		$args = array(
+			'render_callback' => array( $this, 'render_block' ),
+			'attributes'      => array(
+				'content'    => array( 'type' => 'string', 'default' => '' ),
+				'css'        => array( 'type' => 'string', 'default' => '' ),
+				'js'         => array( 'type' => 'string', 'default' => '' ),
+				'jsLocation' => array( 'type' => 'string', 'default' => 'footer' ),
+				'format'     => array( 'type' => 'boolean', 'default' => false ),
+				'phpExec'    => array( 'type' => 'boolean', 'default' => false ),
+				'output'     => array( 'type' => 'string', 'default' => 'inline' ),
+			),
 		);
+
+		register_block_type( self::BLOCK_NAME, $args );
+
+		// Legacy name: identical render so un-migrated content keeps working.
+		register_block_type( self::LEGACY_BLOCK_NAME, $args );
+	}
+
+	/**
+	 * Whether a parsed block name is a page block (new or legacy).
+	 */
+	public static function is_page_block_name( string $name ): bool {
+		return $name === self::BLOCK_NAME || $name === self::LEGACY_BLOCK_NAME;
 	}
 
 	/**
@@ -365,7 +388,7 @@ class GT_Page_Blocks_Builder {
 			wp_enqueue_script(
 				'gt-page-block-editor',
 				GT_PB_BUILDER_URL . 'assets/js/block-editor.js',
-				array( 'wp-blocks', 'wp-element', 'wp-block-editor', 'wp-components', 'wp-i18n', 'code-editor', 'wp-codemirror' ),
+				array( 'wp-blocks', 'wp-element', 'wp-block-editor', 'wp-components', 'wp-i18n', 'wp-data', 'wp-api-fetch', 'code-editor', 'wp-codemirror' ),
 				filemtime( $script_path ),
 				true
 			);
@@ -386,6 +409,13 @@ class GT_Page_Blocks_Builder {
 					'previewAction'      => 'md_page_blocks_builder_preview',
 					'previewNonce'       => $preview_nonce,
 					'previewStyles'      => $preview_styles,
+					// Save-to-library (block editor "Save to library" button)
+					'ajaxUrl'            => admin_url( 'admin-ajax.php' ),
+					'canSave'            => current_user_can( 'manage_options' ),
+					'libraryAction'      => 'gt_pb_save_to_library',
+					'libraryNonce'       => wp_create_nonce( 'gt_pb_save_to_library' ),
+					'libraryEditUrl'     => admin_url( 'admin.php?page=gt_pb_edit&id=' ),
+					'restUrl'            => esc_url_raw( rest_url( gt_pb_rest_api::REST_NAMESPACE ) ),
 				)
 			);
 		}
@@ -956,7 +986,7 @@ class GT_Page_Blocks_Builder {
 		$found = array();
 
 		foreach ( $blocks as $block ) {
-			if ( ( $block['blockName'] ?? '' ) === self::BLOCK_NAME ) {
+			if ( self::is_page_block_name( (string) ( $block['blockName'] ?? '' ) ) ) {
 				$found[] = $block;
 			}
 
@@ -1023,6 +1053,45 @@ class GT_Page_Blocks_Builder {
 	/**
 	 * AJAX: save sections into block content.
 	 */
+	/**
+	 * AJAX: save the current inline block as a reusable library Page Block.
+	 *
+	 * @since 2.5.0
+	 */
+	public function ajax_save_to_library() {
+		if ( ! is_user_logged_in() ) {
+			wp_send_json_error( array( 'message' => __( 'Authentication required.', 'page-blocks-builder' ) ), 403 );
+		}
+
+		$nonce = isset( $_POST['nonce'] ) ? sanitize_text_field( wp_unslash( $_POST['nonce'] ) ) : '';
+		if ( ! wp_verify_nonce( $nonce, 'gt_pb_save_to_library' ) || ! current_user_can( 'manage_options' ) ) {
+			wp_send_json_error( array( 'message' => __( 'You do not have permission to save to the library.', 'page-blocks-builder' ) ), 403 );
+		}
+
+		$title = isset( $_POST['title'] ) ? sanitize_text_field( wp_unslash( $_POST['title'] ) ) : '';
+		if ( '' === $title ) {
+			wp_send_json_error( array( 'message' => __( 'A title is required.', 'page-blocks-builder' ) ), 400 );
+		}
+
+		$id = $this->db->insert( array(
+			'title'       => $title,
+			'status'      => 'publish',
+			'content'     => isset( $_POST['content'] ) ? (string) wp_unslash( $_POST['content'] ) : '',
+			'css'         => isset( $_POST['css'] ) ? (string) wp_unslash( $_POST['css'] ) : '',
+			'js'          => isset( $_POST['js'] ) ? (string) wp_unslash( $_POST['js'] ) : '',
+			'js_location' => ( isset( $_POST['js_location'] ) && 'inline' === $_POST['js_location'] ) ? 'inline' : 'footer',
+			'output'      => ( isset( $_POST['output'] ) && 'file' === $_POST['output'] ) ? 'file' : 'inline',
+			'php_exec'    => ! empty( $_POST['php_exec'] ) ? 1 : 0,
+			'format'      => ! empty( $_POST['format'] ) ? 1 : 0,
+		) );
+
+		if ( false === $id ) {
+			wp_send_json_error( array( 'message' => __( 'Could not save the Page Block.', 'page-blocks-builder' ) ), 500 );
+		}
+
+		wp_send_json_success( array( 'id' => $id, 'title' => $title ) );
+	}
+
 	public function ajax_builder_apply() {
 		if ( ! is_user_logged_in() ) {
 			wp_send_json_error( array( 'message' => __( 'Authentication required.', 'page-blocks-builder' ) ), 403 );
@@ -1060,7 +1129,7 @@ class GT_Page_Blocks_Builder {
 		$first_page_block_index = -1;
 
 		foreach ( $blocks as $block ) {
-			$is_page_block = is_array( $block ) && ( ( $block['blockName'] ?? '' ) === self::BLOCK_NAME );
+			$is_page_block = is_array( $block ) && self::is_page_block_name( (string) ( $block['blockName'] ?? '' ) );
 			if ( $is_page_block ) {
 				if ( $first_page_block_index === -1 ) {
 					$first_page_block_index = count( $filtered );
@@ -1520,6 +1589,30 @@ class GT_Page_Blocks_Builder {
 	 * Render the list table admin page.
 	 */
 	public function render_list_page() {
+		// Legacy list table via ?view=list (fallback / bulk ops).
+		if ( isset( $_GET['view'] ) && $_GET['view'] === 'list' ) {
+			$this->render_legacy_list_page();
+			return;
+		}
+		?>
+		<div class="wrap">
+			<h1 class="wp-heading-inline"><?php esc_html_e( 'Page Blocks', 'page-blocks-builder' ); ?></h1>
+			<hr class="wp-header-end">
+
+			<?php $this->render_admin_notices(); ?>
+
+			<div id="gt-pb-library">
+				<p><span class="spinner is-active" style="float:none;"></span></p>
+				<noscript><p><a href="<?php echo esc_url( admin_url( 'admin.php?page=gt_page_blocks&view=list' ) ); ?>"><?php esc_html_e( 'JavaScript is required for the library view — use the list view instead.', 'page-blocks-builder' ); ?></a></p></noscript>
+			</div>
+		</div>
+		<?php
+	}
+
+	/**
+	 * Legacy WP_List_Table view (?view=list).
+	 */
+	public function render_legacy_list_page() {
 		$list_table = new gt_pb_list_table( $this->db );
 		$list_table->prepare_items();
 		?>
@@ -1528,12 +1621,16 @@ class GT_Page_Blocks_Builder {
 			<a href="<?php echo esc_url( admin_url( 'admin.php?page=gt_pb_edit&action=new' ) ); ?>" class="page-title-action">
 				<?php esc_html_e( 'Add New', 'page-blocks-builder' ); ?>
 			</a>
+			<a href="<?php echo esc_url( admin_url( 'admin.php?page=gt_page_blocks' ) ); ?>" class="page-title-action">
+				<?php esc_html_e( 'Library view', 'page-blocks-builder' ); ?>
+			</a>
 			<hr class="wp-header-end">
 
 			<?php $this->render_admin_notices(); ?>
 
 			<form method="get">
 				<input type="hidden" name="page" value="gt_page_blocks">
+				<input type="hidden" name="view" value="list">
 				<?php
 				$list_table->search_box( __( 'Search Page Blocks', 'page-blocks-builder' ), 'gt-pb-search' );
 				$list_table->display();
@@ -1660,6 +1757,65 @@ class GT_Page_Blocks_Builder {
 		// Match our admin pages: toplevel_page_gt_page_blocks or page-blocks_page_gt_pb_*
 		if ( strpos( $hook, 'gt_page_blocks' ) === false && strpos( $hook, 'gt_pb_edit' ) === false ) {
 			return;
+		}
+
+		// Library panel (main screen, card-grid app)
+		if ( strpos( $hook, 'toplevel_page_gt_page_blocks' ) !== false && empty( $_GET['view'] ) ) {
+			wp_enqueue_style(
+				'gt-pb-library',
+				GT_PB_BUILDER_URL . 'assets/css/library.css',
+				array(),
+				GT_PB_BUILDER_VERSION
+			);
+			wp_enqueue_script(
+				'gt-pb-library',
+				GT_PB_BUILDER_URL . 'assets/js/library.js',
+				array(),
+				GT_PB_BUILDER_VERSION,
+				true
+			);
+			$preview_styles = array( get_stylesheet_uri() );
+			if ( is_child_theme() ) {
+				$preview_styles[] = get_template_directory_uri() . '/style.css';
+			}
+			wp_localize_script( 'gt-pb-library', 'gtPbLibrary', array(
+				'restUrl'       => esc_url_raw( rest_url( gt_pb_rest_api::REST_NAMESPACE ) ),
+				'restNonce'     => wp_create_nonce( 'wp_rest' ),
+				'editUrl'       => admin_url( 'admin.php?page=gt_pb_edit&id=' ),
+				'newUrl'        => admin_url( 'admin.php?page=gt_pb_edit&action=new' ),
+				'previewStyles' => array_map( function ( $url ) {
+					return preg_replace( '/^http:\/\//', 'https://', $url );
+				}, $preview_styles ),
+				'i18n'          => array(
+					'all'               => __( 'All', 'page-blocks-builder' ),
+					'published'         => __( 'Published', 'page-blocks-builder' ),
+					'drafts'            => __( 'Drafts', 'page-blocks-builder' ),
+					'draft'             => __( 'Draft', 'page-blocks-builder' ),
+					'trash'             => __( 'Trash', 'page-blocks-builder' ),
+					'searchPlaceholder' => __( 'Search blocks…', 'page-blocks-builder' ),
+					'addNew'            => __( 'Add new block', 'page-blocks-builder' ),
+					'edit'              => __( 'Edit', 'page-blocks-builder' ),
+					'duplicate'         => __( 'Duplicate', 'page-blocks-builder' ),
+					'shortcode'         => __( 'Shortcode', 'page-blocks-builder' ),
+					'toTrash'           => __( 'Trash', 'page-blocks-builder' ),
+					'restore'           => __( 'Restore', 'page-blocks-builder' ),
+					'deleteForever'     => __( 'Delete forever', 'page-blocks-builder' ),
+					'deleteConfirm'     => __( 'Delete this page block permanently? This cannot be undone.', 'page-blocks-builder' ),
+					'duplicated'        => __( 'Block duplicated.', 'page-blocks-builder' ),
+					'trashed'           => __( 'Block moved to trash.', 'page-blocks-builder' ),
+					'restored'          => __( 'Block restored as draft.', 'page-blocks-builder' ),
+					'deleted'           => __( 'Block deleted permanently.', 'page-blocks-builder' ),
+					'shortcodeCopied'   => __( 'Shortcode copied to clipboard.', 'page-blocks-builder' ),
+					'loadMore'          => __( 'Load more', 'page-blocks-builder' ),
+					'loading'           => __( 'Loading…', 'page-blocks-builder' ),
+					'justNow'           => __( 'just now', 'page-blocks-builder' ),
+					'emptyLibrary'      => __( 'Your library is empty', 'page-blocks-builder' ),
+					'emptyLibraryHint'  => __( 'Save reusable sections once, drop them anywhere with a shortcode or the editor block.', 'page-blocks-builder' ),
+					'createFirst'       => __( 'Create your first block', 'page-blocks-builder' ),
+					'emptyFiltered'     => __( 'No blocks match', 'page-blocks-builder' ),
+					'emptyFilteredHint' => __( 'Try a different search or filter.', 'page-blocks-builder' ),
+				),
+			) );
 		}
 
 		wp_enqueue_style(

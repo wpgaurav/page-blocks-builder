@@ -150,4 +150,54 @@ $load_utilities      = (bool) get_option( 'gt_pb_load_utilities', false );
 		</table>
 		<?php submit_button(); ?>
 	</form>
+
+	<hr>
+
+	<h2><?php esc_html_e( 'Tools', 'page-blocks-builder' ); ?></h2>
+
+	<?php if ( isset( $_GET['pbb_migrated'] ) ) : ?>
+		<div class="notice notice-success inline"><p>
+			<?php
+			$pbb_migrated = (int) $_GET['pbb_migrated'];
+			if ( ! empty( $_GET['pbb_dry'] ) ) {
+				/* translators: %d: number of posts */
+				printf( esc_html__( 'Dry run: %d post(s) contain legacy page blocks and would be migrated.', 'page-blocks-builder' ), $pbb_migrated );
+			} else {
+				/* translators: %d: number of posts */
+				printf( esc_html__( 'Migrated %d post(s) to the gt-page-block/page-block block.', 'page-blocks-builder' ), $pbb_migrated );
+			}
+			?>
+		</p></div>
+	<?php endif; ?>
+
+	<?php $pbb_pending = class_exists( 'gt_pb_migration' ) ? ( new gt_pb_migration() )->count_pending() : 0; ?>
+	<table class="form-table" role="presentation">
+		<tbody>
+		<tr>
+			<th scope="row"><?php esc_html_e( 'Block migration', 'page-blocks-builder' ); ?></th>
+			<td>
+				<p class="description" style="margin-bottom: 8px;">
+					<?php
+					/* translators: %d: number of posts */
+					printf( esc_html__( 'Rewrites marketers-delight/page-block to gt-page-block/page-block in stored content. %d post(s) currently contain the legacy block.', 'page-blocks-builder' ), (int) $pbb_pending );
+					?>
+				</p>
+				<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" style="display:inline-block; margin-right: 8px;">
+					<?php wp_nonce_field( 'gt_pb_migrate_blocks' ); ?>
+					<input type="hidden" name="action" value="gt_pb_migrate_blocks">
+					<input type="hidden" name="dry_run" value="1">
+					<?php submit_button( __( 'Dry run', 'page-blocks-builder' ), 'secondary', 'submit', false ); ?>
+				</form>
+				<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" style="display:inline-block;">
+					<?php wp_nonce_field( 'gt_pb_migrate_blocks' ); ?>
+					<input type="hidden" name="action" value="gt_pb_migrate_blocks">
+					<?php submit_button( __( 'Migrate blocks', 'page-blocks-builder' ), 'primary', 'submit', false, $pbb_pending ? array() : array( 'disabled' => 'disabled' ) ); ?>
+				</form>
+				<p class="description" style="margin-top: 8px;">
+					<?php esc_html_e( 'Also available via WP-CLI: wp gt-pb migrate-blocks [--dry-run]', 'page-blocks-builder' ); ?>
+				</p>
+			</td>
+		</tr>
+		</tbody>
+	</table>
 </div>

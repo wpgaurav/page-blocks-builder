@@ -6,9 +6,15 @@
 		useEffect         = wp.element.useEffect,
 		__                = wp.i18n.__,
 		InspectorControls = wp.blockEditor.InspectorControls,
+		BlockControls     = wp.blockEditor.BlockControls,
 		PanelBody         = wp.components.PanelBody,
 		SelectControl     = wp.components.SelectControl,
 		ToggleControl     = wp.components.ToggleControl,
+		ToolbarGroup      = wp.components.ToolbarGroup,
+		ToolbarButton     = wp.components.ToolbarButton,
+		Modal             = wp.components.Modal,
+		Spinner           = wp.components.Spinner,
+		apiFetch          = wp.apiFetch,
 		Fragment          = wp.element.Fragment;
 
 	var classSuggestions = normalizeClassSuggestions(
@@ -286,11 +292,71 @@
 		} );
 	}
 
-	registerBlockType( 'marketers-delight/page-block', {
+	/** Viewport presets for the responsive preview. */
+	var VIEWPORTS = [
+		{ name: 'desktop', icon: 'desktop', width: '', label: __( 'Desktop preview' ) },
+		{ name: 'tablet', icon: 'tablet', width: '768px', label: __( 'Tablet preview (768px)' ) },
+		{ name: 'mobile', icon: 'smartphone', width: '390px', label: __( 'Mobile preview (390px)' ) }
+	];
+
+	/**
+	 * Auto-sizing preview iframe. Same-origin srcdoc (no sandbox) so the
+	 * frame height can track the rendered content.
+	 */
+	function AutoFrame( props ) {
+		var frameRef = useRef( null );
+		var heightState = useState( 140 );
+		var height = heightState[0];
+		var setHeight = heightState[1];
+
+		function measure() {
+			try {
+				var f = frameRef.current;
+				if ( f && f.contentDocument && f.contentDocument.body ) {
+					var h = f.contentDocument.body.scrollHeight;
+					if ( h ) {
+						setHeight( Math.min( Math.max( h + 6, 80 ), 1600 ) );
+					}
+				}
+			} catch ( e ) {}
+		}
+
+		function onLoad() {
+			measure();
+			setTimeout( measure, 400 );
+			setTimeout( measure, 1200 );
+		}
+
+		return el( 'iframe', {
+			ref: frameRef,
+			className: 'md-page-block-preview-iframe',
+			title: __( 'Page Block Preview' ),
+			srcDoc: props.doc || '',
+			onLoad: onLoad,
+			style: { height: height + 'px' }
+		} );
+	}
+
+	var PB_BLOCK_NAME = 'gt-page-block/page-block';
+	var PB_LEGACY_NAME = 'marketers-delight/page-block';
+
+	var pageBlockSettings = {
 		title: __( 'Page Block' ),
 		description: __( 'Custom HTML, CSS, and JavaScript code block.' ),
 		icon: 'editor-code',
-		category: 'marketers-delight',
+		category: 'gt-page-blocks',
+
+		transforms: {
+			from: [
+				{
+					type: 'block',
+					blocks: [ PB_LEGACY_NAME ],
+					transform: function( attributes ) {
+						return wp.blocks.createBlock( PB_BLOCK_NAME, attributes );
+					}
+				}
+			]
+		},
 
 		attributes: {
 			content:    { type: 'string', default: '' },
@@ -304,11 +370,15 @@
 
 		edit: function( props ) {
 			var attributes = props.attributes;
+			var config = window.mdPageBlockEditor || {};
+
 			var activeTabState = useState( 'html' );
 			var activeTab = activeTabState[0];
 			var setActiveTab = activeTabState[1];
 
-			var modeState = useState( 'editor' );
+			var hasAnyContent = !! ( attributes.content || attributes.css || attributes.js );
+
+			var modeState = useState( hasAnyContent ? 'preview' : 'editor' );
 			var mode = modeState[0];
 			var setMode = modeState[1];
 			var previewDocState = useState( '' );
@@ -320,13 +390,50 @@
 			var attrsRef = useRef( attributes );
 			var isSyncingRef = useRef( false );
 
+			var viewportState = useState( 'desktop' );
+			var viewport = viewportState[0];
+			var setViewport = viewportState[1];
+
+			var darkState = useState( false );
+			var previewDark = darkState[0];
+			var setPreviewDark = darkState[1];
+
+			var copiedState = useState( false );
+			var copied = copiedState[0];
+			var setCopied = copiedState[1];
+
+			var savingState = useState( false );
+			var saving = savingState[0];
+			var setSaving = savingState[1];
+
+			var livePaneState = useState( false );
+			var livePane = livePaneState[0];
+			var setLivePane = livePaneState[1];
+
+			var libOpenState = useState( false );
+			var libOpen = libOpenState[0];
+			var setLibOpen = libOpenState[1];
+
+			var libItemsState = useState( null );
+			var libItems = libItemsState[0];
+			var setLibItems = libItemsState[1];
+
+			var libSearchState = useState( '' );
+			var libSearch = libSearchState[0];
+			var setLibSearch = libSearchState[1];
+
+			var libLoadingState = useState( false );
+			var libLoading = libLoadingState[0];
+			var setLibLoading = libLoadingState[1];
+
+			var phpDetected = /<\?(?:php|=)/.test( attributes.content || '' );
+			var notices = wp.data && wp.data.dispatch ? wp.data.dispatch( 'core/notices' ) : null;
+
 			var tabs = [
 				{ key: 'html', label: __( 'HTML' ), attr: 'content' },
 				{ key: 'css',  label: __( 'CSS' ),  attr: 'css' },
 				{ key: 'js',   label: __( 'JS' ),   attr: 'js' }
 			];
-
-			var hasAnyContent = !! ( attributes.content || attributes.css || attributes.js );
 
 			function hasContent( tab ) {
 				return !! attributes[ tab.attr ];
@@ -472,8 +579,7 @@
 				};
 			}, [] );
 
-			function buildPreviewDoc( renderedData ) {
-				var config = window.mdPageBlockEditor || {};
+			function buildPreviewDoc( renderedData, dark ) {
 				var data = renderedData && typeof renderedData === 'object' ? renderedData : {};
 				var css = typeof data.css === 'string' ? data.css : ( attributes.css || '' );
 				var html = typeof data.html === 'string' ? data.html : ( attributes.content || '' );
@@ -490,7 +596,8 @@
 					}
 				}
 
-				return '<!DOCTYPE html><html><head><meta charset="utf-8">' +
+				return '<!DOCTYPE html><html' + ( dark ? ' data-theme="dark"' : '' ) + '><head><meta charset="utf-8">' +
+					'<meta name="viewport" content="width=device-width, initial-scale=1">' +
 					themeLinks +
 					'<style>body{margin:0;padding:12px;}*{box-sizing:border-box;}</style>' +
 					( css ? '<style>' + css + '</style>' : '' ) +
@@ -500,116 +607,349 @@
 					'</body></html>';
 			}
 
+			// Rebuild the preview document (debounced) whenever it is visible:
+			// full preview mode, or the live pane under the code editor.
 			useEffect( function() {
-				if ( mode !== 'preview' ) {
+				if ( mode !== 'preview' && ! ( mode === 'editor' && livePane ) ) {
 					return;
 				}
 
-				var requestId = previewReqRef.current + 1;
-				previewReqRef.current = requestId;
+				var timer = setTimeout( function() {
+					var requestId = previewReqRef.current + 1;
+					previewReqRef.current = requestId;
 
-				if ( ! shouldUseServerPreview( attributes ) ) {
-					setPreviewDoc( buildPreviewDoc() );
+					if ( ! shouldUseServerPreview( attributes ) ) {
+						setPreviewDoc( buildPreviewDoc( null, previewDark ) );
+						return;
+					}
+
+					requestServerPreviewPayload( attributes )
+						.then( function( payload ) {
+							if ( requestId !== previewReqRef.current ) {
+								return;
+							}
+							setPreviewDoc( buildPreviewDoc( payload, previewDark ) );
+						} )
+						.catch( function() {
+							if ( requestId !== previewReqRef.current ) {
+								return;
+							}
+							setPreviewDoc( buildPreviewDoc( null, previewDark ) );
+						} );
+				}, mode === 'preview' ? 0 : 400 );
+
+				return function() { clearTimeout( timer ); };
+			}, [ mode, livePane, previewDark, attributes.content, attributes.css, attributes.js, attributes.jsLocation, attributes.format, attributes.phpExec ] );
+
+			// Copy the active tab's code to the clipboard.
+			function copyActiveCode() {
+				function done() {
+					setCopied( true );
+					setTimeout( function() { setCopied( false ); }, 1500 );
+				}
+				var tab = tabs.filter( function( t ) { return t.key === activeTab; } )[0];
+				var txt = tab ? ( attributes[ tab.attr ] || '' ) : '';
+				if ( navigator.clipboard && navigator.clipboard.writeText ) {
+					navigator.clipboard.writeText( txt ).then( done, done );
+				} else {
+					var ta = document.createElement( 'textarea' );
+					ta.value = txt;
+					document.body.appendChild( ta );
+					ta.select();
+					try { document.execCommand( 'copy' ); } catch ( e ) {}
+					document.body.removeChild( ta );
+					done();
+				}
+			}
+
+			// Promote this block to a reusable library Page Block.
+			function saveAsReusable() {
+				var title = window.prompt( __( 'Name this Page Block:' ), '' );
+				if ( ! title ) {
 					return;
 				}
+				setSaving( true );
 
-				requestServerPreviewPayload( attributes )
-					.then( function( payload ) {
-						if ( requestId !== previewReqRef.current ) {
-							return;
+				var form = new window.URLSearchParams();
+				form.set( 'action', config.libraryAction || 'gt_pb_save_to_library' );
+				form.set( 'nonce', String( config.libraryNonce || '' ) );
+				form.set( 'title', title );
+				form.set( 'content', attributes.content || '' );
+				form.set( 'css', attributes.css || '' );
+				form.set( 'js', attributes.js || '' );
+				form.set( 'js_location', attributes.jsLocation === 'inline' ? 'inline' : 'footer' );
+				form.set( 'output', attributes.output === 'file' ? 'file' : 'inline' );
+				form.set( 'php_exec', attributes.phpExec ? '1' : '' );
+				form.set( 'format', attributes.format ? '1' : '' );
+
+				window.fetch( config.ajaxUrl || window.ajaxurl, {
+					method: 'POST',
+					credentials: 'same-origin',
+					headers: { 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8' },
+					body: form.toString()
+				} ).then( function( response ) {
+					return response.json();
+				} ).then( function( payload ) {
+					setSaving( false );
+					if ( payload && payload.success && payload.data ) {
+						if ( notices ) {
+							notices.createSuccessNotice(
+								__( 'Saved to the Page Blocks library: ' ) + payload.data.title,
+								{
+									type: 'snackbar',
+									actions: config.libraryEditUrl ? [ { label: __( 'Edit in library' ), url: config.libraryEditUrl + payload.data.id } ] : []
+								}
+							);
 						}
-						setPreviewDoc( buildPreviewDoc( payload ) );
+					} else if ( notices ) {
+						var msg = payload && payload.data && payload.data.message ? payload.data.message : __( 'Could not save the Page Block.' );
+						notices.createErrorNotice( msg, { type: 'snackbar' } );
+					}
+				} ).catch( function() {
+					setSaving( false );
+					if ( notices ) {
+						notices.createErrorNotice( __( 'Could not save the Page Block.' ), { type: 'snackbar' } );
+					}
+				} );
+			}
+
+			// Fetch library blocks for the browser modal.
+			function loadLibrary( search ) {
+				if ( ! apiFetch ) {
+					return;
+				}
+				setLibLoading( true );
+				apiFetch( {
+					path: '/pbb/v1/blocks?per_page=50&status=publish' + ( search ? '&search=' + encodeURIComponent( search ) : '' )
+				} ).then( function( items ) {
+					setLibItems( Array.isArray( items ) ? items : [] );
+					setLibLoading( false );
+				} ).catch( function() {
+					setLibItems( [] );
+					setLibLoading( false );
+				} );
+			}
+
+			function openLibrary() {
+				setLibOpen( true );
+				if ( libItems === null ) {
+					loadLibrary( '' );
+				}
+			}
+
+			// Copy a library block's code into this inline block.
+			function insertFromLibrary( item ) {
+				props.setAttributes( {
+					content: item.content || '',
+					css: item.css || '',
+					js: item.js || '',
+					jsLocation: item.js_location === 'inline' ? 'inline' : 'footer',
+					output: item.output === 'file' ? 'file' : 'inline',
+					phpExec: !! item.php_exec,
+					format: !! item.format
+				} );
+				setLibOpen( false );
+				setMode( 'preview' );
+				if ( notices ) {
+					notices.createSuccessNotice(
+						__( 'Inserted a copy of: ' ) + ( item.title || '#' + item.id ),
+						{ type: 'snackbar' }
+					);
+				}
+			}
+
+			function libraryModal() {
+				if ( ! libOpen ) {
+					return null;
+				}
+				var searchTimerRef = { id: 0 };
+				return el( Modal, {
+					title: __( 'Page Blocks library' ),
+					onRequestClose: function() { setLibOpen( false ); },
+					className: 'md-page-block-library-modal'
+				},
+					el( 'input', {
+						type: 'search',
+						className: 'md-page-block-library-search',
+						placeholder: __( 'Search the library…' ),
+						value: libSearch,
+						onChange: function( e ) {
+							var value = e.target.value;
+							setLibSearch( value );
+							window.clearTimeout( searchTimerRef.id );
+							searchTimerRef.id = window.setTimeout( function() {
+								loadLibrary( value.trim() );
+							}, 300 );
+						}
+					} ),
+					libLoading && el( 'div', { className: 'md-page-block-library-loading' }, el( Spinner ) ),
+					! libLoading && libItems && ! libItems.length && el( 'p', { className: 'md-page-block-library-empty' },
+						libSearch ? __( 'No blocks match your search.' ) : __( 'The library is empty — save a block to it first.' )
+					),
+					! libLoading && libItems && libItems.length > 0 && el( 'ul', { className: 'md-page-block-library-list' },
+						libItems.map( function( item ) {
+							return el( 'li', { key: item.id, className: 'md-page-block-library-item' },
+								el( 'div', { className: 'md-page-block-library-info' },
+									el( 'strong', {}, item.title || '(untitled)' ),
+									el( 'span', { className: 'md-page-block-library-meta' },
+										el( 'code', {}, item.slug ),
+										item.css ? ' · CSS' : '',
+										item.js ? ' · JS' : '',
+										item.php_exec ? ' · PHP' : ''
+									)
+								),
+								el( 'button', {
+									type: 'button',
+									className: 'button button-small',
+									onClick: function() {
+										if ( hasAnyContent && ! window.confirm( __( 'Replace this block\u2019s current code with the library block?' ) ) ) {
+											return;
+										}
+										insertFromLibrary( item );
+									}
+								}, __( 'Insert copy' ) )
+							);
+						} )
+					)
+				);
+			}
+
+			function badges() {
+				return el( 'span', { className: 'md-page-block-badges' },
+					attributes.content && el( 'span', { className: 'md-page-block-badge' }, 'HTML' ),
+					attributes.css && el( 'span', { className: 'md-page-block-badge' }, 'CSS' ),
+					attributes.js && el( 'span', { className: 'md-page-block-badge' }, 'JS' ),
+					( phpDetected || attributes.phpExec ) && el( 'span', {
+						className: 'md-page-block-badge md-page-block-badge--php',
+						title: attributes.phpExec ? __( 'PHP runs on the front end (and in this server-rendered preview).' ) : __( 'Contains PHP tags.' )
+					}, 'PHP' )
+				);
+			}
+
+			// Viewport + dark-mode control cluster.
+			function previewControls() {
+				return el( 'span', { className: 'md-page-block-controls' },
+					VIEWPORTS.map( function( vp ) {
+						return el( 'button', {
+							key: vp.name,
+							type: 'button',
+							className: 'md-page-block-ctrl' + ( viewport === vp.name ? ' is-on' : '' ),
+							title: vp.label,
+							onClick: function() { setViewport( vp.name ); }
+						}, el( 'span', { className: 'dashicons dashicons-' + vp.icon } ) );
+					} ),
+					el( 'button', {
+						type: 'button',
+						className: 'md-page-block-ctrl' + ( previewDark ? ' is-on' : '' ),
+						title: previewDark ? __( 'Switch preview to light scheme' ) : __( 'Switch preview to dark scheme' ),
+						onClick: function() { setPreviewDark( ! previewDark ); }
+					}, el( 'span', { className: 'dashicons dashicons-lightbulb' } ) )
+				);
+			}
+
+			// Width-constrained wrapper around the preview iframe.
+			function viewportFrame() {
+				var vp = VIEWPORTS.filter( function( v ) { return v.name === viewport; } )[0] || VIEWPORTS[0];
+				return el( 'div', {
+					className: 'md-page-block-viewport' + ( vp.width ? ' is-narrow' : '' )
+				},
+					el( 'div', {
+						className: 'md-page-block-viewport-inner',
+						style: vp.width ? { maxWidth: vp.width } : {}
+					},
+						el( AutoFrame, { doc: previewDoc || buildPreviewDoc( null, previewDark ) } )
+					)
+				);
+			}
+
+			var toolbar = el( BlockControls, {},
+				el( ToolbarGroup, {},
+					el( ToolbarButton, {
+						icon: 'visibility',
+						label: __( 'Preview' ),
+						isPressed: mode === 'preview',
+						onClick: function() { setMode( 'preview' ); }
+					} ),
+					el( ToolbarButton, {
+						icon: 'editor-code',
+						label: __( 'Edit code' ),
+						isPressed: mode === 'editor',
+						onClick: function() { setMode( 'editor' ); }
+					} ),
+					el( ToolbarButton, {
+						icon: 'portfolio',
+						label: __( 'Browse library' ),
+						onClick: openLibrary
 					} )
-					.catch( function() {
-						if ( requestId !== previewReqRef.current ) {
-							return;
+				)
+			);
+
+			var inspector = el( InspectorControls, null,
+				el( PanelBody, { title: __( 'Settings' ) },
+					el( SelectControl, {
+						label: __( 'JavaScript Location' ),
+						value: attributes.jsLocation,
+						options: [
+							{ label: __( 'Footer' ), value: 'footer' },
+							{ label: __( 'Inline' ), value: 'inline' }
+						],
+						onChange: function( val ) {
+							props.setAttributes( { jsLocation: val } );
 						}
-						setPreviewDoc( buildPreviewDoc() );
-					} );
-			}, [ mode, attributes.content, attributes.css, attributes.js, attributes.jsLocation, attributes.format, attributes.phpExec ] );
+					}),
+					el( ToggleControl, {
+						label: __( 'WordPress formatting (wpautop)' ),
+						checked: attributes.format,
+						onChange: function( val ) {
+							props.setAttributes( { format: val } );
+						}
+					}),
+					el( ToggleControl, {
+						label: __( 'Execute PHP code' ),
+						checked: attributes.phpExec,
+						onChange: function( val ) {
+							props.setAttributes( { phpExec: val } );
+						}
+					})
+				)
+			);
 
 			// Preview mode
 			if ( mode === 'preview' ) {
 				return el( Fragment, null,
-					el( InspectorControls, null,
-						el( PanelBody, { title: __( 'Settings' ) },
-							el( SelectControl, {
-								label: __( 'JavaScript Location' ),
-								value: attributes.jsLocation,
-								options: [
-									{ label: __( 'Footer' ), value: 'footer' },
-									{ label: __( 'Inline' ), value: 'inline' }
-								],
-								onChange: function( val ) {
-									props.setAttributes( { jsLocation: val } );
-								}
-							}),
-							el( ToggleControl, {
-								label: __( 'WordPress formatting (wpautop)' ),
-								checked: attributes.format,
-								onChange: function( val ) {
-									props.setAttributes( { format: val } );
-								}
-							}),
-							el( ToggleControl, {
-								label: __( 'Execute PHP code' ),
-								checked: attributes.phpExec,
-								onChange: function( val ) {
-									props.setAttributes( { phpExec: val } );
-								}
-							})
-						)
-					),
+					toolbar,
+					inspector,
+					libraryModal(),
 					el( 'div', { className: 'md-page-block-preview-wrap' },
-						el( 'iframe', {
-							className: 'md-page-block-preview-iframe',
-							title: __( 'Page Block Preview' ),
-							srcDoc: previewDoc || buildPreviewDoc(),
-							sandbox: 'allow-scripts'
-						}),
-						el( 'button', {
-							type: 'button',
-							className: 'md-page-block-edit-btn',
-							onClick: function() { setMode( 'editor' ); },
-							title: __( 'Edit code' )
-						},
-							el( 'span', { className: 'dashicons dashicons-edit' } )
-						)
+						el( 'div', { className: 'md-page-block-bar' },
+							el( 'span', { className: 'dashicons dashicons-editor-code md-page-block-bar-icon' } ),
+							el( 'span', { className: 'md-page-block-bar-title' }, __( 'Page Block' ) ),
+							badges(),
+							el( 'span', { className: 'md-page-block-bar-spacer' } ),
+							previewControls(),
+							config.canSave && el( 'button', {
+								type: 'button',
+								className: 'md-page-block-bar-btn',
+								disabled: saving,
+								onClick: saveAsReusable,
+								title: __( 'Save a copy to the Page Blocks library' )
+							}, saving ? __( 'Saving…' ) : __( 'Save to library' ) ),
+							el( 'button', {
+								type: 'button',
+								className: 'md-page-block-bar-btn md-page-block-bar-btn--primary',
+								onClick: function() { setMode( 'editor' ); }
+							}, __( 'Edit code' ) )
+						),
+						viewportFrame()
 					)
 				);
 			}
 
 			// Editor mode
 			return el( Fragment, null,
-				el( InspectorControls, null,
-					el( PanelBody, { title: __( 'Settings' ) },
-						el( SelectControl, {
-							label: __( 'JavaScript Location' ),
-							value: attributes.jsLocation,
-							options: [
-								{ label: __( 'Footer' ), value: 'footer' },
-								{ label: __( 'Inline' ), value: 'inline' }
-							],
-							onChange: function( val ) {
-								props.setAttributes( { jsLocation: val } );
-							}
-						}),
-						el( ToggleControl, {
-							label: __( 'WordPress formatting (wpautop)' ),
-							checked: attributes.format,
-							onChange: function( val ) {
-								props.setAttributes( { format: val } );
-							}
-						}),
-						el( ToggleControl, {
-							label: __( 'Execute PHP code' ),
-							checked: attributes.phpExec,
-							onChange: function( val ) {
-								props.setAttributes( { phpExec: val } );
-							}
-						})
-					)
-				),
+				toolbar,
+				inspector,
+				libraryModal(),
 
 				el( 'div', { className: 'md-page-block-editor' },
 					el( 'div', { className: 'md-page-block-toolbar' },
@@ -625,6 +965,17 @@
 									onClick: function() { setActiveTab( tab.key ); }
 								}, tab.label );
 							})
+						),
+						// Copy active tab code
+						el( 'button', {
+							type: 'button',
+							className: 'md-page-block-preview-btn',
+							onClick: copyActiveCode,
+							title: __( 'Copy this tab\'s code' )
+						},
+							copied
+								? el( 'span', { className: 'dashicons dashicons-yes' } )
+								: el( 'span', { className: 'dashicons dashicons-clipboard' } )
 						),
 						// Preview button
 						hasAnyContent ?
@@ -659,7 +1010,24 @@
 								spellCheck: false
 							})
 						);
-					})
+					}),
+
+					// Collapsible live preview under the editor
+					el( 'div', { className: 'md-page-block-live' },
+						el( 'div', { className: 'md-page-block-live-bar' },
+							el( 'button', {
+								type: 'button',
+								className: 'md-page-block-live-toggle',
+								onClick: function() { setLivePane( ! livePane ); },
+								'aria-expanded': livePane ? 'true' : 'false'
+							},
+								el( 'span', { className: 'dashicons ' + ( livePane ? 'dashicons-arrow-down-alt2' : 'dashicons-arrow-right-alt2' ) } ),
+								__( 'Live preview' )
+							),
+							livePane && previewControls()
+						),
+						livePane && viewportFrame()
+					)
 				)
 			);
 		},
@@ -667,5 +1035,19 @@
 		save: function() {
 			return null;
 		}
-	});
+	};
+
+	registerBlockType( PB_BLOCK_NAME, pageBlockSettings );
+
+	// Legacy alias: same editing experience for un-migrated content, but
+	// hidden from the inserter. Use the migration tool (Settings -> Tools
+	// or `wp gt-pb migrate-blocks`) to rewrite stored content.
+	var legacySettings = {};
+	Object.keys( pageBlockSettings ).forEach( function( key ) {
+		legacySettings[ key ] = pageBlockSettings[ key ];
+	} );
+	delete legacySettings.transforms;
+	legacySettings.title = __( 'Page Block (legacy)' );
+	legacySettings.supports = { inserter: false };
+	registerBlockType( PB_LEGACY_NAME, legacySettings );
 })( wp );

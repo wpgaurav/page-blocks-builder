@@ -4,7 +4,7 @@ Tags: page builder, html blocks, css sections, gutenberg, visual builder
 Requires at least: 6.0
 Tested up to: 6.9.1
 Requires PHP: 8.1
-Stable tag: 2.4.0
+Stable tag: 2.6.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -64,6 +64,23 @@ Yes. Enable PHP execution per block. PHP runs on the frontend and in server-rend
 When set to "file", CSS and JS for that block are written to external files in `wp-content/uploads/gt-page-blocks/` and served as cacheable resources instead of inline output.
 
 == Changelog ==
+
+= 2.6.0 =
+* Theme building: library blocks can be assigned to theme regions (header, hero, before/after content, sidebar, footer, 404) and rendered by any theme via gt_pb_region( 'header' ) / gt_pb_has_region() — a blank hybrid theme can be little more than region calls.
+* Hook positions now actually render: wp_head, wp_body_open, wp_footer, loop_start/end, get_header/footer/sidebar, and before/after the content (priority-ordered).
+* Block renamed to gt-page-block/page-block (category: Page Blocks). The legacy marketers-delight/page-block stays registered (hidden from the inserter) so existing content keeps rendering, with a one-click transform to the new block.
+* Migration tool: Settings -> Tools -> Migrate blocks (with dry run), or WP-CLI `wp gt-pb migrate-blocks [--dry-run]` — rewrites stored content to the new block name without touching post modified dates.
+* REST + library: block position and priority are exposed over the API and shown as a chip on library cards.
+
+= 2.5.0 =
+* REST API (pbb/v1): full CRUD for library blocks plus /duplicate and /render endpoints — list filtering, search, pagination, and status counts via headers.
+* New library admin panel: card grid with live preview thumbnails (lazy-loaded), search, status filter tabs, duplicate / trash / restore / delete, and copy-shortcode — the classic list table remains at ?view=list.
+* Block editor: the Page Block defaults to a rendered live preview (auto-sizing iframe with theme styles) when it has content; toggle Preview/Code from the block toolbar.
+* Block editor: Browse library — search the library in a modal and insert a copy of any saved block into the current Page Block.
+* Responsive preview: desktop / tablet (768px) / mobile (390px) viewport presets, plus a dark-scheme toggle (data-theme="dark").
+* Collapsible live preview pane under the code editor — re-renders as you type (server-rendered when PHP/wpautop is on).
+* Copy button for the active code tab.
+* Save to library: promote an inline block to a reusable library Page Block (admins) straight from the editor.
 
 = 2.4.0 =
 * **NEW**: Emmet-style expansion in the HTML editor. Type an abbreviation like `section.hero>h1{Title}+p{Body}+a.btn[href="#"]{Click}` and press Tab to expand into nested HTML. Supports tags, `.class`, `#id`, `[attr="val"]`, `{text}`, `>` (child), `+` (sibling), `*N` (multiply), `$` (numbering).
