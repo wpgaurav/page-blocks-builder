@@ -815,6 +815,12 @@ class GT_Page_Blocks_Builder {
 				'initialSections'    => $this->get_builder_sections_from_post( $post_id ),
 				'postTemplate'       => $this->get_builder_post_template_slug( $post_id ),
 				'availableTemplates' => $this->get_available_page_templates( $post_id ),
+				// Page settings, edited in the builder's own dialog rather than
+				// sending the user back to the WordPress editor for a slug.
+				'postTitle'          => get_the_title( $post_id ),
+				'postSlug'           => get_post_field( 'post_name', $post_id ),
+				'postStatus'         => get_post_status( $post_id ),
+				'permalinkBase'      => $this->get_builder_permalink_base( $post_id ),
 				'previewInjection'   => $this->get_builder_preview_injection( $post_id ),
 				'codeEditorSettings' => $editor_settings,
 				'themeStyleUrls'     => $this->get_builder_style_urls(),
@@ -829,20 +835,12 @@ class GT_Page_Blocks_Builder {
 				// AI
 				'aiEndpoint'         => admin_url( 'admin-ajax.php' ),
 				'aiAction'           => 'md_page_blocks_ai_generate',
-				'aiDefaultModel'     => get_option( 'gt_pb_ai_default_model', 'claude-sonnet-4-6' ),
+				'aiDefaultModel'     => self::ai_stored_default_model(),
 				'aiHasOpenAI'        => ! empty( get_option( 'gt_pb_ai_openai_key', '' ) ),
 				'aiHasAnthropic'     => ! empty( get_option( 'gt_pb_ai_anthropic_key', '' ) ),
 				'aiHasGemini'        => ! empty( get_option( 'gt_pb_ai_gemini_key', '' ) ),
 				'aiCssContext'       => $this->get_ai_css_context(),
-				'aiModels'           => array(
-					array( 'id' => 'gpt-5.2', 'label' => 'GPT-5.2', 'provider' => 'openai' ),
-					array( 'id' => 'gpt-5-mini', 'label' => 'GPT-5 Mini', 'provider' => 'openai' ),
-					array( 'id' => 'gpt-4o-mini', 'label' => 'GPT-4o Mini', 'provider' => 'openai' ),
-					array( 'id' => 'claude-sonnet-4-6', 'label' => 'Claude Sonnet 4.6', 'provider' => 'anthropic' ),
-					array( 'id' => 'claude-opus-4-6', 'label' => 'Claude Opus 4.6', 'provider' => 'anthropic' ),
-					array( 'id' => 'claude-haiku-4-5-20241022', 'label' => 'Claude Haiku 4.5', 'provider' => 'anthropic' ),
-					array( 'id' => 'gemini-3-flash-preview', 'label' => 'Gemini 3 Flash', 'provider' => 'gemini' ),
-				),
+				'aiModels'           => self::ai_models(),
 				// Library/export/import stubs (plugin uses post_content only, no DB library)
 				'libraryEndpoint'    => '',
 				'librarySaveAction'  => '',
@@ -974,6 +972,35 @@ class GT_Page_Blocks_Builder {
 		}
 
 		return $template;
+	}
+
+	/**
+	 * The permalink up to (but not including) the slug.
+	 *
+	 * Used by the builder's page-settings dialog to show what the URL will
+	 * look like while the slug is being typed. Derived from the real
+	 * permalink so it respects the site's permalink structure, hierarchy and
+	 * post type rather than assuming home_url() . '/'.
+	 *
+	 * @param int $post_id Post ID.
+	 * @return string
+	 */
+	private function get_builder_permalink_base( $post_id ) {
+		$permalink = get_permalink( $post_id );
+		$slug      = get_post_field( 'post_name', $post_id );
+
+		if ( ! $permalink ) {
+			return trailingslashit( home_url( '/' ) );
+		}
+
+		if ( $slug && false !== strpos( $permalink, $slug ) ) {
+			$cut = strrpos( $permalink, $slug );
+			if ( false !== $cut ) {
+				return substr( $permalink, 0, $cut );
+			}
+		}
+
+		return trailingslashit( home_url( '/' ) );
 	}
 
 	private function get_available_page_templates( $post_id ) {
@@ -1378,6 +1405,8 @@ class GT_Page_Blocks_Builder {
 
 		$raw_sections  = isset( $_POST['sections'] ) ? wp_unslash( $_POST['sections'] ) : '';
 		$page_template = isset( $_POST['page_template'] ) ? sanitize_text_field( wp_unslash( $_POST['page_template'] ) ) : '';
+		$post_title    = isset( $_POST['post_title'] ) ? sanitize_text_field( wp_unslash( $_POST['post_title'] ) ) : null;
+		$post_slug     = isset( $_POST['post_slug'] ) ? sanitize_title( wp_unslash( $_POST['post_slug'] ) ) : null;
 		$decoded       = json_decode( (string) $raw_sections, true );
 		if ( ! is_array( $decoded ) ) {
 			wp_send_json_error( array( 'message' => __( 'Invalid builder payload.', 'page-blocks-builder' ) ), 400 );
@@ -1483,6 +1512,18 @@ class GT_Page_Blocks_Builder {
 			'post_content' => wp_slash( implode( "\n\n", $parts ) ),
 		);
 
+		// Only carry a field the client actually sent, and only when it
+		// changed. Passing the current title back through wp_update_post on
+		// every save would rewrite it for no reason, and an empty title would
+		// hand WordPress a blank post.
+		if ( null !== $post_title && '' !== $post_title && $post_title !== $post->post_title ) {
+			$update_args['post_title'] = wp_slash( $post_title );
+		}
+
+		if ( null !== $post_slug && '' !== $post_slug && $post_slug !== $post->post_name ) {
+			$update_args['post_name'] = $post_slug;
+		}
+
 		$updated = wp_update_post( $update_args, true );
 
 		if ( is_wp_error( $updated ) ) {
@@ -1499,12 +1540,17 @@ class GT_Page_Blocks_Builder {
 			$this->maybe_set_builder_template( $post_id );
 		}
 
+		// WordPress sanitises and de-duplicates a slug on save, so the client
+		// is told what it actually became rather than what it asked for.
 		wp_send_json_success(
 			array(
 				'message'     => __( 'Page Blocks saved.', 'page-blocks-builder' ),
 				'postId'      => $post_id,
 				'sections'    => $sections,
 				'editPostUrl' => get_edit_post_link( $post_id, 'raw' ) ?: '',
+				'postTitle'   => get_the_title( $post_id ),
+				'postSlug'    => get_post_field( 'post_name', $post_id ),
+				'viewPostUrl' => get_permalink( $post_id ) ?: '',
 			)
 		);
 	}
@@ -1764,7 +1810,7 @@ class GT_Page_Blocks_Builder {
 		register_setting( 'gt_page_blocks_builder_settings', 'gt_pb_ai_default_model', array(
 			'type'              => 'string',
 			'sanitize_callback' => array( $this, 'sanitize_ai_model' ),
-			'default'           => 'claude-sonnet-4-6',
+			'default'           => self::ai_default_model(),
 		) );
 
 		register_setting( 'gt_page_blocks_builder_settings', 'gt_pb_terminal_enabled', array(
@@ -1809,14 +1855,66 @@ class GT_Page_Blocks_Builder {
 		) );
 	}
 
-	public function sanitize_ai_model( $value ) {
-		$allowed = array(
-			'gpt-5.2', 'gpt-5-mini', 'gpt-4o-mini',
-			'claude-sonnet-4-6', 'claude-opus-4-6', 'claude-haiku-4-5-20241022',
-			'gemini-3-flash-preview',
+	/**
+	 * Models the AI assistant offers.
+	 *
+	 * Single source of truth. This list used to be repeated in four places and
+	 * had already drifted apart: the registered default was claude-sonnet-4-6
+	 * while the request path fell back to gpt-5.2, so a saved model could be
+	 * valid in one list and silently replaced by the other.
+	 *
+	 * @since 2.7.3
+	 * @return array<int,array{id:string,label:string,provider:string}>
+	 */
+	public static function ai_models() {
+		return array(
+			// OpenAI.
+			array( 'id' => 'gpt-5.6-luna', 'label' => 'GPT-5.6 Luna', 'provider' => 'openai' ),
+			array( 'id' => 'gpt-5.2', 'label' => 'GPT-5.2', 'provider' => 'openai' ),
+			array( 'id' => 'gpt-5-mini', 'label' => 'GPT-5 Mini', 'provider' => 'openai' ),
+			array( 'id' => 'gpt-4o-mini', 'label' => 'GPT-4o Mini', 'provider' => 'openai' ),
+			// Anthropic — Claude 5 family.
+			array( 'id' => 'claude-opus-5', 'label' => 'Claude Opus 5', 'provider' => 'anthropic' ),
+			array( 'id' => 'claude-sonnet-5', 'label' => 'Claude Sonnet 5', 'provider' => 'anthropic' ),
+			array( 'id' => 'claude-fable-5', 'label' => 'Claude Fable 5', 'provider' => 'anthropic' ),
+			array( 'id' => 'claude-haiku-4-5-20251001', 'label' => 'Claude Haiku 4.5', 'provider' => 'anthropic' ),
+			// Google.
+			array( 'id' => 'gemini-3-flash-preview', 'label' => 'Gemini 3 Flash', 'provider' => 'gemini' ),
 		);
+	}
 
-		return in_array( $value, $allowed, true ) ? $value : 'claude-sonnet-4-6';
+	/**
+	 * The model used when none is chosen, or when a stored one is unknown.
+	 */
+	public static function ai_default_model() {
+		return 'gpt-5.6-luna';
+	}
+
+	/**
+	 * The configured default, or the built-in one when the stored value names
+	 * a model that is no longer offered.
+	 *
+	 * Sanitising happens on save, so a site that stored a model before it was
+	 * retired keeps that value in the option. Reading it raw would show the
+	 * dead id in the settings screen and in the assistant's model picker.
+	 */
+	public static function ai_stored_default_model() {
+		$stored = (string) get_option( 'gt_pb_ai_default_model', '' );
+
+		return in_array( $stored, self::ai_model_ids(), true ) ? $stored : self::ai_default_model();
+	}
+
+	public static function ai_model_ids() {
+		return array_map(
+			static function ( $model ) {
+				return $model['id'];
+			},
+			self::ai_models()
+		);
+	}
+
+	public function sanitize_ai_model( $value ) {
+		return in_array( $value, self::ai_model_ids(), true ) ? $value : self::ai_default_model();
 	}
 
 	/**
@@ -3160,17 +3258,8 @@ class GT_Page_Blocks_Builder {
 	}
 
 	private function call_ai_api( $model, $tab, $prompt, $existing, $selection, $ctx_html, $ctx_css, $page_url, $css_context = '', $history = array() ) {
-		if ( empty( $model ) ) {
-			$model = get_option( 'gt_pb_ai_default_model', 'gpt-5.2' );
-		}
-
-		$allowed = array(
-			'gpt-5.2', 'gpt-5-mini', 'gpt-4o-mini',
-			'claude-sonnet-4-6', 'claude-opus-4-6', 'claude-haiku-4-5-20241022',
-			'gemini-3-flash-preview',
-		);
-		if ( ! in_array( $model, $allowed, true ) ) {
-			$model = 'gpt-5.2';
+		if ( empty( $model ) || ! in_array( $model, self::ai_model_ids(), true ) ) {
+			$model = self::ai_stored_default_model();
 		}
 
 		if ( strpos( $model, 'gpt' ) === 0 ) {

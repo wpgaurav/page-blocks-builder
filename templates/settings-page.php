@@ -6,7 +6,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 $ai_openai_key       = get_option( 'gt_pb_ai_openai_key', '' );
 $ai_anthropic_key    = get_option( 'gt_pb_ai_anthropic_key', '' );
 $ai_gemini_key       = get_option( 'gt_pb_ai_gemini_key', '' );
-$ai_default_model    = get_option( 'gt_pb_ai_default_model', 'claude-sonnet-4-6' );
+$ai_default_model    = GT_Page_Blocks_Builder::ai_stored_default_model();
 $preview_css         = get_option( 'gt_pb_preview_css', '' );
 $preview_head_html   = get_option( 'gt_pb_preview_head_html', '' );
 $preview_js_footer   = get_option( 'gt_pb_preview_js_footer', '' );
@@ -97,20 +97,31 @@ $load_utilities      = (bool) get_option( 'gt_pb_load_utilities', false );
 			<tr>
 				<th scope="row"><label for="gt_pb_ai_default_model"><?php esc_html_e( 'Default AI Model', 'page-blocks-builder' ); ?></label></th>
 				<td>
-					<select id="gt_pb_ai_default_model" name="gt_pb_ai_default_model">
-						<optgroup label="OpenAI">
-							<option value="gpt-5.2" <?php selected( $ai_default_model, 'gpt-5.2' ); ?>>GPT-5.2</option>
-							<option value="gpt-5-mini" <?php selected( $ai_default_model, 'gpt-5-mini' ); ?>>GPT-5 Mini</option>
-							<option value="gpt-4o-mini" <?php selected( $ai_default_model, 'gpt-4o-mini' ); ?>>GPT-4o Mini</option>
-						</optgroup>
-						<optgroup label="Anthropic">
-							<option value="claude-sonnet-4-6" <?php selected( $ai_default_model, 'claude-sonnet-4-6' ); ?>>Claude Sonnet 4.6</option>
-							<option value="claude-opus-4-6" <?php selected( $ai_default_model, 'claude-opus-4-6' ); ?>>Claude Opus 4.6</option>
-							<option value="claude-haiku-4-5-20241022" <?php selected( $ai_default_model, 'claude-haiku-4-5-20241022' ); ?>>Claude Haiku 4.5</option>
-						</optgroup>
-						<optgroup label="Google">
-							<option value="gemini-3-flash-preview" <?php selected( $ai_default_model, 'gemini-3-flash-preview' ); ?>>Gemini 3 Flash</option>
-						</optgroup>
+<select id="gt_pb_ai_default_model" name="gt_pb_ai_default_model">
+						<?php
+						// Built from GT_Page_Blocks_Builder::ai_models() so this
+						// dropdown cannot drift from the list the request path
+						// actually accepts.
+						$gt_pb_groups = array( 'openai' => 'OpenAI', 'anthropic' => 'Anthropic', 'gemini' => 'Google' );
+						foreach ( $gt_pb_groups as $gt_pb_provider => $gt_pb_group_label ) :
+							$gt_pb_group_models = array_filter(
+								GT_Page_Blocks_Builder::ai_models(),
+								static function ( $gt_pb_model ) use ( $gt_pb_provider ) {
+									return $gt_pb_model['provider'] === $gt_pb_provider;
+								}
+							);
+							if ( ! $gt_pb_group_models ) {
+								continue;
+							}
+							?>
+							<optgroup label="<?php echo esc_attr( $gt_pb_group_label ); ?>">
+								<?php foreach ( $gt_pb_group_models as $gt_pb_model ) : ?>
+									<option value="<?php echo esc_attr( $gt_pb_model['id'] ); ?>" <?php selected( $ai_default_model, $gt_pb_model['id'] ); ?>>
+										<?php echo esc_html( $gt_pb_model['label'] ); ?>
+									</option>
+								<?php endforeach; ?>
+							</optgroup>
+						<?php endforeach; ?>
 					</select>
 				</td>
 			</tr>

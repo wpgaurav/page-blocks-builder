@@ -10,6 +10,14 @@
 	'use strict';
 
 	var config = window.mdPbBuilder || {};
+
+	// WordPress' own gear glyph, inlined — dashicons are an admin stylesheet
+	// and this shell renders on the front end.
+	var GEAR_ICON = '<svg class="md-pb-btn-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" ' +
+		'stroke="currentColor" stroke-width="2" aria-hidden="true" focusable="false">' +
+		'<circle cx="12" cy="12" r="3"/>' +
+		'<path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 11-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 11-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 11-2.83-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 110-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 112.83-2.83l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 114 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 112.83 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 110 4h-.09a1.65 1.65 0 00-1.51 1z"/>' +
+		'</svg>';
 	var app = document.getElementById('md-pb-builder-app');
 	var state = {
 		sections: [],
@@ -37,6 +45,8 @@
 			inlineStyles: []
 		},
 		pageTemplate: config.postTemplate || 'default',
+		pageTitle: config.postTitle || '',
+		pageSlug: config.postSlug || '',
 		aiOpen: false,
 		aiMessages: [],
 		aiSelection: '',
@@ -137,25 +147,204 @@
 		return !!(section && section.kind !== 'foreign' && section.blockId > 0);
 	}
 
+	// A section is addressed by the id on its outermost element. Where the
+	// author did not write one, the builder adds one of these so the section
+	// has a stable handle for CSS, anchors and the preview.
+	var GENERATED_ID_PREFIX  = 'pb-';
+	var GENERATED_ID_PATTERN = /^pb-[a-z0-9]{8}$/;
+
+	// The first opening tag, with an attribute run that tolerates a ">" inside
+	// a quoted value. Leading comments and whitespace are skipped so a section
+	// that opens with a note still resolves to its real root element.
+	var ROOT_TAG_PATTERN = /^\s*(?:<!--[\s\S]*?-->\s*)*<([a-zA-Z][a-zA-Z0-9-]*)((?:"[^"]*"|'[^']*'|[^>"'])*)>/;
+
+	function generateSectionId() {
+		var uid = '';
+		while (uid.length < 8) {
+			uid += Math.random().toString(36).slice(2);
+		}
+		return GENERATED_ID_PREFIX + uid.slice(0, 8);
+	}
+
+	function isGeneratedId(value) {
+		return GENERATED_ID_PATTERN.test(String(value || ''));
+	}
+
+	/**
+	 * Describe a section's outermost element without parsing the document.
+	 *
+	 * Round-tripping the markup through DOMParser would reformat everything
+	 * the author wrote — quote style, self-closing tags, indentation — so this
+	 * reads and edits the opening tag as text instead.
+	 *
+	 * @param {string} content Section HTML.
+	 * @return {?{tag:string,id:string,hasId:boolean,insertAt:number}}
+	 */
+	function readRootTag(content) {
+		var source = String(content || '');
+		var match  = ROOT_TAG_PATTERN.exec(source);
+
+		if (!match) {
+			return null;
+		}
+
+		var attrs   = match[2] || '';
+		var idMatch = /(?:^|\s)id\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'>]+))/.exec(attrs);
+		var id      = idMatch ? (idMatch[1] || idMatch[2] || idMatch[3] || '') : '';
+
+		return {
+			tag: match[1],
+			id: id,
+			hasId: !!idMatch,
+			insertAt: source.indexOf('<' + match[1], match.index) + 1 + match[1].length
+		};
+	}
+
+	/**
+	 * Give a section's root element an id if it has none.
+	 *
+	 * An id the author wrote is left exactly as it is — this only fills the
+	 * gap. Foreign and linked sections are skipped: the builder does not own
+	 * their markup.
+	 *
+	 * @return {boolean} Whether the content changed.
+	 */
+	function ensureSectionRootId(section) {
+		if (!section || isForeign(section) || isLinked(section)) {
+			return false;
+		}
+
+		var root = readRootTag(section.content);
+		if (!root || root.hasId) {
+			return false;
+		}
+
+		var content = String(section.content || '');
+		section.content = content.slice(0, root.insertAt) +
+			' id="' + generateSectionId() + '"' +
+			content.slice(root.insertAt);
+
+		return true;
+	}
+
+	var rootIdTimer = null;
+
+	/**
+	 * Fill in the current section's root id and show the result.
+	 *
+	 * Runs when typing settles and again when the editor loses focus, so the
+	 * author watches the id land in their own markup instead of finding it
+	 * there after a save. The caret is put back where it was: the id is
+	 * inserted into the opening tag, which shifts everything after it.
+	 */
+	function commitRootIdForCurrentSection() {
+		var section = getCurrentSection();
+
+		if (!section) {
+			return;
+		}
+
+		var before = String(section.content || '');
+		var root   = readRootTag(before);
+
+		if (!ensureSectionRootId(section)) {
+			return;
+		}
+
+		var added  = section.content.length - before.length;
+		var editor = state.editors.html && state.editors.html.codemirror;
+
+		state.syncingEditors = true;
+
+		if (editor) {
+			var caret = editor.indexFromPos(editor.getCursor());
+			editor.setValue(section.content);
+			if (root && caret > root.insertAt) {
+				caret += added;
+			}
+			editor.setCursor(editor.posFromIndex(caret));
+		} else if (dom.textareaHtml) {
+			var start = dom.textareaHtml.selectionStart;
+			var end   = dom.textareaHtml.selectionEnd;
+			dom.textareaHtml.value = section.content;
+			if (root && start > root.insertAt) {
+				start += added;
+				end += added;
+			}
+			dom.textareaHtml.setSelectionRange(start, end);
+		}
+
+		state.syncingEditors = false;
+
+		renderIndexList();
+		renderActiveSectionMeta();
+		queuePreviewRender(0, true);
+		queueAutosave();
+	}
+
+	/**
+	 * Wait for the markup to stop moving before touching it.
+	 *
+	 * Half-typed markup has no complete opening tag for readRootTag to match,
+	 * so an early run is a no-op rather than a wrong edit — but waiting keeps
+	 * the editor from rewriting itself under an active cursor.
+	 */
+	function queueRootIdCommit() {
+		if (rootIdTimer) {
+			window.clearTimeout(rootIdTimer);
+		}
+
+		rootIdTimer = window.setTimeout(function() {
+			rootIdTimer = null;
+			commitRootIdForCurrentSection();
+		}, 1200);
+	}
+
+	function ensureAllSectionRootIds() {
+		var changed = false;
+
+		state.sections.forEach(function(section) {
+			if (ensureSectionRootId(section)) {
+				changed = true;
+			}
+		});
+
+		return changed;
+	}
+
+	/** The words in a section, with the markup taken out. */
+	function textFromHtml(content) {
+		try {
+			var doc = new window.DOMParser().parseFromString(String(content || ''), 'text/html');
+			return (doc.body ? doc.body.textContent || '' : '').replace(/\s+/g, ' ').trim();
+		} catch (error) {
+			return '';
+		}
+	}
+
 	function inferSectionName(content, index) {
 		if (typeof content !== 'string' || !content.trim()) {
 			return 'Section ' + (index + 1);
 		}
 
-		try {
-			var parser = new window.DOMParser();
-			var doc = parser.parseFromString(content, 'text/html');
-			var sectionWithId = doc.querySelector('section[id]');
-			if (sectionWithId && sectionWithId.id) {
-				return sectionWithId.id;
-			}
+		var root = readRootTag(content);
 
-			var heading = doc.querySelector('h1, h2, h3, h4, h5, h6');
-			if (heading) {
-				var text = (heading.textContent || '').trim().replace(/\s+/g, ' ');
-				if (text) {
-					return text;
-				}
+		// An id the author chose is the best name there is. A generated one is
+		// noise, so those sections are named after what they say instead.
+		if (root && root.id && !isGeneratedId(root.id)) {
+			return root.id;
+		}
+
+		var text = textFromHtml(content);
+		if (text) {
+			return text.slice(0, 10);
+		}
+
+		try {
+			var doc = new window.DOMParser().parseFromString(content, 'text/html');
+			var sectionWithId = doc.querySelector('section[id]');
+			if (sectionWithId && sectionWithId.id && !isGeneratedId(sectionWithId.id)) {
+				return sectionWithId.id;
 			}
 		} catch (error) {
 			return 'Section ' + (index + 1);
@@ -181,6 +370,13 @@
 		if (state.selectedIndex >= state.sections.length) {
 			state.selectedIndex = state.sections.length - 1;
 		}
+	}
+
+	function escapeHtml(value) {
+		return String(value)
+			.replace(/&/g, '&amp;')
+			.replace(/</g, '&lt;')
+			.replace(/>/g, '&gt;');
 	}
 
 	function escapeAttribute(value) {
@@ -386,9 +582,21 @@
 		var inlineEditCss = '<style>[contenteditable="true"]{outline:2px solid rgba(99,179,237,0.6);outline-offset:2px;border-radius:2px;min-height:1em;}[data-pb-editable-hover]{outline:1px dashed rgba(99,179,237,0.3);outline-offset:1px;border-radius:2px;cursor:text;}</style>';
 
 		// Build HTML (no <script> tags — scripts injected post-load to avoid srcdoc parsing issues)
+		// The preview canvas, before anything else can paint it.
+		//
+		// The theme's dark mode is attribute-driven and that attribute is not
+		// set inside the frame, so the theme supplies its light-mode text. But
+		// an iframe with a transparent body takes the OS colour scheme for its
+		// canvas, so an author on a dark desktop got near-black text on a
+		// near-black page. Pinning the scheme keeps the preview showing what a
+		// visitor sees; a theme that paints its own background still wins,
+		// because this comes first.
+		var canvasCss = '<style>html{color-scheme:light;background:#fff;}body{background:#fff;}</style>';
+
 		var docHtml = '<!doctype html>' +
 			'<html><head><meta charset="utf-8">' +
 			'<meta name="viewport" content="width=device-width, initial-scale=1">' +
+			canvasCss +
 			themeStyleLinks +
 			themeInlineStyles +
 			(injection.headHtml || '') +
@@ -616,9 +824,12 @@
 		try {
 			var parser = new window.DOMParser();
 			var doc = parser.parseFromString(section.content, 'text/html');
+			var root = readRootTag(section.content);
 			var idNode = doc.querySelector('[id]');
 			var classNode = doc.querySelector('[class]');
-			var sectionId = idNode && idNode.id ? idNode.id : fallbackId;
+			var sectionId = root && root.id
+				? root.id
+				: (idNode && idNode.id ? idNode.id : fallbackId);
 
 			if (classNode && classNode.classList && classNode.classList.length) {
 				classes = Array.prototype.slice.call(classNode.classList).slice(0, 8);
@@ -785,6 +996,8 @@
 		form.set('pb_nonce', String(config.saveNonce || ''));
 		form.set('sections', JSON.stringify(Array.isArray(sections) ? sections : []));
 		form.set('page_template', state.pageTemplate || '');
+		form.set('post_title', state.pageTitle || '');
+		form.set('post_slug', state.pageSlug || '');
 
 		window.fetch(config.saveEndpoint, {
 			method: 'POST',
@@ -810,6 +1023,19 @@
 
 				if (payload.data && payload.data.editPostUrl) {
 					config.editPostUrl = payload.data.editPostUrl;
+				}
+
+				// WordPress sanitises and de-duplicates the slug, so the
+				// builder adopts the saved values rather than keeping what it
+				// asked for.
+				if (payload.data && typeof payload.data.postSlug === 'string') {
+					state.pageSlug = payload.data.postSlug;
+				}
+				if (payload.data && typeof payload.data.postTitle === 'string') {
+					state.pageTitle = payload.data.postTitle;
+				}
+				if (payload.data && payload.data.viewPostUrl) {
+					config.viewPostUrl = payload.data.viewPostUrl;
 				}
 
 				clearAutosaveDraft();
@@ -855,6 +1081,12 @@
 	}
 
 	function activateApply() {
+		// A section edited and saved without the editor ever settling or
+		// losing focus would otherwise reach the database with no id.
+		if (ensureAllSectionRootIds()) {
+			renderAll();
+		}
+
 		saveSections(getApplyPayloadSections());
 	}
 
@@ -966,6 +1198,7 @@
 		}
 
 		renderAll();
+		queueAutosave();
 	}
 
 	function selectSection(index) {
@@ -1016,7 +1249,6 @@
 			item.className = 'md-pb-index-item';
 			item.setAttribute('data-index', String(index));
 			item.setAttribute('tabindex', '0');
-			item.setAttribute('draggable', 'true');
 
 			if (index === state.selectedIndex) {
 				item.classList.add('is-selected');
@@ -1366,6 +1598,7 @@
 	function hydrateSections(sections) {
 		state.sections = sanitizeSections(sections);
 		state.selectedIndex = 0;
+		ensureAllSectionRootIds();
 		renderAll();
 	}
 
@@ -1792,8 +2025,12 @@
 		state.hasCodeMirror = hasCodeEditor;
 
 		if (!hasCodeEditor) {
+			dom.textareaHtml.addEventListener('blur', function() {
+				commitRootIdForCurrentSection();
+			});
 			dom.textareaHtml.addEventListener('input', function(event) {
 				updateCurrentSectionField('content', event.target.value);
+				queueRootIdCommit();
 			});
 			dom.textareaCss.addEventListener('input', function(event) {
 				updateCurrentSectionField('css', event.target.value);
@@ -1871,9 +2108,18 @@
 					return;
 				}
 				updateCurrentSectionField(item.field, instance.getValue());
+				if ('content' === item.field) {
+					queueRootIdCommit();
+				}
 			});
 
 			if (item.key === 'html') {
+				// Waiting for blur matters: adding an id on every keystroke
+				// would fire while the opening tag is still half typed.
+				editor.codemirror.on('blur', function() {
+					commitRootIdForCurrentSection();
+				});
+
 				editor.codemirror.on('cursorActivity', function(instance) {
 					if (cursorScrollTimer) {
 						window.clearTimeout(cursorScrollTimer);
@@ -1950,6 +2196,11 @@
 
 		if (dom.shell) {
 			dom.shell.classList.toggle('is-ai-open', shouldOpen);
+		}
+
+		if (dom.toggleAiButton) {
+			dom.toggleAiButton.classList.toggle('is-active', shouldOpen);
+			dom.toggleAiButton.setAttribute('aria-pressed', shouldOpen ? 'true' : 'false');
 		}
 
 		if (shouldOpen && dom.aiInput) {
@@ -2091,20 +2342,6 @@
 		queuePreviewRender();
 	}
 
-	function populateTemplateSelect() {
-		if (!dom.templateSelect || !Array.isArray(config.availableTemplates)) {
-			return;
-		}
-
-		config.availableTemplates.forEach(function(tpl) {
-			var opt = document.createElement('option');
-			opt.value = tpl.slug;
-			opt.textContent = tpl.label;
-			dom.templateSelect.appendChild(opt);
-		});
-
-		dom.templateSelect.value = state.pageTemplate;
-	}
 
 	function populateAiModelSelect() {
 		if (!dom.aiModelSelect || !Array.isArray(config.aiModels)) {
@@ -2130,6 +2367,8 @@
 
 		var providerLabels = { openai: 'OpenAI', anthropic: 'Anthropic', gemini: 'Google' };
 		dom.aiModelSelect.textContent = '';
+		dom.aiModelSelect.disabled = false;
+		dom.aiModelSelect.removeAttribute('title');
 
 		Object.keys(groups).forEach(function(provider) {
 			var optgroup = document.createElement('optgroup');
@@ -2150,8 +2389,21 @@
 			var noOpt = document.createElement('option');
 			noOpt.textContent = 'No API keys configured';
 			noOpt.disabled = true;
+			noOpt.selected = true;
 			dom.aiModelSelect.appendChild(noOpt);
+			dom.aiModelSelect.disabled = true;
+			dom.aiModelSelect.title = 'Add an API key in Settings \u2192 Page Blocks.';
+			return;
 		}
+
+		// The list only offers providers this site has a key for, so the
+		// configured default can be absent. The select would then show its
+		// first option while the state still held the missing model, and the
+		// request came back "No API key configured for <provider>".
+		if (dom.aiModelSelect.selectedIndex < 0 || !dom.aiModelSelect.value) {
+			dom.aiModelSelect.selectedIndex = 0;
+		}
+		state.aiModel = dom.aiModelSelect.value;
 	}
 
 	function hasAiGeneratedId(attributes) {
@@ -2473,7 +2725,7 @@
 					'<button type="button" class="md-pb-toggle-btn is-active" data-role="toggle-sections" aria-pressed="true">\u2630 Sections</button>' +
 					'<button type="button" class="md-pb-toggle-btn is-active" data-role="toggle-code" aria-pressed="true">&lt;/&gt; Code</button>' +
 					'<button type="button" class="md-pb-toggle-btn is-active" data-role="toggle-preview" aria-pressed="true">&#9655; Preview</button>' +
-					'<button type="button" class="md-pb-toggle-btn" data-role="toggle-ai">AI</button>' +
+					'<button type="button" class="md-pb-toggle-btn" data-role="toggle-ai" aria-pressed="false">AI</button>' +
 				'</div>' +
 				'<div class="md-pb-topbar-actions">' +
 					'<button type="button" class="md-pb-button md-pb-button-primary" data-role="apply">Save</button>' +
@@ -2481,8 +2733,7 @@
 				'</div>' +
 				'<div class="md-pb-topbar-right">' +
 					(config.libraryEndpoint ? '<button type="button" class="md-pb-button" data-role="library" title="Section Library">\u2261 Library</button>' : '') +
-					'<button type="button" class="md-pb-button" data-role="export" title="Export sections">Export</button>' +
-					'<button type="button" class="md-pb-button" data-role="import" title="Import sections">Import</button>' +
+					'<button type="button" class="md-pb-button" data-role="page-settings" title="Page settings, template, import and export">' + GEAR_ICON + 'Page Settings</button>' +
 					'<button type="button" class="md-pb-button" data-role="shortcuts" title="Keyboard shortcuts">?</button>' +
 					'<button type="button" class="md-pb-button" data-role="cancel">Close</button>' +
 				'</div>' +
@@ -2520,10 +2771,6 @@
 					'<iframe class="md-pb-preview-frame" sandbox="allow-scripts allow-same-origin" title="Page Blocks Preview"></iframe>' +
 				'</div>' +
 				'<aside class="md-pb-index">' +
-					'<div class="md-pb-template-bar">' +
-						'<label class="md-pb-template-label">Template</label>' +
-						'<select class="md-pb-template-select" data-role="template-select"></select>' +
-					'</div>' +
 					'<div class="md-pb-index-header">' +
 						'<span>Sections</span>' +
 						'<div class="md-pb-index-header-actions">' +
@@ -2634,14 +2881,12 @@
 		dom.aiPanel = shell.querySelector('[data-role="ai-panel"]');
 		dom.aiMessages = shell.querySelector('[data-role="ai-messages"]');
 		dom.libraryButton = shell.querySelector('[data-role="library"]');
-		dom.exportButton = shell.querySelector('[data-role="export"]');
-		dom.importButton = shell.querySelector('[data-role="import"]');
+		dom.pageSettingsButton = shell.querySelector('[data-role="page-settings"]');
 		dom.shortcutsButton = shell.querySelector('[data-role="shortcuts"]');
 		dom.htmlSnippets = shell.querySelector('[data-role="html-snippets"]');
-		dom.templateSelect = shell.querySelector('[data-role="template-select"]');
 
 		populateAiModelSelect();
-		populateTemplateSelect();
+		renderAiMessages();
 		applyPreviewViewport();
 		setBottomHeight(state.bottomHeight);
 		setRightPaneMode(state.rightPaneMode);
@@ -2679,6 +2924,213 @@
 			}
 			event.preventDefault();
 			runHandler();
+		});
+	}
+
+	/**
+	 * Section reordering.
+	 *
+	 * This was HTML5 drag-and-drop on the <li>. Every row is covered by the
+	 * name <button> and the action buttons, and a mousedown on a form control
+	 * does not start its draggable ancestor's drag, so in practice only the
+	 * 14px grip could move a section and a grab anywhere else did nothing.
+	 * Pointer events make the whole row a handle (the action buttons excepted,
+	 * so they still click), drag every kind of section including the locked
+	 * ones, and work with a pen as well as a mouse. On touch the row keeps its
+	 * scroll gesture and the grip is the handle, which is what the grip's
+	 * touch-action: none is for.
+	 */
+	function setupSectionDragging() {
+		var list = dom.indexList;
+		if (!list) {
+			return;
+		}
+
+		var DRAG_THRESHOLD = 4;
+		var drag = null;
+
+		function items() {
+			return list.querySelectorAll('.md-pb-index-item');
+		}
+
+		function clearDropMarkers() {
+			Array.prototype.forEach.call(items(), function(node) {
+				node.classList.remove('is-drop-before', 'is-drop-after');
+			});
+		}
+
+		// Where the row would land, expressed as an insertion point in
+		// 0..length rather than an index, so dropping past the last row is
+		// as expressible as dropping between two.
+		function insertionPointAt(clientY) {
+			var rows = items();
+			for (var i = 0; i < rows.length; i++) {
+				var rect = rows[i].getBoundingClientRect();
+				if (clientY < rect.top + (rect.height / 2)) {
+					return i;
+				}
+			}
+			return rows.length;
+		}
+
+		function paintDropMarker(insertAt) {
+			clearDropMarkers();
+			var rows = items();
+			if (!rows.length) {
+				return;
+			}
+			if (insertAt >= rows.length) {
+				rows[rows.length - 1].classList.add('is-drop-after');
+			} else {
+				rows[insertAt].classList.add('is-drop-before');
+			}
+		}
+
+		// A long section list scrolls, so a drag has to be able to reach the
+		// rows that are off-screen when it starts.
+		function autoScroll(clientY) {
+			var rect = list.getBoundingClientRect();
+			if (clientY < rect.top + 28) {
+				list.scrollTop -= 12;
+			} else if (clientY > rect.bottom - 28) {
+				list.scrollTop += 12;
+			}
+		}
+
+		function finishDrag(commit) {
+			if (!drag) {
+				return;
+			}
+
+			var active   = drag.active;
+			var from     = drag.index;
+			var insertAt = drag.insertAt;
+
+			if (drag.item) {
+				drag.item.classList.remove('is-dragging');
+			}
+			list.classList.remove('is-dragging-section');
+			clearDropMarkers();
+			drag = null;
+
+			if (!active) {
+				return;
+			}
+
+			// The drag ends in a click on whatever is under the pointer. Left
+			// alone it would select or rename the row that was just moved.
+			var suppress = function(event) {
+				event.stopPropagation();
+				event.preventDefault();
+				window.removeEventListener('click', suppress, true);
+			};
+			window.addEventListener('click', suppress, true);
+			// A drag that ends where no click follows must not leave the
+			// suppressor armed for the next one.
+			window.setTimeout(function() {
+				window.removeEventListener('click', suppress, true);
+			}, 0);
+
+			if (!commit || 'number' !== typeof insertAt) {
+				return;
+			}
+
+			var to = insertAt > from ? insertAt - 1 : insertAt;
+			if (to !== from) {
+				reorderSections(from, to);
+			}
+		}
+
+		list.addEventListener('pointerdown', function(event) {
+			if (0 !== event.button) {
+				return;
+			}
+
+			var target = event.target instanceof HTMLElement ? event.target : null;
+			if (!target) {
+				return;
+			}
+
+			// The row controls and an open rename field keep their own
+			// behaviour; everything else in the row starts a drag.
+			if (target.closest('.md-pb-index-item-actions, input')) {
+				return;
+			}
+
+			var item = target.closest('.md-pb-index-item');
+			if (!item) {
+				return;
+			}
+
+			var index = parseInt(item.getAttribute('data-index') || '', 10);
+			if (Number.isNaN(index)) {
+				return;
+			}
+
+			drag = {
+				index: index,
+				item: item,
+				startY: event.clientY,
+				pointerId: event.pointerId,
+				active: false,
+				insertAt: null
+			};
+		});
+
+		list.addEventListener('pointermove', function(event) {
+			if (!drag) {
+				return;
+			}
+
+			if (!drag.active) {
+				if (Math.abs(event.clientY - drag.startY) < DRAG_THRESHOLD) {
+					return;
+				}
+
+				drag.active = true;
+				drag.item.classList.add('is-dragging');
+				list.classList.add('is-dragging-section');
+				state.dragIndex = drag.index;
+
+				// Keeps the gesture alive when the pointer leaves the list,
+				// and stops the row's own scroll/selection from taking over.
+				try {
+					list.setPointerCapture(drag.pointerId);
+				} catch (error) {
+					// capture unsupported; the window listeners below still fire
+				}
+			}
+
+			event.preventDefault();
+			autoScroll(event.clientY);
+			drag.insertAt = insertionPointAt(event.clientY);
+			paintDropMarker(drag.insertAt);
+		});
+
+		list.addEventListener('pointerup', function() {
+			finishDrag(true);
+			state.dragIndex = null;
+		});
+
+		list.addEventListener('pointercancel', function() {
+			finishDrag(false);
+			state.dragIndex = null;
+		});
+
+		// A pointerup that lands outside the list still ends the drag.
+		window.addEventListener('pointerup', function() {
+			if (drag) {
+				finishDrag(true);
+				state.dragIndex = null;
+			}
+		});
+
+		list.addEventListener('keydown', function(event) {
+			if ('Escape' === event.key && drag && drag.active) {
+				event.preventDefault();
+				finishDrag(false);
+				state.dragIndex = null;
+			}
 		});
 	}
 
@@ -2848,17 +3300,10 @@
 			});
 		}
 
-		// Export
-		if (dom.exportButton) {
-			dom.exportButton.addEventListener('click', function() {
-				exportSections();
-			});
-		}
-
-		// Import
-		if (dom.importButton) {
-			dom.importButton.addEventListener('click', function() {
-				importSections();
+		// Page settings — template, title, slug, import and export
+		if (dom.pageSettingsButton) {
+			dom.pageSettingsButton.addEventListener('click', function() {
+				showPageSettingsDialog();
 			});
 		}
 
@@ -2901,12 +3346,6 @@
 		dom.phpExec.addEventListener('change', function(event) {
 			updateCurrentSectionField('phpExec', !!event.target.checked);
 		});
-
-		if (dom.templateSelect) {
-			dom.templateSelect.addEventListener('change', function(event) {
-				state.pageTemplate = event.target.value;
-			});
-		}
 
 		// Keyboard shortcuts
 		document.addEventListener('keydown', function(event) {
@@ -3076,53 +3515,7 @@
 			}
 		});
 
-		// Drag-and-drop reordering
-		dom.indexList.addEventListener('dragstart', function(event) {
-			var target = event.target;
-			if (!(target instanceof HTMLElement)) {
-				return;
-			}
-
-			var item = target.closest('.md-pb-index-item');
-			if (!item) {
-				return;
-			}
-
-			state.dragIndex = parseInt(item.getAttribute('data-index') || '', 10);
-			if (event.dataTransfer) {
-				event.dataTransfer.effectAllowed = 'move';
-				event.dataTransfer.setData('text/plain', String(state.dragIndex));
-			}
-		});
-
-		dom.indexList.addEventListener('dragover', function(event) {
-			event.preventDefault();
-			if (event.dataTransfer) {
-				event.dataTransfer.dropEffect = 'move';
-			}
-		});
-
-		dom.indexList.addEventListener('drop', function(event) {
-			event.preventDefault();
-			var target = event.target;
-			if (!(target instanceof HTMLElement)) {
-				return;
-			}
-
-			var item = target.closest('.md-pb-index-item');
-			if (!item) {
-				return;
-			}
-
-			var toIndex = parseInt(item.getAttribute('data-index') || '', 10);
-			if (Number.isNaN(toIndex) || Number.isNaN(state.dragIndex)) {
-				return;
-			}
-
-			reorderSections(state.dragIndex, toIndex);
-			state.dragIndex = null;
-		});
-
+		setupSectionDragging();
 		setupResizeEvents();
 	}
 
@@ -3144,7 +3537,7 @@
 
 		var overlay = document.createElement('div');
 		overlay.id = 'md-pb-shortcuts-overlay';
-		overlay.style.cssText = 'position:fixed;inset:0;z-index:9999;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.7);backdrop-filter:blur(4px);';
+		overlay.className = 'md-pb-modal-overlay';
 
 		var isMac = navigator.platform.indexOf('Mac') !== -1;
 		var mod = isMac ? '\u2318' : 'Ctrl';
@@ -3165,12 +3558,16 @@
 		];
 
 		var rows = shortcuts.map(function(s) {
-			return '<tr><td style="padding:4px 16px 4px 0;text-align:right;"><kbd style="background:rgba(255,255,255,0.1);border:1px solid rgba(255,255,255,0.2);border-radius:4px;padding:2px 8px;font:12px var(--pb-font-code);color:var(--pb-accent);">' + s[0] + '</kbd></td><td style="padding:4px 0;color:var(--pb-text);font-size:13px;">' + s[1] + '</td></tr>';
+			return '<tr><td class="md-pb-kbd-cell"><kbd class="md-pb-kbd">' + s[0] + '</kbd></td>' +
+				'<td class="md-pb-kbd-label">' + s[1] + '</td></tr>';
 		}).join('');
 
-		overlay.innerHTML = '<div style="background:var(--pb-surface);border:1px solid var(--pb-border);border-radius:12px;padding:24px 32px;max-width:420px;box-shadow:var(--pb-shadow);">' +
-			'<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;"><h3 style="margin:0;font-size:16px;font-weight:700;color:var(--pb-text);">Keyboard Shortcuts</h3><button type="button" id="md-pb-shortcuts-close" style="background:none;border:none;color:var(--pb-muted);font-size:18px;cursor:pointer;padding:4px;">&times;</button></div>' +
-			'<table style="border-collapse:collapse;">' + rows + '</table>' +
+		overlay.innerHTML = '<div class="md-pb-modal" role="dialog" aria-modal="true" aria-label="Keyboard shortcuts">' +
+			'<div class="md-pb-modal-header">' +
+				'<h2 class="md-pb-modal-title">Keyboard Shortcuts</h2>' +
+				'<button type="button" class="md-pb-icon-btn" id="md-pb-shortcuts-close" title="Close">&times;</button>' +
+			'</div>' +
+			'<div class="md-pb-modal-body"><table class="md-pb-kbd-table">' + rows + '</table></div>' +
 			'</div>';
 
 		document.body.appendChild(overlay);
@@ -3209,14 +3606,19 @@
 
 		var overlay = document.createElement('div');
 		overlay.id = 'md-pb-library-overlay';
-		overlay.style.cssText = 'position:fixed;inset:0;z-index:9999;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.7);backdrop-filter:blur(4px);';
+		overlay.className = 'md-pb-modal-overlay';
 
-		overlay.innerHTML = '<div style="background:var(--pb-surface);border:1px solid var(--pb-border);border-radius:12px;padding:24px;max-width:560px;width:90%;max-height:80vh;display:flex;flex-direction:column;box-shadow:var(--pb-shadow);">' +
-			'<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;"><h3 style="margin:0;font-size:16px;font-weight:700;color:var(--pb-text);">Section Library</h3><button type="button" id="md-pb-library-close" style="background:none;border:none;color:var(--pb-muted);font-size:18px;cursor:pointer;padding:4px;">&times;</button></div>' +
-			'<div style="display:flex;gap:8px;margin-bottom:12px;">' +
-				'<button type="button" class="md-pb-button md-pb-button-primary" id="md-pb-library-save-current">Save Current Section to Library</button>' +
+		overlay.innerHTML = '<div class="md-pb-modal md-pb-modal--wide" role="dialog" aria-modal="true" aria-label="Section library">' +
+			'<div class="md-pb-modal-header">' +
+				'<h2 class="md-pb-modal-title">Section Library</h2>' +
+				'<button type="button" class="md-pb-icon-btn" id="md-pb-library-close" title="Close">&times;</button>' +
 			'</div>' +
-			'<div id="md-pb-library-list" style="flex:1;overflow-y:auto;min-height:120px;"><div style="color:var(--pb-muted);font-size:13px;padding:20px;text-align:center;">Loading...</div></div>' +
+			'<div class="md-pb-modal-body">' +
+				'<div class="md-pb-field-actions">' +
+					'<button type="button" class="md-pb-button md-pb-button-primary" id="md-pb-library-save-current">Save Current Section to Library</button>' +
+				'</div>' +
+				'<div id="md-pb-library-list" class="md-pb-library-list"><p class="md-pb-field-help">Loading...</p></div>' +
+			'</div>' +
 			'</div>';
 
 		document.body.appendChild(overlay);
@@ -3293,7 +3695,7 @@
 			.then(function(r) { return r.json(); })
 			.then(function(payload) {
 				if (!payload || !payload.success || !Array.isArray(payload.data)) {
-					listEl.innerHTML = '<div style="color:var(--pb-muted);font-size:13px;padding:20px;text-align:center;">No library sections found.</div>';
+					listEl.innerHTML = '<p class="md-pb-field-help">No library sections found.</p>';
 					return;
 				}
 
@@ -3336,16 +3738,185 @@
 				});
 
 				if (!payload.data.length) {
-					listEl.innerHTML = '<div style="color:var(--pb-muted);font-size:13px;padding:20px;text-align:center;">No library sections found. Save a section first.</div>';
+					listEl.innerHTML = '<p class="md-pb-field-help">No library sections found. Save a section first.</p>';
 				}
 			})
 			.catch(function() {
-				listEl.innerHTML = '<div style="color:var(--pb-muted);font-size:13px;padding:20px;text-align:center;">Failed to load library.</div>';
+				listEl.innerHTML = '<p class="md-pb-field-help">Failed to load library.</p>';
 			});
 	}
 
 
 	// -------------------------------------------------------------------------
+	// -------------------------------------------------------------------------
+	// Page Settings
+	// -------------------------------------------------------------------------
+
+	/**
+	 * Everything about the page itself, in one dialog.
+	 *
+	 * Title, slug, template, import and export used to be four separate
+	 * controls spread across the top bar and the section panel. They are all
+	 * page-level rather than section-level, so they live together here and the
+	 * top bar keeps one button.
+	 *
+	 * Title, slug and template are staged in state and travel with the next
+	 * Save; import and export act immediately, as they always did.
+	 */
+	function showPageSettingsDialog() {
+		var existing = document.getElementById('md-pb-settings-overlay');
+		if (existing) {
+			existing.remove();
+			return;
+		}
+
+		var overlay = document.createElement('div');
+		overlay.id = 'md-pb-settings-overlay';
+		overlay.className = 'md-pb-modal-overlay';
+
+		var templates = Array.isArray(config.availableTemplates) ? config.availableTemplates : [];
+		var templateOptions = templates.map(function(tpl) {
+			return '<option value="' + escapeAttribute(tpl.slug) + '"' +
+				(tpl.slug === state.pageTemplate ? ' selected' : '') + '>' +
+				escapeHtml(tpl.label) + '</option>';
+		}).join('');
+
+		overlay.innerHTML =
+			'<div class="md-pb-modal" role="dialog" aria-modal="true" aria-label="Page settings">' +
+				'<div class="md-pb-modal-header">' +
+					'<h2 class="md-pb-modal-title">Page Settings</h2>' +
+					'<button type="button" class="md-pb-icon-btn" data-role="settings-close" title="Close">&times;</button>' +
+				'</div>' +
+				'<div class="md-pb-modal-body">' +
+					'<div class="md-pb-field">' +
+						'<label class="md-pb-field-label" for="md-pb-setting-title">Title</label>' +
+						'<input type="text" id="md-pb-setting-title" class="md-pb-field-input" data-role="setting-title" value="' + escapeAttribute(state.pageTitle) + '">' +
+					'</div>' +
+					'<div class="md-pb-field">' +
+						'<label class="md-pb-field-label" for="md-pb-setting-slug">Slug</label>' +
+						'<input type="text" id="md-pb-setting-slug" class="md-pb-field-input" data-role="setting-slug" value="' + escapeAttribute(state.pageSlug) + '" spellcheck="false">' +
+						'<p class="md-pb-field-help md-pb-field-help--url" data-role="setting-permalink"></p>' +
+					'</div>' +
+					'<div class="md-pb-field">' +
+						'<label class="md-pb-field-label" for="md-pb-setting-template">Template</label>' +
+						(templates.length
+							? '<select id="md-pb-setting-template" class="md-pb-field-input" data-role="setting-template">' + templateOptions + '</select>'
+							: '<p class="md-pb-field-help">This theme offers no page templates.</p>') +
+					'</div>' +
+					'<div class="md-pb-field">' +
+						'<span class="md-pb-field-label">Sections</span>' +
+						'<div class="md-pb-field-actions">' +
+							'<button type="button" class="md-pb-button" data-role="setting-export">Export JSON</button>' +
+							'<button type="button" class="md-pb-button" data-role="setting-import">Import JSON</button>' +
+						'</div>' +
+						'<p class="md-pb-field-help">Export downloads every section on this page. Import replaces them.</p>' +
+					'</div>' +
+				'</div>' +
+				'<div class="md-pb-modal-footer">' +
+					'<p class="md-pb-modal-note">Title, slug and template apply when you Save.</p>' +
+					'<button type="button" class="md-pb-button md-pb-button-primary" data-role="settings-done">Done</button>' +
+				'</div>' +
+			'</div>';
+
+		document.body.appendChild(overlay);
+
+		var titleInput    = overlay.querySelector('[data-role="setting-title"]');
+		var slugInput     = overlay.querySelector('[data-role="setting-slug"]');
+		var templateInput = overlay.querySelector('[data-role="setting-template"]');
+		var permalinkNote = overlay.querySelector('[data-role="setting-permalink"]');
+
+		function renderPermalink() {
+			if (!permalinkNote) {
+				return;
+			}
+			var base = config.permalinkBase || '';
+			var slug = slugify(slugInput ? slugInput.value : state.pageSlug);
+			permalinkNote.textContent = base ? base + (slug || '…') : '';
+		}
+
+		function commit() {
+			if (titleInput) {
+				state.pageTitle = titleInput.value.trim();
+			}
+			if (slugInput) {
+				// Sanitising here matches what WordPress will store, so the
+				// field stops showing a slug the site would never accept.
+				state.pageSlug = slugify(slugInput.value);
+			}
+			if (templateInput) {
+				state.pageTemplate = templateInput.value;
+			}
+		}
+
+		function closeDialog() {
+			commit();
+			overlay.remove();
+			document.removeEventListener('keydown', escHandler);
+			queueAutosave();
+		}
+
+		function escHandler(event) {
+			if ('Escape' === event.key) {
+				event.preventDefault();
+				closeDialog();
+			}
+		}
+
+		if (slugInput) {
+			slugInput.addEventListener('input', renderPermalink);
+			slugInput.addEventListener('blur', function() {
+				slugInput.value = slugify(slugInput.value);
+				renderPermalink();
+			});
+		}
+
+		overlay.addEventListener('click', function(event) {
+			var target = event.target instanceof HTMLElement ? event.target : null;
+			if (!target) {
+				return;
+			}
+
+			if (target === overlay || target.closest('[data-role="settings-close"], [data-role="settings-done"]')) {
+				closeDialog();
+				return;
+			}
+
+			if (target.closest('[data-role="setting-export"]')) {
+				exportSections();
+				return;
+			}
+
+			if (target.closest('[data-role="setting-import"]')) {
+				closeDialog();
+				importSections();
+			}
+		});
+
+		document.addEventListener('keydown', escHandler);
+		renderPermalink();
+
+		if (titleInput) {
+			titleInput.focus();
+			titleInput.select();
+		}
+	}
+
+	/**
+	 * The client-side half of WordPress' sanitize_title().
+	 *
+	 * Not a reimplementation of it — the server sanitises again on save and
+	 * sends back what it stored. This only keeps the field from showing a
+	 * slug that could never survive the round trip.
+	 */
+	function slugify(value) {
+		return String(value || '')
+			.toLowerCase()
+			.replace(/[\s_]+/g, '-')
+			.replace(/[^a-z0-9\-]/g, '')
+			.replace(/-+/g, '-')
+			.replace(/^-|-$/g, '');
+	}
+
 	// Export / Import
 	// -------------------------------------------------------------------------
 

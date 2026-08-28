@@ -64,6 +64,50 @@ html.dark body.md-page-blocks-builder-shell {
 	color-scheme: light !important;
 }
 
+/* The same leak, one level down. Themes style bare `select`, `input` and
+   `textarea` under a [data-theme] ancestor, so every control in the builder
+   was inheriting the theme's dark palette while the chrome around it stayed
+   light. The body class is load-bearing: one class plus a type selector only
+   ties with [data-theme="dark"] input, and a tie goes to whichever stylesheet
+   loads last — which is the theme's. Two classes settles it. */
+.md-page-blocks-builder-shell .md-pb-builder-root select,
+.md-page-blocks-builder-shell .md-pb-builder-root input,
+.md-page-blocks-builder-shell .md-pb-builder-root textarea,
+.md-page-blocks-builder-shell .md-pb-modal-overlay select,
+.md-page-blocks-builder-shell .md-pb-modal-overlay input,
+.md-page-blocks-builder-shell .md-pb-modal-overlay textarea {
+	background-color: var(--pb-surface);
+	color: var(--pb-text);
+	border-color: var(--pb-border);
+	color-scheme: light;
+	font-family: var(--pb-font-ui);
+}
+
+/* Themes also paint their own dropdown arrow, and a background-image set
+   without a matching background-repeat tiled it across the whole control —
+   the row of black triangles where the model picker should have been. */
+.md-page-blocks-builder-shell .md-pb-builder-root select,
+.md-page-blocks-builder-shell .md-pb-modal-overlay select {
+	appearance: none;
+	-webkit-appearance: none;
+	background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath fill='%23757575' d='M5 6 0 1l1-1 4 4 4-4 1 1z'/%3E%3C/svg%3E");
+	background-repeat: no-repeat;
+	background-position: right 8px center;
+	background-size: 10px 6px;
+	padding-right: 24px;
+}
+
+.md-page-blocks-builder-shell .md-pb-builder-root select:focus,
+.md-page-blocks-builder-shell .md-pb-builder-root input:focus,
+.md-page-blocks-builder-shell .md-pb-builder-root textarea:focus,
+.md-page-blocks-builder-shell .md-pb-modal-overlay select:focus,
+.md-page-blocks-builder-shell .md-pb-modal-overlay input:focus,
+.md-page-blocks-builder-shell .md-pb-modal-overlay textarea:focus {
+	border-color: var(--pb-accent);
+	outline: 2px solid transparent;
+	box-shadow: 0 0 0 1px var(--pb-accent);
+}
+
 .md-pb-builder-root {
 	display: flex;
 	flex-direction: column;
@@ -136,7 +180,13 @@ html.dark body.md-page-blocks-builder-shell {
 }
 
 .md-pb-toggle-btn,
+/* Buttons that carry a glyph line it up with the label rather than letting
+   it sit on the text baseline. */
 .md-pb-button {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	gap: 6px;
 	height: 30px;
 	border: 1px solid var(--pb-border);
 	border-radius: var(--pb-radius);
@@ -291,41 +341,6 @@ html.dark body.md-page-blocks-builder-shell {
 	overflow: hidden;
 }
 
-.md-pb-template-bar {
-	display: flex;
-	align-items: center;
-	gap: 8px;
-	padding: 6px 8px;
-	border-bottom: 1px solid var(--pb-border);
-}
-
-.md-pb-template-label {
-	font-size: 10px;
-	font-weight: 700;
-	text-transform: uppercase;
-	letter-spacing: 0.06em;
-	color: var(--pb-muted);
-	white-space: nowrap;
-}
-
-.md-pb-template-select {
-	flex: 1;
-	min-width: 0;
-	appearance: auto;
-	background: var(--pb-bg);
-	border: 1px solid var(--pb-border);
-	color: var(--pb-text);
-	font-size: 11px;
-	padding: 3px 4px;
-	border-radius: var(--pb-radius);
-	cursor: pointer;
-}
-
-.md-pb-template-select:focus {
-	border-color: var(--pb-accent);
-	outline: none;
-}
-
 .md-pb-index-header {
 	display: flex;
 	align-items: center;
@@ -397,6 +412,46 @@ html.dark body.md-page-blocks-builder-shell {
 	display: flex;
 	align-items: center;
 	cursor: grab;
+	/* The row is draggable from anywhere, but on touch the list's scroll
+	   gesture wins everywhere except here. */
+	touch-action: none;
+}
+
+/* Reordering. The row itself is the handle — the action buttons opt out in
+   JS so they still click — so it carries the grab cursor too. */
+.md-pb-index-item {
+	cursor: grab;
+}
+
+.md-pb-index-item-actions,
+.md-pb-index-rename-input {
+	cursor: default;
+}
+
+.md-pb-index-list.is-dragging-section {
+	user-select: none;
+	cursor: grabbing;
+}
+
+.md-pb-index-list.is-dragging-section .md-pb-index-item,
+.md-pb-index-list.is-dragging-section .md-pb-index-item-name {
+	cursor: grabbing;
+}
+
+.md-pb-index-item.is-dragging {
+	opacity: 0.5;
+	border-color: var(--pb-border);
+	background: var(--pb-surface2);
+}
+
+/* Inset so the drop line costs no layout, which would shift the very rows
+   the pointer is being measured against. */
+.md-pb-index-item.is-drop-before {
+	box-shadow: inset 0 2px 0 0 var(--pb-accent);
+}
+
+.md-pb-index-item.is-drop-after {
+	box-shadow: inset 0 -2px 0 0 var(--pb-accent);
 }
 
 .md-pb-index-item-name {
@@ -442,6 +497,11 @@ html.dark body.md-page-blocks-builder-shell {
 .md-pb-index-item.is-selected .md-pb-index-item-actions {
 	opacity: 1;
 	pointer-events: auto;
+}
+
+.md-pb-btn-icon {
+	flex: 0 0 auto;
+	display: block;
 }
 
 .md-pb-icon-btn {
@@ -1287,7 +1347,8 @@ html.dark body.md-page-blocks-builder-shell {
 }
 
 .md-pb-index-item.is-foreign .md-pb-index-item-name {
-	cursor: default;
+	/* Not clickable to rename, but the row still reorders. */
+	cursor: grab;
 	font-style: italic;
 }
 
@@ -1373,10 +1434,6 @@ html.dark body.md-page-blocks-builder-shell {
 	/* At this width the template select wraps to two lines and takes the room
 	   Add Section needs. It is set-once configuration, so it yields to the
 	   list. Available again on a wider screen. */
-	.md-pb-template-bar {
-		display: none;
-	}
-
 	.md-pb-detach-bar {
 		flex-wrap: wrap;
 		row-gap: 6px;
@@ -1439,4 +1496,160 @@ html.dark body.md-page-blocks-builder-shell {
 	.md-pb-index-item-actions .md-pb-icon-btn {
 		transition: none;
 	}
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   Dialogs
+
+   Page settings, the section library and the shortcut sheet share one shell.
+   They previously carried their own inline styles, written for the builder's
+   old dark palette — white-on-white keylines and 12px radii that no longer
+   matched anything around them.
+   ───────────────────────────────────────────────────────────────────────── */
+
+.md-pb-modal-overlay {
+	position: fixed;
+	inset: 0;
+	z-index: 9999;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	padding: 24px;
+	background: rgba(0, 0, 0, 0.55);
+	font-family: var(--pb-font-ui);
+	color: var(--pb-text);
+}
+
+.md-pb-modal {
+	display: flex;
+	flex-direction: column;
+	width: 100%;
+	max-width: 460px;
+	max-height: 85vh;
+	background: var(--pb-surface);
+	border: 1px solid var(--pb-border);
+	border-radius: var(--pb-radius);
+	box-shadow: 0 12px 32px rgba(0, 0, 0, 0.22);
+}
+
+.md-pb-modal-header {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 12px;
+	padding: 12px 16px;
+	border-bottom: 1px solid var(--pb-border);
+}
+
+.md-pb-modal-title {
+	margin: 0;
+	font-size: 13px;
+	font-weight: 600;
+	color: var(--pb-text);
+}
+
+.md-pb-modal-body {
+	flex: 1 1 auto;
+	overflow-y: auto;
+	padding: 16px;
+	display: flex;
+	flex-direction: column;
+	gap: 16px;
+}
+
+.md-pb-modal-footer {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 12px;
+	padding: 12px 16px;
+	border-top: 1px solid var(--pb-border);
+	background: var(--pb-surface2);
+}
+
+.md-pb-modal-note {
+	margin: 0;
+	font-size: 11px;
+	color: var(--pb-muted);
+}
+
+.md-pb-field {
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+}
+
+.md-pb-field-label {
+	font-size: 11px;
+	font-weight: 600;
+	color: var(--pb-text);
+}
+
+.md-pb-field-input {
+	width: 100%;
+	height: 30px;
+	padding: 0 8px;
+	border: 1px solid var(--pb-border);
+	border-radius: var(--pb-radius);
+	font-size: 13px;
+	box-sizing: border-box;
+}
+
+select.md-pb-field-input {
+	cursor: pointer;
+}
+
+.md-pb-field-help {
+	margin: 0;
+	font-size: 11px;
+	line-height: 1.5;
+	color: var(--pb-muted);
+}
+
+/* Only a URL earns mid-word breaking. Applying it to help text split
+   ordinary sentences across lines mid-word on a narrow screen. */
+.md-pb-field-help--url {
+	word-break: break-all;
+	font-family: var(--pb-font-code);
+}
+
+.md-pb-field-actions {
+	display: flex;
+	gap: 8px;
+	flex-wrap: wrap;
+}
+
+.md-pb-modal--wide {
+	max-width: 560px;
+}
+
+.md-pb-kbd-table {
+	border-collapse: collapse;
+}
+
+.md-pb-kbd-cell {
+	padding: 4px 12px 4px 0;
+	text-align: right;
+	white-space: nowrap;
+}
+
+.md-pb-kbd {
+	display: inline-block;
+	background: var(--pb-surface2);
+	border: 1px solid var(--pb-border);
+	border-bottom-width: 2px;
+	border-radius: var(--pb-radius);
+	padding: 1px 6px;
+	font: 11px/1.6 var(--pb-font-code);
+	color: var(--pb-text);
+}
+
+.md-pb-kbd-label {
+	padding: 4px 0;
+	font-size: 12px;
+	color: var(--pb-text);
+}
+
+.md-pb-library-list {
+	min-height: 120px;
 }
