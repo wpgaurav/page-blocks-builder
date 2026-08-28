@@ -66,6 +66,9 @@ When set to "file", CSS and JS for that block are written to external files in `
 == Changelog ==
 
 = 2.7.1 =
+* Code editors work again inside the block canvas. wp.codeEditor loads into the admin document, but the canvas has been an iframe since WP 6.3, so a CodeMirror mounted there resolved focus and key events against the wrong document: it rendered correctly and could not be clicked into or typed in. The plain textarea is now used there, as core's Custom HTML block does.
+* Previews are theme-accurate on any theme: they load theme.json global styles (presets and base element styles) alongside every theme stylesheet, so `var()` resolves the way it does on the front end instead of silently falling back.
+* The CSS editor suggests the custom properties the active theme actually defines, harvested from its stylesheets and theme.json rather than a fixed list.
 * Block editor UI now actually renders. Since WP 6.3 the block canvas is an iframe, and styles enqueued for the editor only reach the outer admin document — so the block's own chrome shipped unstyled (badges ran together, buttons were browser defaults, the device-preview controls were blank squares with no dashicons). The stylesheet is now registered as the block's `editor_style`, which is what gets it into the canvas.
 * Redesigned that chrome to match the WordPress admin: its palette, 2px radii, system font, and standard primary/secondary buttons, with the gradients, glows and pill shapes removed.
 * Block editor previews load the full theme stylesheet set, as the visual builder already did. Loading only style.css left blocks previewing unstyled on themes that split their CSS across modular files.

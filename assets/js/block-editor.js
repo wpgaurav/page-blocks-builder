@@ -18,6 +18,75 @@
 		apiFetch          = wp.apiFetch,
 		Fragment          = wp.element.Fragment;
 
+	/**
+	 * CSS custom properties the active theme defines, harvested server-side
+	 * from its stylesheets and theme.json. Suggesting these rather than a
+	 * fixed list is what keeps the editor useful on any theme.
+	 */
+	var cssVariables = ( function () {
+		var raw = window.mdPageBlockEditor && window.mdPageBlockEditor.cssVariables;
+		if ( ! Array.isArray( raw ) ) {
+			return [];
+		}
+		return raw.filter( function ( v ) {
+			return typeof v === 'string' && v.indexOf( '--' ) === 0;
+		} );
+	} )();
+
+	/**
+	 * The `--foo` token immediately before the caret, if the caret is inside
+	 * one. Returns null when there is nothing to complete.
+	 */
+	function variableTokenAt( value, caret ) {
+		var upto = value.slice( 0, caret );
+		var m = upto.match( /(--[A-Za-z0-9_-]*)$/ );
+		if ( ! m ) {
+			return null;
+		}
+		return { token: m[1], from: caret - m[1].length, to: caret };
+	}
+
+	function matchVariables( token ) {
+		var needle = token.toLowerCase();
+		var out = [];
+		for ( var i = 0; i < cssVariables.length && out.length < 40; i++ ) {
+			if ( cssVariables[ i ].toLowerCase().indexOf( needle ) === 0 ) {
+				out.push( cssVariables[ i ] );
+			}
+		}
+		return out;
+	}
+
+	/**
+	 * Caret position in pixels inside a textarea. The code panes are
+	 * monospace, so column * character-width is exact rather than estimated.
+	 */
+	function caretOffset( textarea, caret ) {
+		var doc = textarea.ownerDocument;
+		var cs = doc.defaultView.getComputedStyle( textarea );
+		var probe = doc.createElement( 'span' );
+		probe.textContent = '0';
+		probe.style.cssText = 'position:absolute;visibility:hidden;white-space:pre;font:' + cs.font;
+		doc.body.appendChild( probe );
+		var chW = probe.getBoundingClientRect().width || 7;
+		doc.body.removeChild( probe );
+
+		var lineH = parseFloat( cs.lineHeight );
+		if ( ! lineH ) {
+			lineH = parseFloat( cs.fontSize ) * 1.6;
+		}
+
+		var upto  = textarea.value.slice( 0, caret );
+		var lines = upto.split( '\n' );
+		var row   = lines.length - 1;
+		var col   = lines[ lines.length - 1 ].length;
+
+		return {
+			left: parseFloat( cs.paddingLeft ) + col * chW - textarea.scrollLeft,
+			top:  parseFloat( cs.paddingTop ) + ( row + 1 ) * lineH - textarea.scrollTop
+		};
+	}
+
 	var classSuggestions = normalizeClassSuggestions(
 		window.mdPageBlockEditor && window.mdPageBlockEditor.classSuggestions
 			? window.mdPageBlockEditor.classSuggestions
@@ -443,6 +512,12 @@
 			var saving = savingState[0];
 			var setSaving = savingState[1];
 
+			// { items, index, top, left, from, to, attr } while a variable
+			// completion is open; null otherwise.
+			var hintState = useState( null );
+			var hint = hintState[0];
+			var setHint = hintState[1];
+
 			var livePaneState = useState( false );
 			var livePane = livePaneState[0];
 			var setLivePane = livePaneState[1];
@@ -499,14 +574,104 @@
 
 			function onTextareaChange( attr ) {
 				return function( e ) {
+					var node = e.target;
 					var update = {};
-					update[ attr ] = e.target.value;
+					update[ attr ] = node.value;
 					props.setAttributes( update );
+					refreshHint( node, attr );
 				};
+			}
+
+			/**
+			 * Open, update, or close the variable suggestion list for the
+			 * caret's current position.
+			 */
+			function refreshHint( node, attr ) {
+				if ( ! cssVariables.length ) {
+					return;
+				}
+
+				var tok = variableTokenAt( node.value, node.selectionStart );
+				if ( ! tok ) {
+					setHint( null );
+					return;
+				}
+
+				var items = matchVariables( tok.token );
+				if ( ! items.length ) {
+					setHint( null );
+					return;
+				}
+
+				var pos = caretOffset( node, tok.from );
+				setHint( {
+					items: items,
+					index: 0,
+					top: pos.top,
+					left: pos.left,
+					from: tok.from,
+					to: tok.to,
+					attr: attr
+				} );
+			}
+
+			/**
+			 * Replace the partial token with the chosen variable and put the
+			 * caret after it.
+			 */
+			function applyHint( choice ) {
+				if ( ! hint ) {
+					return;
+				}
+
+				var node = textareasRef.current[ activeTab ];
+				if ( ! node ) {
+					return;
+				}
+
+				var value = node.value;
+				var next  = value.slice( 0, hint.from ) + choice + value.slice( hint.to );
+				var caret = hint.from + choice.length;
+
+				var update = {};
+				update[ hint.attr ] = next;
+				props.setAttributes( update );
+				setHint( null );
+
+				window.requestAnimationFrame( function() {
+					if ( node.isConnected ) {
+						node.focus();
+						node.selectionStart = node.selectionEnd = caret;
+					}
+				} );
 			}
 
 			function onTextareaKeyDown( attr ) {
 				return function( e ) {
+					// The suggestion list owns these keys while it is open.
+					if ( hint && hint.items.length ) {
+						if ( e.key === 'ArrowDown' || e.key === 'ArrowUp' ) {
+							e.preventDefault();
+							e.stopPropagation();
+							var delta = e.key === 'ArrowDown' ? 1 : -1;
+							var next = ( hint.index + delta + hint.items.length ) % hint.items.length;
+							setHint( Object.assign( {}, hint, { index: next } ) );
+							return;
+						}
+						if ( e.key === 'Enter' || e.keyCode === 9 ) {
+							e.preventDefault();
+							e.stopPropagation();
+							applyHint( hint.items[ hint.index ] );
+							return;
+						}
+						if ( e.key === 'Escape' ) {
+							e.preventDefault();
+							e.stopPropagation();
+							setHint( null );
+							return;
+						}
+					}
+
 					if ( e.keyCode === 9 ) {
 						e.preventDefault();
 
@@ -710,9 +875,18 @@
 					}
 				}
 
+				// theme.json global styles carry the preset custom properties and
+				// base element styles that the theme's own stylesheets reference.
+				// Without them a preview can load every theme sheet and still
+				// render nothing like the front end, because every var() misses.
+				// Printed after the theme links, which is the order WordPress
+				// itself uses.
+				var globalCss = typeof config.previewGlobalCss === 'string' ? config.previewGlobalCss : '';
+
 				return '<!DOCTYPE html><html' + ( dark ? ' data-theme="dark"' : '' ) + '><head><meta charset="utf-8">' +
 					'<meta name="viewport" content="width=device-width, initial-scale=1">' +
 					themeLinks +
+					( globalCss ? '<style id="pb-global-styles">' + globalCss + '</style>' : '' ) +
 					'<style>body{margin:0;padding:12px;}*{box-sizing:border-box;}</style>' +
 					( css ? '<style>' + css + '</style>' : '' ) +
 					'</head><body>' + html +
@@ -1388,13 +1562,44 @@
 								},
 								onChange: onTextareaChange( tab.attr ),
 								onKeyDown: onTextareaKeyDown( tab.attr ),
+								onKeyUp: function( e ) {
+									// Caret moves that are not edits (arrows,
+									// clicks) still change what should be offered.
+									if ( e.key && e.key.indexOf( 'Arrow' ) === 0 ) {
+										refreshHint( e.target, tab.attr );
+									}
+								},
+								// mousedown, not blur: blur fires before click
+								// and would close the list under the pointer.
+								onBlur: function() {
+									window.setTimeout( function() { setHint( null ); }, 120 );
+								},
 								placeholder: tab.label + ' ' + __( 'code here...' ),
 								rows: 12,
 								spellCheck: false,
 								autoComplete: 'off',
 								autoCorrect: 'off',
 								autoCapitalize: 'off'
-							})
+							}),
+
+							activeTab === tab.key && hint && hint.items.length
+								? el( 'ul', {
+									className: 'md-page-block-hints',
+									style: { top: hint.top + 'px', left: hint.left + 'px' }
+								},
+									hint.items.map( function( name, i ) {
+										return el( 'li', {
+											key: name,
+											className: 'md-page-block-hint' + ( i === hint.index ? ' is-active' : '' ),
+											onMouseDown: function( ev ) {
+												// Keep focus in the textarea.
+												ev.preventDefault();
+												applyHint( name );
+											}
+										}, name );
+									})
+								)
+								: null
 						);
 					}),
 

@@ -134,6 +134,44 @@
 
 .md-page-block-panel {
 	background: var(--pb-editor-bg);
+	position: relative;
+}
+
+/* Variable suggestions — WordPress's own autocomplete look. */
+
+.md-page-block-hints {
+	position: absolute;
+	z-index: 20;
+	margin: 0;
+	padding: 4px 0;
+	list-style: none;
+	min-width: 200px;
+	max-width: 320px;
+	max-height: 220px;
+	overflow-y: auto;
+	background: #fff;
+	border: 1px solid var(--pb-editor-border);
+	border-radius: var(--pb-editor-radius);
+	box-shadow: 0 2px 6px rgba(0, 0, 0, 0.12);
+	font-family: var(--pb-editor-font-code);
+	font-size: 12px;
+	line-height: 1.6;
+}
+
+.md-page-block-hint {
+	margin: 0;
+	padding: 3px 10px;
+	color: var(--pb-editor-text);
+	cursor: pointer;
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+.md-page-block-hint:hover,
+.md-page-block-hint.is-active {
+	background: var(--pb-editor-accent);
+	color: #fff;
 }
 
 .md-page-block-textarea {

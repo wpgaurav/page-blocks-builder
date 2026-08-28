@@ -271,6 +271,13 @@ class GT_Page_Blocks_Builder {
 	private $theme_class_suggestions = null;
 
 	/**
+	 * Cached theme CSS custom-property names.
+	 *
+	 * @var array<int,string>|null
+	 */
+	private $theme_css_variables = null;
+
+	/**
 	/**
 	 * Library block IDs whose CSS has already been emitted this request.
 	 *
@@ -501,6 +508,11 @@ class GT_Page_Blocks_Builder {
 				array(
 					'codeEditorSettings' => $editor_settings,
 					'classSuggestions'   => $this->get_theme_class_suggestions(),
+					// theme.json presets and the variables the theme defines,
+					// so the preview resolves var() the way the front end does
+					// and the editor can suggest what actually exists here.
+					'previewGlobalCss'   => $this->get_preview_global_css(),
+					'cssVariables'       => $this->get_theme_css_variables(),
 					'postId'             => $post_id,
 					'previewEndpoint'    => admin_url( 'admin-ajax.php' ),
 					'previewAction'      => 'md_page_blocks_builder_preview',
@@ -2061,6 +2073,8 @@ class GT_Page_Blocks_Builder {
 				'nonce'  => wp_create_nonce( 'gt_pb_admin_preview' ),
 			), admin_url( 'admin-ajax.php' ) ),
 			'cssClasses'    => $this->get_theme_class_suggestions(),
+			'cssVariables'  => $this->get_theme_css_variables(),
+			'previewGlobalCss' => $this->get_preview_global_css(),
 		) );
 	}
 
@@ -2249,6 +2263,94 @@ class GT_Page_Blocks_Builder {
 
 		$this->theme_class_suggestions = $classes;
 		return $this->theme_class_suggestions;
+	}
+
+	/**
+	 * theme.json global styles, as WordPress itself prints them.
+	 *
+	 * Classic themes get this too when a parent ships a theme.json, and it is
+	 * where preset custom properties (--wp--preset--*) and base element styles
+	 * live. Without it a preview can load every theme stylesheet and still
+	 * render nothing like the front end, because the variables those sheets
+	 * reference are simply absent.
+	 *
+	 * @since 2.7.1
+	 * @return string CSS, or '' when the install has no global styles.
+	 */
+	public function get_preview_global_css() {
+		if ( ! function_exists( 'wp_get_global_stylesheet' ) ) {
+			return '';
+		}
+
+		$css = wp_get_global_stylesheet();
+
+		return is_string( $css ) ? $css : '';
+	}
+
+	/**
+	 * Every CSS custom property the active theme defines.
+	 *
+	 * Harvested from the theme's own stylesheets plus theme.json global
+	 * styles, so the editor can suggest the variables that actually resolve on
+	 * this site rather than a hardcoded list that only fits one theme.
+	 *
+	 * @since 2.7.1
+	 * @return array<int,string> Sorted property names, each including the leading `--`.
+	 */
+	public function get_theme_css_variables() {
+		if ( $this->theme_css_variables !== null ) {
+			return $this->theme_css_variables;
+		}
+
+		$files = $this->get_theme_style_files();
+
+		$cache_parts = array( get_stylesheet(), 'v2' );
+		foreach ( $files as $file ) {
+			$cache_parts[] = $file . ':' . (string) filemtime( $file );
+		}
+		$cache_key = 'gt_pb_vars_' . md5( implode( '|', $cache_parts ) );
+
+		$cached = get_transient( $cache_key );
+		if ( is_array( $cached ) ) {
+			$this->theme_css_variables = $cached;
+			return $this->theme_css_variables;
+		}
+
+		$map = array();
+
+		$harvest = function ( $css ) use ( &$map ) {
+			// Only declarations (`--x:`), never usages (`var(--x)`), so the
+			// list stays to variables this site actually defines.
+			if ( ! preg_match_all( '/(--[A-Za-z0-9_-]+)\s*:/', (string) $css, $m ) ) {
+				return;
+			}
+			foreach ( $m[1] as $name ) {
+				$map[ $name ] = true;
+				if ( count( $map ) >= 2000 ) {
+					return;
+				}
+			}
+		};
+
+		foreach ( $files as $file ) {
+			$contents = file_get_contents( $file );
+			if ( $contents !== false ) {
+				$harvest( $contents );
+			}
+			if ( count( $map ) >= 2000 ) {
+				break;
+			}
+		}
+
+		$harvest( $this->get_preview_global_css() );
+
+		$vars = array_keys( $map );
+		sort( $vars, SORT_NATURAL | SORT_FLAG_CASE );
+
+		set_transient( $cache_key, $vars, DAY_IN_SECONDS );
+
+		$this->theme_css_variables = $vars;
+		return $this->theme_css_variables;
 	}
 
 	/**
