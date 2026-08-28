@@ -505,18 +505,34 @@
 				};
 			}
 
-			function onTextareaKeyDown( e ) {
-				if ( e.keyCode === 9 ) {
-					var start = e.target.selectionStart;
-					var end = e.target.selectionEnd;
-					var value = e.target.value;
-					e.target.value = value.substring( 0, start ) + '\t' + value.substring( end );
-					e.target.selectionStart = e.target.selectionEnd = start + 1;
-					e.preventDefault();
-				}
-				if ( shouldIsolateShortcut( e ) ) {
-					e.stopPropagation();
-				}
+			function onTextareaKeyDown( attr ) {
+				return function( e ) {
+					if ( e.keyCode === 9 ) {
+						e.preventDefault();
+
+						var node  = e.target;
+						var start = node.selectionStart;
+						var end   = node.selectionEnd;
+						var next  = node.value.substring( 0, start ) + '\t' + node.value.substring( end );
+
+						// Commit through setAttributes. Writing node.value
+						// directly moves the caret but never reaches the block,
+						// so the tab vanished on the next render.
+						var update = {};
+						update[ attr ] = next;
+						props.setAttributes( update );
+
+						// Restore the caret after React re-renders the value.
+						window.requestAnimationFrame( function() {
+							if ( node.isConnected ) {
+								node.selectionStart = node.selectionEnd = start + 1;
+							}
+						} );
+					}
+					if ( shouldIsolateShortcut( e ) ) {
+						e.stopPropagation();
+					}
+				};
 			}
 
 			function destroyCodeEditors() {
@@ -536,6 +552,18 @@
 
 				var textarea = textareasRef.current[ tab.key ];
 				if ( ! textarea || editorsRef.current[ tab.key ] ) {
+					return;
+				}
+
+				// wp.codeEditor and CodeMirror are loaded into the admin
+				// document. Since WP 6.3 the block canvas is an iframe, and a
+				// CodeMirror mounted onto an element in that iframe keeps
+				// resolving focus, selection and key events against the outer
+				// document: it renders, but clicking and typing do nothing and
+				// even cm.focus() lands elsewhere. Leave the plain textarea in
+				// place instead — the same choice core's Custom HTML block
+				// makes, and it is fully wired to setAttributes already.
+				if ( textarea.ownerDocument !== window.document ) {
 					return;
 				}
 
@@ -1359,10 +1387,13 @@
 									textareasRef.current[ tab.key ] = node;
 								},
 								onChange: onTextareaChange( tab.attr ),
-								onKeyDown: onTextareaKeyDown,
+								onKeyDown: onTextareaKeyDown( tab.attr ),
 								placeholder: tab.label + ' ' + __( 'code here...' ),
 								rows: 12,
-								spellCheck: false
+								spellCheck: false,
+								autoComplete: 'off',
+								autoCorrect: 'off',
+								autoCapitalize: 'off'
 							})
 						);
 					}),
