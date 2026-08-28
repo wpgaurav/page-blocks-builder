@@ -81,6 +81,10 @@ html.dark body.md-page-blocks-builder-shell {
 	border-color: var(--pb-border);
 	color-scheme: light;
 	font-family: var(--pb-font-ui);
+	/* Not cosmetic: the theme's form stylesheet puts a 14px bottom margin on
+	   every textarea, which lifted the AI input that far above the button it
+	   sits beside. A control's spacing belongs to the layout around it. */
+	margin: 0;
 }
 
 /* Themes also paint their own dropdown arrow, and a background-image set
@@ -1160,13 +1164,33 @@ html.dark body.md-page-blocks-builder-shell {
 	align-items: flex-end;
 }
 
+/* A square the same height as the input, so the two read as one control. */
 .md-pb-ai-send-btn {
+	flex: 0 0 auto;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 32px;
 	height: 32px;
-	font-size: 11px;
-	padding: 0 12px;
-	white-space: nowrap;
-	flex-shrink: 0;
+	padding: 0;
+	border: 1px solid var(--pb-accent);
+	border-radius: var(--pb-radius);
+	background: var(--pb-accent);
+	color: #fff;
+	cursor: pointer;
 	align-self: flex-end;
+	transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.md-pb-ai-send-btn:hover:not(:disabled) {
+	background: var(--pb-accent-hover);
+	border-color: var(--pb-accent-hover);
+}
+
+.md-pb-ai-send-btn:disabled {
+	background: var(--pb-faint);
+	border-color: var(--pb-faint);
+	cursor: default;
 }
 
 /* ─────────────────────────────────────────────────────────────────────────
@@ -1393,6 +1417,7 @@ html.dark body.md-page-blocks-builder-shell {
 
 .md-pb-detach-btn {
 	flex: 0 0 auto;
+	background: var(--pb-surface);
 }
 
 .md-pb-detach-btn:disabled {

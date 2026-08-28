@@ -11,6 +11,23 @@
 
 	var config = window.mdPbBuilder || {};
 
+	// Enter sends, so the button is an affordance rather than the instruction.
+	// Same reasoning as Claude's own composer: an arrow, not a word.
+	var SEND_ICON = '<svg class="md-pb-btn-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" ' +
+		'stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" ' +
+		'aria-hidden="true" focusable="false">' +
+		'<line x1="12" y1="19" x2="12" y2="6"/><polyline points="5 13 12 6 19 13"/>' +
+		'</svg>';
+
+	// A link with a slash through it — the section stops following the library
+	// block it points at.
+	var UNLINK_ICON = '<svg class="md-pb-btn-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" ' +
+		'stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" ' +
+		'aria-hidden="true" focusable="false">' +
+		'<path d="M9 17H7A5 5 0 0 1 7 7h2"/><path d="M15 7h2a5 5 0 0 1 3.6 8.5"/>' +
+		'<line x1="8" y1="12" x2="12" y2="12"/><line x1="3" y1="3" x2="21" y2="21"/>' +
+		'</svg>';
+
 	// WordPress' own gear glyph, inlined — dashicons are an admin stylesheet
 	// and this shell renders on the front end.
 	var GEAR_ICON = '<svg class="md-pb-btn-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" ' +
@@ -621,6 +638,16 @@
 			'(function(){' +
 			'var SEL="h1,h2,h3,h4,h5,h6,p,li,td,th,figcaption,blockquote,label,cite,dt,dd,summary,a";' +
 			'var editing=null,origText="";' +
+			// Pointing at something in the preview is a statement about which
+			// section you are working on. Sent on mousedown so the panel and
+			// the code editors have already followed by the time the click
+			// opens an inline edit.
+			'document.addEventListener("mousedown",function(e){' +
+			'var sec=e.target.closest?e.target.closest("[data-pb-section]"):null;' +
+			'if(!sec)return;' +
+			'var i=parseInt(sec.getAttribute("data-pb-section"),10);' +
+			'if(i>=0)window.parent.postMessage({type:"md_pb_section_focus",sectionIndex:i},"*");' +
+			'},true);' +
 			'document.addEventListener("mouseover",function(e){var el=e.target.closest(SEL);if(el&&el!==editing)el.setAttribute("data-pb-editable-hover","");});' +
 			'document.addEventListener("mouseout",function(e){var el=e.target.closest(SEL);if(el)el.removeAttribute("data-pb-editable-hover");});' +
 			'document.addEventListener("click",function(e){' +
@@ -1211,6 +1238,30 @@
 		scrollPreviewToSection(index);
 	}
 
+	/**
+	 * Select a section because the preview was clicked.
+	 *
+	 * Deliberately not selectSection(): that re-renders the preview and
+	 * scrolls it, which would throw away the inline edit the same click is
+	 * about to open. The panel and the code editors follow; the iframe is
+	 * already showing the right thing and is left untouched.
+	 */
+	function selectSectionFromPreview(index) {
+		if ('number' !== typeof index || index < 0 || index >= state.sections.length) {
+			return;
+		}
+
+		if (state.selectedIndex === index) {
+			return;
+		}
+
+		state.selectedIndex = index;
+		renderIndexList();
+		renderCurrentSectionToEditors();
+		refreshCodeEditors();
+		ensureSelectedIndexVisible();
+	}
+
 	function scrollPreviewToSection(index) {
 		if (!dom.previewFrame || !dom.previewFrame.contentWindow) {
 			return;
@@ -1502,9 +1553,14 @@
 
 		var button = document.createElement('button');
 		button.type = 'button';
-		button.className = 'md-pb-btn md-pb-btn-secondary md-pb-detach-btn';
-		button.textContent = 'Detach a copy';
+		// md-pb-btn and md-pb-btn-secondary are not classes this stylesheet
+		// has, so this button was falling through to the browser's — and the
+		// theme's — default and looked like nothing else in the builder.
+		button.className = 'md-pb-button md-pb-detach-btn';
+		button.innerHTML = UNLINK_ICON + '<span class="md-pb-detach-btn-label">Detach a copy</span>';
 		button.title = 'Copy the library code into this section. The library block is not changed.';
+
+		var buttonLabel = button.querySelector('.md-pb-detach-btn-label');
 
 		button.addEventListener('click', function() {
 			var current = getCurrentSection();
@@ -1526,7 +1582,7 @@
 			}
 
 			button.disabled = true;
-			button.textContent = 'Detaching…';
+			buttonLabel.textContent = 'Detaching…';
 
 			window.fetch(cfg.restUrl.replace(/\/$/, '') + '/blocks/' + current.blockId, {
 				credentials: 'same-origin',
@@ -1550,7 +1606,7 @@
 				queueAutosave();
 			}).catch(function() {
 				button.disabled = false;
-				button.textContent = 'Detach a copy';
+				buttonLabel.textContent = 'Detach a copy';
 				window.alert('Could not load that library block. Nothing was changed.');
 			});
 		});
@@ -2754,7 +2810,7 @@
 					'<div class="md-pb-ai-messages" data-role="ai-messages"></div>' +
 					'<div class="md-pb-ai-input-area">' +
 						'<textarea class="md-pb-ai-input" data-role="ai-input" placeholder="Describe what to build or change..." rows="2" spellcheck="false"></textarea>' +
-						'<button type="button" class="md-pb-button md-pb-button-primary md-pb-ai-send-btn" data-role="ai-generate">Send</button>' +
+						'<button type="button" class="md-pb-ai-send-btn" data-role="ai-generate" title="Send (Enter)" aria-label="Send">' + SEND_ICON + '</button>' +
 					'</div>' +
 				'</aside>' +
 				'<div class="md-pb-canvas-wrap">' +
@@ -4020,6 +4076,12 @@
 		// Listen for inline text edits from the preview iframe
 		window.addEventListener('message', function(e) {
 			var data = e.data;
+
+			if (data && 'md_pb_section_focus' === data.type) {
+				selectSectionFromPreview(data.sectionIndex);
+				return;
+			}
+
 			if (!data || data.type !== 'md_pb_inline_edit') {
 				return;
 			}
