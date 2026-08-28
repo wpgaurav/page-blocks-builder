@@ -2849,9 +2849,16 @@
 				'<div class="md-pb-bottom-toolbar">' +
 					'<div class="md-pb-bottom-title">Code</div>' +
 					'<div class="md-pb-options">' +
-						'<label class="md-pb-chip"><input type="checkbox" data-role="format"><span>wpauto</span></label>' +
-						'<label class="md-pb-chip"><input type="checkbox" data-role="php-exec"><span>PHP</span></label>' +
-						'<label class="md-pb-select-wrap">JS: <select data-role="js-location"><option value="footer">Footer</option><option value="inline">Inline</option></select></label>' +
+						// "wpauto" was the name of the WordPress function, not of
+						// anything the author is deciding.
+						'<label class="md-pb-chip" title="Turns blank lines into paragraphs and runs any shortcodes in this section.">' +
+							'<input type="checkbox" data-role="format"><span>Auto-format</span></label>' +
+						'<label class="md-pb-chip" title="Run PHP in this section. The site has to allow PHP snippets.">' +
+							'<input type="checkbox" data-role="php-exec"><span>Run PHP</span></label>' +
+						'<label class="md-pb-select-wrap" title="Where this section\u2019s JavaScript is placed on the page.">' +
+							'<span class="md-pb-select-label">Script</span>' +
+							'<select data-role="js-location"><option value="footer">In footer</option><option value="inline">Inline</option></select>' +
+						'</label>' +
 					'</div>' +
 				'</div>' +
 					'<div class="md-pb-code-wrap">' +

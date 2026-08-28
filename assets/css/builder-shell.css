@@ -71,10 +71,10 @@ html.dark body.md-page-blocks-builder-shell {
    ties with [data-theme="dark"] input, and a tie goes to whichever stylesheet
    loads last — which is the theme's. Two classes settles it. */
 .md-page-blocks-builder-shell .md-pb-builder-root select,
-.md-page-blocks-builder-shell .md-pb-builder-root input,
+.md-page-blocks-builder-shell .md-pb-builder-root input:not([type="checkbox"]):not([type="radio"]),
 .md-page-blocks-builder-shell .md-pb-builder-root textarea,
 .md-page-blocks-builder-shell .md-pb-modal-overlay select,
-.md-page-blocks-builder-shell .md-pb-modal-overlay input,
+.md-page-blocks-builder-shell .md-pb-modal-overlay input:not([type="checkbox"]):not([type="radio"]),
 .md-page-blocks-builder-shell .md-pb-modal-overlay textarea {
 	background-color: var(--pb-surface);
 	color: var(--pb-text);
@@ -90,6 +90,42 @@ html.dark body.md-page-blocks-builder-shell {
 /* Themes also paint their own dropdown arrow, and a background-image set
    without a matching background-repeat tiled it across the whole control —
    the row of black triangles where the model picker should have been. */
+/* Themes give labels a bottom margin for stacked forms. In the builder they
+   sit in flex rows where spacing comes from gap, and that stray 9px was
+   making the options strip taller than the toolbar holding it — which is
+   why the switches sat above its centre line. */
+.md-page-blocks-builder-shell .md-pb-builder-root label,
+.md-page-blocks-builder-shell .md-pb-modal-overlay label {
+	margin: 0;
+}
+
+/* Themes reshape checkboxes into switches, dots and pseudo-element ticks.
+   The builder wants the plain browser control, at a size that fits a 24px
+   chip. */
+.md-page-blocks-builder-shell .md-pb-builder-root input[type="checkbox"] {
+	appearance: auto;
+	-webkit-appearance: checkbox;
+	width: 13px;
+	height: 13px;
+	min-width: 0;
+	min-height: 0;
+	margin: 0;
+	padding: 0;
+	border: 0;
+	background: none;
+	box-shadow: none;
+	position: static;
+	transform: none;
+	accent-color: var(--pb-accent);
+	vertical-align: middle;
+	cursor: pointer;
+}
+
+.md-page-blocks-builder-shell .md-pb-builder-root input[type="checkbox"]::before,
+.md-page-blocks-builder-shell .md-pb-builder-root input[type="checkbox"]::after {
+	content: none;
+}
+
 .md-page-blocks-builder-shell .md-pb-builder-root select,
 .md-page-blocks-builder-shell .md-pb-modal-overlay select {
 	appearance: none;
@@ -102,10 +138,10 @@ html.dark body.md-page-blocks-builder-shell {
 }
 
 .md-page-blocks-builder-shell .md-pb-builder-root select:focus,
-.md-page-blocks-builder-shell .md-pb-builder-root input:focus,
+.md-page-blocks-builder-shell .md-pb-builder-root input:not([type="checkbox"]):not([type="radio"]):focus,
 .md-page-blocks-builder-shell .md-pb-builder-root textarea:focus,
 .md-page-blocks-builder-shell .md-pb-modal-overlay select:focus,
-.md-page-blocks-builder-shell .md-pb-modal-overlay input:focus,
+.md-page-blocks-builder-shell .md-pb-modal-overlay input:not([type="checkbox"]):not([type="radio"]):focus,
 .md-page-blocks-builder-shell .md-pb-modal-overlay textarea:focus {
 	border-color: var(--pb-accent);
 	outline: 2px solid transparent;
@@ -693,7 +729,7 @@ html.dark body.md-page-blocks-builder-shell {
 }
 
 .md-pb-bottom-toolbar {
-	height: 28px;
+	height: 32px;
 	display: flex;
 	align-items: center;
 	justify-content: space-between;
@@ -712,79 +748,75 @@ html.dark body.md-page-blocks-builder-shell {
 .md-pb-options {
 	display: inline-flex;
 	align-items: center;
-	gap: 8px;
-	font-size: 12px;
+	gap: 6px;
+	font-size: 11px;
 	color: var(--pb-muted);
 }
 
+/* Each switch reads as one control: the whole chip carries the state, not
+   just the box inside it. Sentence case, because these are labels rather
+   than headings — the old uppercase tracking made two-word names sprawl. */
 .md-pb-chip {
 	display: inline-flex;
 	align-items: center;
 	gap: 6px;
-	height: 22px;
+	height: 24px;
 	padding: 0 8px;
 	border-radius: var(--pb-radius);
 	border: 1px solid var(--pb-border);
-	background: var(--pb-surface2);
+	background: var(--pb-surface);
+	color: var(--pb-muted);
 	cursor: pointer;
 	font-size: 11px;
-	text-transform: uppercase;
-	letter-spacing: 0.06em;
+	line-height: 1;
+	white-space: nowrap;
+	transition: color 0.15s ease, border-color 0.15s ease, background 0.15s ease;
 }
 
-.md-pb-chip input[type="checkbox"] {
-	-webkit-appearance: checkbox !important;
-	appearance: checkbox !important;
-	inline-size: 12px !important;
-	block-size: 12px !important;
-	min-width: 12px !important;
-	min-height: 12px !important;
-	max-width: 12px !important;
-	max-height: 12px !important;
-	margin: 0 !important;
-	padding: 0 !important;
-	border: 1px solid var(--pb-border) !important;
-	border-radius: var(--pb-radius) !important;
-	background: var(--pb-surface) !important;
-	position: relative !important;
-	top: auto !important;
-	left: auto !important;
-	right: auto !important;
-	bottom: auto !important;
-	transform: none !important;
-	box-shadow: none !important;
-	float: none !important;
-	vertical-align: middle !important;
-	accent-color: var(--pb-accent);
-	outline: none;
-	transition: all 0.15s ease;
+.md-pb-chip:hover {
+	border-color: var(--pb-border-strong);
+	color: var(--pb-text);
 }
 
-.md-pb-chip input[type="checkbox"]::before,
-.md-pb-chip input[type="checkbox"]::after {
-	content: none !important;
-	display: none !important;
+.md-pb-chip:focus-within {
+	border-color: var(--pb-accent);
+	box-shadow: 0 0 0 1px var(--pb-accent);
 }
 
+.md-pb-chip:has(input:checked) {
+	background: var(--pb-accent-dim);
+	border-color: var(--pb-accent-line);
+	color: var(--pb-accent);
+}
+
+/* Fallback for browsers without :has() — the label still shows the state. */
 .md-pb-chip input:checked + span {
 	color: var(--pb-accent);
+	font-weight: 600;
 }
 
 .md-pb-select-wrap {
 	display: inline-flex;
 	align-items: center;
-	gap: 4px;
-	font-size: 12px;
+	gap: 6px;
+	font-size: 11px;
+	color: var(--pb-muted);
+	white-space: nowrap;
+}
+
+.md-pb-select-label {
+	line-height: 1;
 }
 
 .md-pb-options select {
-	height: 22px;
+	height: 24px;
 	background: var(--pb-surface);
 	color: var(--pb-text);
 	border: 1px solid var(--pb-border);
 	border-radius: var(--pb-radius);
-	padding: 0 6px;
-	font-size: 12px;
+	/* Room on the right for the chevron the hardening block draws. */
+	padding: 0 22px 0 8px;
+	font-size: 11px;
 }
 
 .md-pb-code-wrap {
