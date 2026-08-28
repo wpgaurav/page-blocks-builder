@@ -4,7 +4,7 @@ Tags: page builder, html blocks, css sections, gutenberg, visual builder
 Requires at least: 6.0
 Tested up to: 6.9.1
 Requires PHP: 8.1
-Stable tag: 2.7.3
+Stable tag: 2.7.4
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -64,6 +64,11 @@ Yes. Enable PHP execution per block. PHP runs on the frontend and in server-rend
 When set to "file", CSS and JS for that block are written to external files in `wp-content/uploads/gt-page-blocks/` and served as cacheable resources instead of inline output.
 
 == Changelog ==
+
+= 2.7.4 =
+* The two builder filters and the four helper functions now carry the `gt_` prefix, matching everything else the plugin exposes: `gt_page_blocks_builder_preview_injection`, `gt_page_blocks_builder_post_types`, `gt_page_blocks_builder_url()`, `gt_page_blocks_builder_post_types()`, `gt_page_blocks_builder_nonce_action()` and `gt_page_blocks_preview_nonce_action()`.
+* Every old `md_`-prefixed name still works. The filters run immediately before their replacements, so the current one has the last word, and the functions delegate to theirs. Each points at its replacement under `WP_DEBUG` while in use and is silent otherwise, so existing snippets keep working and nobody gets a notice for a hook they never touched.
+* `gt_page_blocks_builder_nonce_action()` still returns its original string. It identifies nonces already issued into open builder tabs and saved URLs, and renaming the value would invalidate them for nothing.
 
 = 2.7.3 =
 * Page settings live in one dialog. Title, slug, template, import and export are page-level rather than section-level, so they sit together behind one button instead of being spread across the top bar and the section panel. The slug shows the permalink it will produce, and WordPress' own sanitised result is adopted after saving rather than what was typed.
