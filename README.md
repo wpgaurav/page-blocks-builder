@@ -18,7 +18,7 @@ Originally part of Marketers Delight's Page Blocks dropin (2018–2026, © Kolak
 | **Theme building** | Assign library blocks to theme regions/hooks; themes render them with one function call |
 | **Shortcode** | `[page_block id="…"]` / `[page_block slug="…"]` |
 | **REST API** | `pbb/v1` — full CRUD, duplicate, and server-render endpoints |
-| **WP-CLI** | `wp gt-pb migrate-blocks` for the 2.6.0 block-name migration |
+| **WP-CLI** | `wp gt-pb migrate-blocks` (block names) and `wp gt-pb migrate-library` (dropin library import) |
 
 ---
 
@@ -130,7 +130,7 @@ Renders a published library block (HTML + scoped CSS/JS, honoring its output set
 
 | Method | Route | Description |
 |---|---|---|
-| `GET` | `/wp-json/pbb/v1/blocks` | List blocks — `search`, `status`, `page`, `per_page` (≤100), `orderby`, `order` |
+| `GET` | `/wp-json/pbb/v1/blocks` | List blocks — `search`, `status`, `page`, `per_page` (≤100), `orderby`, `order`, `context` (`full` default; `summary` returns id/title/slug/status/position/php_exec/`has_content`/`has_css`/`has_js`/updated_at without code payloads) |
 | `POST` | `/wp-json/pbb/v1/blocks` | Create a block (`title` required) |
 | `GET` | `/wp-json/pbb/v1/blocks/<id>` | Get one block |
 | `PUT/PATCH` | `/wp-json/pbb/v1/blocks/<id>` | Update fields (incl. `status` — restoring from trash) |
@@ -156,7 +156,41 @@ To rewrite stored content permanently:
 - **Admin:** Page Blocks → Settings → **Tools** → *Dry run* / *Migrate blocks* (shows the pending count).
 - **WP-CLI:** `wp gt-pb migrate-blocks [--dry-run]`
 
-The migration rewrites all serialized delimiter forms with exact-name boundaries, updates the database directly (post modified dates and `save_post` side effects are untouched), and cleans post caches.
+The migration rewrites all serialized delimiter forms with exact-name boundaries, updates the database directly (post modified dates and `save_post` side effects are untouched), and cleans post caches. Both dropin blocks are covered: `marketers-delight/page-block` and `marketers-delight/inline-page-block`.
+
+---
+
+## Migrating off the Marketers Delight Page Blocks dropin
+
+Moving a site from the theme dropin to this plugin takes two migrations, in this order.
+
+**1. Import the library** — copies `{prefix}md_page_blocks` into `{prefix}gt_page_blocks`.
+
+- **Admin:** Page Blocks → Settings → **Tools** → *Import from dropin*
+- **WP-CLI:** `wp gt-pb migrate-library [--dry-run] [--overwrite]`
+
+Row IDs are preserved. That is the whole point: `[page_block id="187"]` shortcodes and the `blockId` attribute on every placed block reference those numbers, so a re-keyed import would silently blank live sections. The import is idempotent — rows whose ID already exists are skipped unless you pass `--overwrite`.
+
+Two things are rewritten on the way in:
+
+- **PHP checksums** are recomputed from the imported content, so PHP-enabled blocks stay executable under the checksum gate below.
+- **Positions** move from the dropin's `md_hook_*` theme hooks to plugin positions and theme regions (for example `md_hook_footer_top` → `region:footer`). An `md_hook_*` key with no equivalent is cleared to shortcode/block only and reported, because that hook never fires once the theme is gone — a block left pointing at it would be invisible with no explanation.
+
+**2. Rewrite the block names** — `wp gt-pb migrate-blocks`, as above.
+
+Then deactivate the dropin. Both plugins register `[page_block]`, so run them side by side only long enough to migrate.
+
+### PHP execution
+
+PHP in page blocks is off unless the site opts in, and then only for content whose save-time checksum still matches:
+
+```php
+// wp-config.php
+define( 'GT_PB_ALLOW_PHP', true );        // MD_ALLOW_PHP_SNIPPETS is honoured too
+define( 'GT_PB_ALLOW_INLINE_PHP', true ); // inline blocks only; off by default
+```
+
+Inline blocks live in `post_content` with no separately stored checksum, so a database-only edit to a post body cannot be detected — hence the second, separate constant. Library blocks need only the first. Both gates are overridable with the `gt_pb_can_execute_php` filter, which receives `( $default, $content, $checksum )`.
 
 ---
 
@@ -167,7 +201,7 @@ The migration rewrites all serialized delimiter forms with exact-name boundaries
 - **Post types**: where the visual builder is available.
 - **AI**: OpenAI / Anthropic / Gemini API keys, default model, optional terminal tool.
 - **Preview assets**: optional reset/typography/utilities stylesheets, custom preview CSS, `<head>` HTML, and footer JS for the builder preview.
-- **Tools**: block-name migration (see above).
+- **Tools**: block-name migration and dropin library import (see above).
 
 ---
 

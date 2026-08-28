@@ -4,7 +4,7 @@ Tags: page builder, html blocks, css sections, gutenberg, visual builder
 Requires at least: 6.0
 Tested up to: 6.9.1
 Requires PHP: 8.1
-Stable tag: 2.6.0
+Stable tag: 2.7.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -64,6 +64,15 @@ Yes. Enable PHP execution per block. PHP runs on the frontend and in server-rend
 When set to "file", CSS and JS for that block are written to external files in `wp-content/uploads/gt-page-blocks/` and served as cacheable resources instead of inline output.
 
 == Changelog ==
+
+= 2.7.0 =
+* Dropin migration: `wp gt-pb migrate-library [--dry-run] [--overwrite]` (or Settings -> Tools -> Import from dropin) copies the Marketers Delight `md_page_blocks` table into this plugin **preserving block IDs**, so existing `[page_block id="N"]` shortcodes and `blockId` block references keep resolving.
+* Blocks can reference the library again: `blockId` is a registered attribute and renders the library row server-side. Editing one library block updates every placement, instead of each block carrying its own copy.
+* `marketers-delight/inline-page-block` is now covered by the block-name migration alongside `marketers-delight/page-block`.
+* Security: PHP execution now requires two independent gates — a site constant (`GT_PB_ALLOW_PHP`, or `MD_ALLOW_PHP_SNIPPETS` for sites coming from the dropin) **and** a save-time content checksum. Content mutated directly in the database no longer executes; it falls back to stripping PHP tags. Inline blocks need a further opt-in (`GT_PB_ALLOW_INLINE_PHP` / `MD_ALLOW_INLINE_PHP`) because post_content carries no separate checksum.
+* Display conditions work: they are saved from the block edit screen and evaluated when rendering positioned blocks (post types, page types, specific post IDs). Previously the UI existed but nothing was stored or checked.
+* Dropin `md_hook_*` positions are remapped to plugin positions and theme regions on import; anything with no equivalent is cleared to shortcode/block only and reported, rather than silently never rendering.
+* Schema: adds `php_checksum` (table version 1.1), back-filled for existing PHP-enabled blocks on upgrade.
 
 = 2.6.0 =
 * Theme building: library blocks can be assigned to theme regions (header, hero, before/after content, sidebar, footer, 404) and rendered by any theme via gt_pb_region( 'header' ) / gt_pb_has_region() — a blank hybrid theme can be little more than region calls.

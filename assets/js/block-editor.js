@@ -720,7 +720,7 @@
 				}
 				setLibLoading( true );
 				apiFetch( {
-					path: '/pbb/v1/blocks?per_page=50&status=publish' + ( search ? '&search=' + encodeURIComponent( search ) : '' )
+					path: '/pbb/v1/blocks?per_page=50&status=publish&context=summary' + ( search ? '&search=' + encodeURIComponent( search ) : '' )
 				} ).then( function( items ) {
 					setLibItems( Array.isArray( items ) ? items : [] );
 					setLibLoading( false );
@@ -737,25 +737,42 @@
 				}
 			}
 
-			// Copy a library block's code into this inline block.
+			// Copy a library block's code into this inline block. The library
+			// list is a summary (no code payloads), so fetch the full block first.
 			function insertFromLibrary( item ) {
-				props.setAttributes( {
-					content: item.content || '',
-					css: item.css || '',
-					js: item.js || '',
-					jsLocation: item.js_location === 'inline' ? 'inline' : 'footer',
-					output: item.output === 'file' ? 'file' : 'inline',
-					phpExec: !! item.php_exec,
-					format: !! item.format
-				} );
-				setLibOpen( false );
-				setMode( 'preview' );
-				if ( notices ) {
-					notices.createSuccessNotice(
-						__( 'Inserted a copy of: ' ) + ( item.title || '#' + item.id ),
-						{ type: 'snackbar' }
-					);
+				function applyBlock( full ) {
+					props.setAttributes( {
+						content: full.content || '',
+						css: full.css || '',
+						js: full.js || '',
+						jsLocation: full.js_location === 'inline' ? 'inline' : 'footer',
+						output: full.output === 'file' ? 'file' : 'inline',
+						phpExec: !! full.php_exec,
+						format: !! full.format
+					} );
+					setLibOpen( false );
+					setMode( 'preview' );
+					if ( notices ) {
+						notices.createSuccessNotice(
+							__( 'Inserted a copy of: ' ) + ( full.title || item.title || '#' + item.id ),
+							{ type: 'snackbar' }
+						);
+					}
 				}
+				if ( typeof item.content === 'string' ) {
+					applyBlock( item );
+					return;
+				}
+				setLibLoading( true );
+				apiFetch( { path: '/pbb/v1/blocks/' + item.id } ).then( function( full ) {
+					setLibLoading( false );
+					applyBlock( full );
+				} ).catch( function() {
+					setLibLoading( false );
+					if ( notices ) {
+						notices.createErrorNotice( __( 'Could not load that library block.' ), { type: 'snackbar' } );
+					}
+				} );
 			}
 
 			function libraryModal() {
@@ -793,8 +810,8 @@
 									el( 'strong', {}, item.title || '(untitled)' ),
 									el( 'span', { className: 'md-page-block-library-meta' },
 										el( 'code', {}, item.slug ),
-										item.css ? ' · CSS' : '',
-										item.js ? ' · JS' : '',
+										( item.has_css || item.css ) ? ' · CSS' : '',
+										( item.has_js || item.js ) ? ' · JS' : '',
 										item.php_exec ? ' · PHP' : ''
 									)
 								),

@@ -55,6 +55,7 @@ class gt_pb_rest_api {
 					'per_page' => array( 'type' => 'integer', 'default' => 24, 'minimum' => 1, 'maximum' => 100 ),
 					'orderby'  => array( 'type' => 'string', 'default' => 'updated_at' ),
 					'order'    => array( 'type' => 'string', 'default' => 'desc' ),
+					'context'  => array( 'type' => 'string', 'default' => 'full', 'enum' => array( 'full', 'summary' ) ),
 				),
 			),
 			array(
@@ -116,7 +117,13 @@ class gt_pb_rest_api {
 			'order'    => (string) $request['order'],
 		);
 
-		$items = array_map( array( $this, 'prepare_item' ), $this->db->query( $args ) );
+		// Summary context strips content/css/js so pickers (e.g. the editor's
+		// library modal) don't download every block's full code just to list titles.
+		$prepare = 'summary' === (string) $request['context']
+			? array( $this, 'prepare_item_summary' )
+			: array( $this, 'prepare_item' );
+
+		$items = array_map( $prepare, $this->db->query( $args ) );
 		$total = $this->db->count( $args );
 
 		$response = rest_ensure_response( $items );
@@ -263,6 +270,24 @@ class gt_pb_rest_api {
 		}
 
 		return $data;
+	}
+
+	/**
+	 * Shape a DB row as a lightweight summary (no content/css/js payloads).
+	 */
+	public function prepare_item_summary( object $block ): array {
+		return array(
+			'id'          => (int) $block->id,
+			'title'       => (string) $block->title,
+			'slug'        => (string) $block->slug,
+			'status'      => (string) $block->status,
+			'position'    => (string) ( $block->position ?? '' ),
+			'php_exec'    => ! empty( $block->php_exec ),
+			'has_content' => '' !== trim( (string) ( $block->content ?? '' ) ),
+			'has_css'     => '' !== trim( (string) ( $block->css ?? '' ) ),
+			'has_js'      => '' !== trim( (string) ( $block->js ?? '' ) ),
+			'updated_at'  => (string) ( $block->updated_at ?? '' ),
+		);
 	}
 
 	/**
