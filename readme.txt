@@ -84,6 +84,7 @@ When set to "file", CSS and JS for that block are written to external files in `
 * Dropin `md_hook_*` positions are remapped to plugin positions and theme regions on import; anything with no equivalent is cleared to shortcode/block only and reported, rather than silently never rendering.
 * Schema: adds `php_checksum` (table version 1.1), back-filled for existing PHP-enabled blocks on upgrade.
 * Render parity with the dropin, from diffing real output on live sites: library CSS is emitted once per request and hoisted into `<head>` rather than inlined at every placement; library HTML is minified like the inline path already was.
+* Fixed `minify_css()` collapsing the whitespace around `+` inside `calc()`, `clamp()`, `min()` and `max()`. The space is required there, so `clamp(6.75rem, 6rem + 2.2vw, 9rem)` became invalid and the whole declaration was dropped — section padding computed to 0 and clamped font sizes fell back to inherited. `+` is still collapsed in sibling selectors, where that is correct.
 * Fixed `minify_css()` corrupting quoted strings. `[style*="font-weight: 300"]` and `[style*="font-weight:300"]` are different selectors, and collapsing the space merged them so one stopped matching. Quoted strings and `url()` payloads are now preserved verbatim.
 
 = 2.6.0 =
