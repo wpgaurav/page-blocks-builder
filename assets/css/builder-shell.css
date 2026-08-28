@@ -90,6 +90,29 @@ html.dark body.md-page-blocks-builder-shell {
 /* Themes also paint their own dropdown arrow, and a background-image set
    without a matching background-repeat tiled it across the whole control —
    the row of black triangles where the model picker should have been. */
+/* Themes paint <details> as a card. Inside the builder it is a disclosure
+   twisty on the panel behind it, nothing more. */
+.md-page-blocks-builder-shell .md-pb-builder-root details,
+.md-page-blocks-builder-shell .md-pb-builder-root summary,
+.md-page-blocks-builder-shell .md-pb-modal-overlay details,
+.md-page-blocks-builder-shell .md-pb-modal-overlay summary {
+	background: transparent;
+	border: 0;
+	padding: 0;
+	margin: 0;
+}
+
+/* Code surfaces are the third thing themes reliably restyle — usually into a
+   dark block, which left the assistant's folded code dark-on-dark. */
+.md-page-blocks-builder-shell .md-pb-builder-root pre,
+.md-page-blocks-builder-shell .md-pb-builder-root code,
+.md-page-blocks-builder-shell .md-pb-modal-overlay pre,
+.md-page-blocks-builder-shell .md-pb-modal-overlay code {
+	background: var(--pb-surface2);
+	color: var(--pb-text);
+	border-color: var(--pb-border);
+}
+
 /* Themes give labels a bottom margin for stacked forms. In the builder they
    sit in flex rows where spacing comes from gap, and that stray 9px was
    making the options strip taller than the toolbar holding it — which is
@@ -1150,7 +1173,7 @@ html.dark body.md-page-blocks-builder-shell {
 .md-pb-ai-code {
 	margin: 4px 0 8px;
 	padding: 8px;
-	background: var(--pb-bg);
+	border: 1px solid var(--pb-border);
 	border-radius: var(--pb-radius);
 	font: 11px/1.5 var(--pb-font-code);
 	overflow-x: auto;
@@ -1159,10 +1182,84 @@ html.dark body.md-page-blocks-builder-shell {
 	overflow-y: auto;
 }
 
+.md-pb-ai-status {
+	font-size: 11px;
+	font-weight: 600;
+	color: var(--pb-accent);
+	margin-bottom: 6px;
+}
+
+.md-pb-ai-status.is-undone {
+	color: var(--pb-muted);
+	font-weight: 400;
+}
+
+/* The code is the working, not the result — the preview is. It folds away. */
+.md-pb-ai-details {
+	font-size: 11px;
+}
+
+.md-pb-ai-details > summary {
+	cursor: pointer;
+	color: var(--pb-muted);
+	list-style: none;
+	user-select: none;
+}
+
+.md-pb-ai-details > summary::-webkit-details-marker {
+	display: none;
+}
+
+.md-pb-ai-details > summary::before {
+	content: "\25B8\00a0";
+}
+
+.md-pb-ai-details[open] > summary::before {
+	content: "\25BE\00a0";
+}
+
+.md-pb-ai-details > summary:hover {
+	color: var(--pb-text);
+}
+
+.md-pb-ai-undo-btn,
 .md-pb-ai-apply-btn {
 	height: 24px;
 	font-size: 11px;
 	padding: 0 10px;
+	margin-top: 8px;
+}
+
+/* Sits beside the model picker; on when the whole page travels with the
+   prompt. */
+.md-pb-ai-page-btn {
+	display: inline-flex;
+	align-items: center;
+	gap: 4px;
+	flex: 0 0 auto;
+	height: 23px;
+	padding: 0 7px;
+	border: 1px solid var(--pb-border);
+	border-radius: var(--pb-radius);
+	background: var(--pb-surface);
+	color: var(--pb-muted);
+	font-size: 10px;
+	font-family: var(--pb-font-ui);
+	line-height: 1;
+	white-space: nowrap;
+	cursor: pointer;
+	transition: color 0.15s ease, border-color 0.15s ease, background 0.15s ease;
+}
+
+.md-pb-ai-page-btn:hover {
+	border-color: var(--pb-border-strong);
+	color: var(--pb-text);
+}
+
+.md-pb-ai-page-btn.is-active {
+	background: var(--pb-accent-dim);
+	border-color: var(--pb-accent-line);
+	color: var(--pb-accent);
 }
 
 .md-pb-ai-input {
@@ -1386,6 +1483,17 @@ html.dark body.md-page-blocks-builder-shell {
 
 .md-pb-shell.is-section-linked .md-pb-options {
 	opacity: 0.55;
+}
+
+/* A block the builder does not own has no code to show. The editors would be
+   three empty read-only panes; the note above them is the whole story. */
+.md-pb-shell.is-section-foreign .md-pb-code-wrap,
+.md-pb-shell.is-section-foreign .md-pb-options {
+	display: none;
+}
+
+.md-pb-shell.is-section-foreign .md-pb-bottom[data-linked-note]::before {
+	border-bottom: 0;
 }
 
 /* ─────────────────────────────────────────────────────────────────────────

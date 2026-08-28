@@ -19,6 +19,13 @@
 		'<line x1="12" y1="19" x2="12" y2="6"/><polyline points="5 13 12 6 19 13"/>' +
 		'</svg>';
 
+	// Stacked sheets — the whole document rather than the section in hand.
+	var PAGE_ICON = '<svg class="md-pb-btn-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" ' +
+		'stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" ' +
+		'aria-hidden="true" focusable="false">' +
+		'<path d="M8 4h9a2 2 0 0 1 2 2v10"/><rect x="4" y="8" width="12" height="12" rx="2"/>' +
+		'</svg>';
+
 	// A link with a slash through it — the section stops following the library
 	// block it points at.
 	var UNLINK_ICON = '<svg class="md-pb-btn-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" ' +
@@ -62,6 +69,11 @@
 			inlineStyles: []
 		},
 		pageTemplate: config.postTemplate || 'default',
+		// The server refuses a save that carries fewer blocks it cannot
+		// rebuild than the page has. Deleting one on purpose has to be
+		// distinguishable from dropping one by accident, so the builder
+		// declares how many it removed rather than the server guessing.
+		removedForeign: 0,
 		pageTitle: config.postTitle || '',
 		pageSlug: config.postSlug || '',
 		aiOpen: false,
@@ -70,7 +82,8 @@
 		aiSelectionEditor: null,
 		aiBusy: false,
 		aiXhr: null,
-		aiModel: (config.aiDefaultModel || '')
+		aiModel: (config.aiDefaultModel || ''),
+		aiIncludePage: false
 	};
 	var dom = {};
 
@@ -154,6 +167,19 @@
 			return section.name.trim();
 		}
 		return inferSectionName(section ? section.content : '', index);
+	}
+
+	/** "HTML", "HTML and CSS", "HTML, CSS and JS". */
+	function formatFieldList(fields) {
+		var names = fields.map(function(f) { return f.toUpperCase(); }).filter(function(name, i, all) {
+			return all.indexOf(name) === i;
+		});
+
+		if (names.length < 2) {
+			return names[0] || '';
+		}
+
+		return names.slice(0, -1).join(', ') + ' and ' + names[names.length - 1];
 	}
 
 	function isForeign(section) {
@@ -1025,6 +1051,7 @@
 		form.set('page_template', state.pageTemplate || '');
 		form.set('post_title', state.pageTitle || '');
 		form.set('post_slug', state.pageSlug || '');
+		form.set('removed_foreign', String(state.removedForeign || 0));
 
 		window.fetch(config.saveEndpoint, {
 			method: 'POST',
@@ -1064,6 +1091,10 @@
 				if (payload.data && payload.data.viewPostUrl) {
 					config.viewPostUrl = payload.data.viewPostUrl;
 				}
+
+				// Those blocks are gone from the page now, so they are no
+				// longer a discrepancy the next save has to explain.
+				state.removedForeign = 0;
 
 				clearAutosaveDraft();
 				setApplyButtonBusy(false, 'Saved');
@@ -1180,6 +1211,21 @@
 	function deleteSection(index) {
 		if (index < 0 || index >= state.sections.length) {
 			return;
+		}
+
+		var section = state.sections[index];
+
+		// The builder cannot rebuild a block it does not own, so removing one
+		// is not undoable from here — say so before doing it.
+		if (isForeign(section)) {
+			if (!window.confirm(
+				'Delete ' + (section.label || section.blockName || 'this block') + ' from the page?\n\n' +
+				'The builder cannot recreate it. To get it back you would have to add it again ' +
+				'in the WordPress editor.'
+			)) {
+				return;
+			}
+			state.removedForeign += 1;
 		}
 
 		state.sections.splice(index, 1);
@@ -1403,6 +1449,11 @@
 				badge.title = (section.label || section.blockName || 'This block') +
 					' is not a Page Block — edit it in the WordPress editor.';
 				actions.appendChild(badge);
+				// Locked means the builder will not rewrite its markup, not
+				// that it has to stay on the page. Removing it is a decision
+				// about the page, which is what this panel is for.
+				remove.title = 'Delete this block from the page';
+				actions.appendChild(remove);
 			} else {
 				if (isLinked(section)) {
 					var linkBadge = document.createElement('span');
@@ -1510,6 +1561,10 @@
 
 		if (dom.shell) {
 			dom.shell.classList.toggle('is-section-linked', locked);
+			// A linked section has code worth reading, greyed out. A foreign
+			// one has none the builder can show — three empty read-only
+			// editors say nothing the note above them does not.
+			dom.shell.classList.toggle('is-section-foreign', foreign);
 		}
 
 		// Rendered as a strip above the code panes (CSS attr()), so the lock
@@ -2338,23 +2393,54 @@
 			if (msg.role === 'user') {
 				bubble.textContent = msg.content;
 			} else {
-				// Assistant: show code with "Apply" button
+				var applied = Array.isArray(msg.applied) ? msg.applied : [];
+
+				var status = document.createElement('div');
+				status.className = 'md-pb-ai-status';
+
+				if (applied.length) {
+					status.textContent = 'Applied to ' + formatFieldList(applied);
+				} else if (msg.undone) {
+					status.className += ' is-undone';
+					status.textContent = 'Undone — the section is back as it was.';
+				} else {
+					status.className += ' is-undone';
+					status.textContent = 'Not applied — this section is not editable here.';
+				}
+
+				bubble.appendChild(status);
+
+				// The code is the working, not the result. It is here to be
+				// checked, so it folds away.
+				var details = document.createElement('details');
+				details.className = 'md-pb-ai-details';
+
+				var summary = document.createElement('summary');
+				summary.textContent = 'Show code';
+				details.appendChild(summary);
+
 				var pre = document.createElement('pre');
 				pre.className = 'md-pb-ai-code';
 				pre.textContent = msg.content;
+				details.appendChild(pre);
+				bubble.appendChild(details);
 
-				var applyBtn = document.createElement('button');
-				applyBtn.type = 'button';
-				applyBtn.className = 'md-pb-button md-pb-button-primary md-pb-ai-apply-btn';
-				applyBtn.textContent = 'Apply to section';
-				applyBtn.addEventListener('click', function() {
-					applyAiCode(msg.content);
-					applyBtn.textContent = 'Applied';
-					applyBtn.disabled = true;
-				});
-
-				bubble.appendChild(pre);
-				bubble.appendChild(applyBtn);
+				if (msg.undo) {
+					var undoBtn = document.createElement('button');
+					undoBtn.type = 'button';
+					undoBtn.className = 'md-pb-button md-pb-ai-undo-btn';
+					undoBtn.textContent = 'Undo';
+					undoBtn.title = 'Put the section back the way it was before this reply';
+					undoBtn.addEventListener('click', function() {
+						if (undoAiCode(msg.undo)) {
+							msg.undo = null;
+							msg.applied = [];
+							msg.undone = true;
+							renderAiMessages();
+						}
+					});
+					bubble.appendChild(undoBtn);
+				}
 			}
 
 			dom.aiMessages.appendChild(bubble);
@@ -2364,7 +2450,18 @@
 		dom.aiMessages.scrollTop = dom.aiMessages.scrollHeight;
 	}
 
+	/**
+	 * Put the assistant's code into the section.
+	 *
+	 * @return {?{index:number,fields:string[],before:Object}} What changed, so
+	 *         it can be put back, or null if there was nothing to apply.
+	 */
 	function applyAiCode(code) {
+		var section = getCurrentSection();
+		if (!section || isForeign(section) || isLinked(section)) {
+			return null;
+		}
+
 		var tab = getActiveTab();
 		var fieldMap = { html: 'content', css: 'css', js: 'js' };
 
@@ -2379,23 +2476,61 @@
 			}
 		}
 
+		var undo = {
+			index: state.selectedIndex,
+			fields: [],
+			before: {
+				content: section.content || '',
+				css: section.css || '',
+				js: section.js || ''
+			}
+		};
+
 		var field = fieldMap[tab];
 		if (tab === 'css' || tab === 'js') {
 			setRightPaneMode(tab);
 		}
 
 		setSectionFieldFromAi(tab, field, code);
+		undo.fields.push(tab);
 
 		if (extracted && extracted.hasBundle) {
 			if (extracted.hasCssTag) {
 				setSectionFieldFromAi('css', 'css', extracted.css);
+				undo.fields.push('css');
 			}
 			if (extracted.hasJsTag) {
 				setSectionFieldFromAi('js', 'js', extracted.js);
+				undo.fields.push('js');
 			}
 		}
 
 		queuePreviewRender();
+		queueAutosave();
+
+		return undo;
+	}
+
+	function undoAiCode(undo) {
+		if (!undo || !state.sections[undo.index]) {
+			return false;
+		}
+
+		var section = state.sections[undo.index];
+		section.content = undo.before.content;
+		section.css = undo.before.css;
+		section.js = undo.before.js;
+
+		if (undo.index === state.selectedIndex) {
+			renderCurrentSectionToEditors();
+			refreshCodeEditors();
+		}
+
+		renderIndexList();
+		queuePreviewRender(0, true);
+		queueAutosave();
+
+		return true;
 	}
 
 
@@ -2518,6 +2653,37 @@
 		else if (editorKey === 'js' && dom.textareaJs) dom.textareaJs.value = value;
 	}
 
+	/**
+	 * Every section's code, labelled, for the assistant to read.
+	 *
+	 * The point is consistency: shown the rest of the page, a model reuses its
+	 * class names, spacing scale and CSS variables instead of inventing a
+	 * second design language halfway down.
+	 */
+	function buildPageContext() {
+		var parts = [];
+
+		state.sections.forEach(function(section, index) {
+			var name = getSectionDisplayName(section, index);
+			var head = '--- Section ' + (index + 1) + ': ' + name +
+				(index === state.selectedIndex ? ' (the one I am editing)' : '') + ' ---';
+
+			if (isForeign(section)) {
+				parts.push(head + '\n[' + (section.blockName || 'block') + ', not editable here]');
+				return;
+			}
+
+			var body = [];
+			if (section.content) { body.push('HTML:\n' + section.content); }
+			if (section.css) { body.push('CSS:\n' + section.css); }
+			if (section.js) { body.push('JS:\n' + section.js); }
+
+			parts.push(head + '\n' + (body.length ? body.join('\n\n') : '[empty]'));
+		});
+
+		return parts.join('\n\n');
+	}
+
 	function submitAiPrompt() {
 		if (!config.aiEndpoint || !config.aiAction) {
 			window.alert('AI is not configured. Add API keys in MD Settings > Page Blocks.');
@@ -2581,6 +2747,7 @@
 		formData.append('context_css', ctxCss);
 		formData.append('page_url', config.viewPostUrl || '');
 		formData.append('css_context', config.aiCssContext || '');
+		formData.append('context_page', state.aiIncludePage ? buildPageContext() : '');
 		formData.append('history', JSON.stringify(history));
 
 		var xhr = new XMLHttpRequest();
@@ -2617,9 +2784,23 @@
 			}
 
 			var code = result.data && result.data.code ? result.data.code : '';
-			if (code) {
-				addAiMessage('assistant', code);
+			if (!code) {
+				return;
 			}
+
+			// Applied rather than offered. Copying code out of a chat bubble
+			// and into the editor beside it was work the builder can do, and
+			// the preview updates on its own — which is the answer the author
+			// actually wanted to look at. Undo is one click away.
+			var undo = applyAiCode(code);
+
+			state.aiMessages.push({
+				role: 'assistant',
+				content: code,
+				undo: undo,
+				applied: undo ? undo.fields.slice() : []
+			});
+			renderAiMessages();
 		};
 		xhr.onerror = function() {
 			resetAiUi();
@@ -2805,6 +2986,8 @@
 					'</div>' +
 					'<div class="md-pb-ai-model-row">' +
 						'<select class="md-pb-ai-model-select" data-role="ai-model-select"></select>' +
+						'<button type="button" class="md-pb-ai-page-btn" data-role="ai-include-page" aria-pressed="false" ' +
+							'title="Send every section\u2019s HTML, CSS and JS with the prompt">' + PAGE_ICON + 'Whole page</button>' +
 						'<span class="md-pb-ai-selection-badge" data-role="ai-selection-badge" style="display:none">Selection</span>' +
 					'</div>' +
 					'<div class="md-pb-ai-messages" data-role="ai-messages"></div>' +
@@ -2937,6 +3120,7 @@
 		dom.aiInput = shell.querySelector('[data-role="ai-input"]');
 		dom.aiModelSelect = shell.querySelector('[data-role="ai-model-select"]');
 		dom.aiSelectionBadge = shell.querySelector('[data-role="ai-selection-badge"]');
+		dom.aiIncludePageButton = shell.querySelector('[data-role="ai-include-page"]');
 		dom.aiStatus = shell.querySelector('[data-role="ai-status"]');
 		dom.aiGenerateButton = shell.querySelector('[data-role="ai-generate"]');
 		dom.aiCloseButton = shell.querySelector('[data-role="ai-close"]');
@@ -3353,6 +3537,14 @@
 		if (dom.aiModelSelect) {
 			dom.aiModelSelect.addEventListener('change', function() {
 				state.aiModel = dom.aiModelSelect.value;
+			});
+		}
+
+		if (dom.aiIncludePageButton) {
+			dom.aiIncludePageButton.addEventListener('click', function() {
+				state.aiIncludePage = !state.aiIncludePage;
+				dom.aiIncludePageButton.classList.toggle('is-active', state.aiIncludePage);
+				dom.aiIncludePageButton.setAttribute('aria-pressed', state.aiIncludePage ? 'true' : 'false');
 			});
 		}
 

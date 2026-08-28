@@ -249,6 +249,9 @@ if ( ! function_exists( 'md_page_blocks_builder_url' ) ) {
 class GT_Page_Blocks_Builder {
 	const BLOCK_NAME = 'gt-page-block/page-block';
 
+	/** Ceiling on the whole-page code the assistant is handed, in bytes. */
+	const AI_PAGE_CONTEXT_LIMIT = 60000;
+
 	/**
 	 * Pre-2.6.0 block name. Stays registered server-side so un-migrated
 	 * content keeps rendering; run `wp gt-pb migrate-blocks` (or
@@ -1407,6 +1410,10 @@ class GT_Page_Blocks_Builder {
 		$page_template = isset( $_POST['page_template'] ) ? sanitize_text_field( wp_unslash( $_POST['page_template'] ) ) : '';
 		$post_title    = isset( $_POST['post_title'] ) ? sanitize_text_field( wp_unslash( $_POST['post_title'] ) ) : null;
 		$post_slug     = isset( $_POST['post_slug'] ) ? sanitize_title( wp_unslash( $_POST['post_slug'] ) ) : null;
+		// How many blocks the builder cannot rebuild the author deleted on
+		// purpose. Without it the guard below cannot tell a deliberate
+		// deletion from a client that lost them in transit.
+		$removed_foreign = isset( $_POST['removed_foreign'] ) ? absint( $_POST['removed_foreign'] ) : 0;
 		$decoded       = json_decode( (string) $raw_sections, true );
 		if ( ! is_array( $decoded ) ) {
 			wp_send_json_error( array( 'message' => __( 'Invalid builder payload.', 'page-blocks-builder' ) ), 400 );
@@ -1493,7 +1500,10 @@ class GT_Page_Blocks_Builder {
 			}
 		}
 
-		if ( $payload_foreign < $existing_foreign ) {
+		// A stale or broken client sends no deletion count, so it still fails
+		// this check exactly as before — the safety net only widens by what
+		// the author explicitly asked for.
+		if ( $payload_foreign + $removed_foreign < $existing_foreign ) {
 			wp_send_json_error(
 				array(
 					'message' => sprintf(
@@ -3228,6 +3238,7 @@ class GT_Page_Blocks_Builder {
 		$ctx_html    = isset( $_POST['context_html'] ) ? wp_unslash( $_POST['context_html'] ) : '';
 		$ctx_css     = isset( $_POST['context_css'] ) ? wp_unslash( $_POST['context_css'] ) : '';
 		$css_ctx     = isset( $_POST['css_context'] ) ? wp_unslash( $_POST['css_context'] ) : '';
+		$ctx_page    = isset( $_POST['context_page'] ) ? wp_unslash( $_POST['context_page'] ) : '';
 		$history_raw = isset( $_POST['history'] ) ? wp_unslash( $_POST['history'] ) : '';
 		$page_url    = isset( $_POST['page_url'] ) ? esc_url_raw( wp_unslash( $_POST['page_url'] ) ) : '';
 
@@ -3248,7 +3259,7 @@ class GT_Page_Blocks_Builder {
 			}
 		}
 
-		$result = $this->call_ai_api( $model, $tab, $prompt, $existing, $selection, $ctx_html, $ctx_css, $page_url, $css_ctx, $history );
+		$result = $this->call_ai_api( $model, $tab, $prompt, $existing, $selection, $ctx_html, $ctx_css, $page_url, $css_ctx, $history, $ctx_page );
 
 		if ( is_wp_error( $result ) ) {
 			wp_send_json_error( array( 'message' => $result->get_error_message() ), 500 );
@@ -3257,7 +3268,7 @@ class GT_Page_Blocks_Builder {
 		wp_send_json_success( array( 'code' => $result ) );
 	}
 
-	private function call_ai_api( $model, $tab, $prompt, $existing, $selection, $ctx_html, $ctx_css, $page_url, $css_context = '', $history = array() ) {
+	private function call_ai_api( $model, $tab, $prompt, $existing, $selection, $ctx_html, $ctx_css, $page_url, $css_context = '', $history = array(), $ctx_page = '' ) {
 		if ( empty( $model ) || ! in_array( $model, self::ai_model_ids(), true ) ) {
 			$model = self::ai_stored_default_model();
 		}
@@ -3289,7 +3300,7 @@ class GT_Page_Blocks_Builder {
 			$system_prompt .= "\n\nAVAILABLE CSS VARIABLES AND UTILITY CLASSES:\n" . $css_context;
 		}
 
-		$user_message = $this->build_ai_user_message( $prompt, $tab, $existing, $selection, $ctx_html, $ctx_css );
+		$user_message = $this->build_ai_user_message( $prompt, $tab, $existing, $selection, $ctx_html, $ctx_css, $ctx_page );
 
 		$result = $this->execute_ai_provider_call( $provider, $api_key, $model, $system_prompt, $user_message, $history );
 		if ( ! $this->should_retry_ai_compact( $result ) ) {
@@ -3385,7 +3396,7 @@ class GT_Page_Blocks_Builder {
 		return $base;
 	}
 
-	private function build_ai_user_message( $prompt, $tab, $existing, $selection, $ctx_html, $ctx_css ) {
+	private function build_ai_user_message( $prompt, $tab, $existing, $selection, $ctx_html, $ctx_css, $ctx_page = '' ) {
 		$parts = array();
 
 		if ( ! empty( $selection ) ) {
@@ -3399,6 +3410,19 @@ class GT_Page_Blocks_Builder {
 		}
 		if ( $tab !== 'css' && ! empty( $ctx_css ) ) {
 			$parts[] = "This section's CSS (for reference):\n" . $ctx_css;
+		}
+
+		// The whole page, when the author asked for it. Capped, because a long
+		// page can outrun the model's context window and the useful part is
+		// the shape of the other sections, not every byte of them.
+		if ( ! empty( $ctx_page ) ) {
+			$page = (string) $ctx_page;
+			if ( strlen( $page ) > self::AI_PAGE_CONTEXT_LIMIT ) {
+				$page = substr( $page, 0, self::AI_PAGE_CONTEXT_LIMIT ) .
+					"\n\n[truncated: the page is longer than this context allows]";
+			}
+			$parts[] = "Every section on this page, for reference. Match its markup conventions, " .
+				"class names and CSS variables. Only return code for the section I am editing:\n" . $page;
 		}
 
 		if ( $tab === 'html' ) {
