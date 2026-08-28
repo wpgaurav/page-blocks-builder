@@ -778,7 +778,9 @@ class GT_Page_Blocks_Builder {
 			wp_enqueue_style(
 				'gt-page-block-builder-shell',
 				GT_PB_BUILDER_URL . 'assets/css/builder-shell.css',
-				array( 'code-editor' ),
+				// dashicons: the builder runs on a front-end route, where the
+				// admin's icon font is not loaded for us.
+				array( 'code-editor', 'dashicons' ),
 				filemtime( $css_path )
 			);
 		}
@@ -820,6 +822,10 @@ class GT_Page_Blocks_Builder {
 					$this->get_theme_css_classes_for_builder(),
 					$this->get_utility_class_names()
 				) ) ),
+				// Detaching a linked section needs to read the library row it
+				// points at, so the builder can copy that code into the page.
+				'restUrl'            => esc_url_raw( rest_url( gt_pb_rest_api::REST_NAMESPACE ) ),
+				'restNonce'          => wp_create_nonce( 'wp_rest' ),
 				// AI
 				'aiEndpoint'         => admin_url( 'admin-ajax.php' ),
 				'aiAction'           => 'md_page_blocks_ai_generate',
@@ -1121,16 +1127,80 @@ class GT_Page_Blocks_Builder {
 			return array();
 		}
 
-		$sections     = array();
-		$blocks       = parse_blocks( (string) $post->post_content );
-		$page_blocks  = self::find_page_blocks( $blocks );
+		$sections = array();
 
-		foreach ( $page_blocks as $block ) {
-			$attrs      = isset( $block['attrs'] ) && is_array( $block['attrs'] ) ? $block['attrs'] : array();
-			$sections[] = $this->normalize_builder_section( $attrs );
+		// Walk the TOP-LEVEL blocks in document order and keep every one of
+		// them, not just the page blocks. Two reasons:
+		//
+		//  - The builder can then show what else is on the page instead of
+		//    pretending a page of mixed content is only its page blocks.
+		//  - Saving can write the page back in this exact order. The old save
+		//    collected page blocks and re-inserted them all at the position of
+		//    the first one, so a core block sitting between two page blocks
+		//    silently moved after them.
+		//
+		// Blocks nested inside containers are deliberately left alone: the
+		// container travels as one opaque unit, which also fixes page blocks
+		// inside a Group being hoisted out of it on save.
+		foreach ( parse_blocks( (string) $post->post_content ) as $index => $block ) {
+			$name = (string) ( $block['blockName'] ?? '' );
+
+			// parse_blocks() emits whitespace between blocks as nameless
+			// entries. Preserve them verbatim so spacing round-trips.
+			if ( '' === $name ) {
+				$raw = (string) ( $block['innerHTML'] ?? '' );
+				if ( '' === trim( $raw ) ) {
+					continue;
+				}
+				$sections[] = array(
+					'kind'       => 'foreign',
+					'blockName'  => '',
+					'label'      => __( 'Classic content', 'page-blocks-builder' ),
+					'serialized' => $raw,
+					'rendered'   => apply_filters( 'the_content', $raw ),
+				);
+				continue;
+			}
+
+			if ( self::is_page_block_name( $name ) ) {
+				$attrs             = isset( $block['attrs'] ) && is_array( $block['attrs'] ) ? $block['attrs'] : array();
+				$section           = $this->normalize_builder_section( $attrs );
+				$section['kind']   = 'block';
+				$sections[]        = $section;
+				continue;
+			}
+
+			$sections[] = array(
+				'kind'       => 'foreign',
+				'blockName'  => $name,
+				'label'      => $this->builder_block_label( $name ),
+				// Kept verbatim so saving re-emits exactly what was parsed,
+				// including any inner blocks and their attributes.
+				'serialized' => serialize_block( $block ),
+				'rendered'   => (string) render_block( $block ),
+				'hasPageBlocks' => (bool) self::find_page_blocks( array( $block ) ),
+			);
 		}
 
 		return $sections;
+	}
+
+	/**
+	 * Human label for a block name, for the builder's section list.
+	 *
+	 * @param string $name Block name.
+	 * @return string
+	 */
+	private function builder_block_label( $name ) {
+		$type = WP_Block_Type_Registry::get_instance()->get_registered( $name );
+
+		if ( $type && ! empty( $type->title ) ) {
+			return (string) $type->title;
+		}
+
+		// Unregistered block (a plugin that is inactive, say). Show the raw
+		// name rather than a blank row, so it is obvious what is on the page.
+		return $name;
 	}
 
 	/**
@@ -1169,6 +1239,18 @@ class GT_Page_Blocks_Builder {
 
 		foreach ( (array) $sections as $section ) {
 			$section = is_array( $section ) ? $section : array();
+
+			// Blocks the builder cannot edit still belong in the preview —
+			// otherwise the preview shows a different page from the one the
+			// visitor gets. They are rendered from their own markup and
+			// contribute no editable CSS or JS.
+			if ( isset( $section['kind'] ) && 'foreign' === $section['kind'] ) {
+				$raw = isset( $section['serialized'] ) ? (string) $section['serialized'] : '';
+				if ( '' !== trim( $raw ) ) {
+					$html_output[] = (string) do_blocks( $raw );
+				}
+				continue;
+			}
 
 			// Linked sections preview through render_library_block(), the same
 			// path render_block() takes, so the row's PHP checksum gate still
@@ -1301,64 +1383,104 @@ class GT_Page_Blocks_Builder {
 			wp_send_json_error( array( 'message' => __( 'Invalid builder payload.', 'page-blocks-builder' ) ), 400 );
 		}
 
-		$sections = array();
-		foreach ( $decoded as $section ) {
-			if ( ! is_array( $section ) ) {
-				continue;
-			}
-			$sections[] = $this->normalize_builder_section( $section );
-		}
-
 		$post = get_post( $post_id );
 		if ( ! $post ) {
 			wp_send_json_error( array( 'message' => __( 'Post no longer exists.', 'page-blocks-builder' ) ), 404 );
 		}
 
-		$blocks                 = parse_blocks( (string) $post->post_content );
-		$filtered               = array();
-		$first_page_block_index = -1;
+		// Rebuild the document in exactly the order the builder is showing.
+		// Foreign blocks are re-emitted from the markup they were loaded with,
+		// so anything the builder cannot edit round-trips byte for byte and
+		// stays where it was. The previous version collected page blocks and
+		// re-inserted them all at the first one's position, which silently
+		// moved any core block that sat between them.
+		$parts    = array();
+		$sections = array();
 
-		foreach ( $blocks as $block ) {
-			$is_page_block = is_array( $block ) && self::is_page_block_name( (string) ( $block['blockName'] ?? '' ) );
-			if ( $is_page_block ) {
-				if ( $first_page_block_index === -1 ) {
-					$first_page_block_index = count( $filtered );
+		foreach ( $decoded as $section ) {
+			if ( ! is_array( $section ) ) {
+				continue;
+			}
+
+			if ( isset( $section['kind'] ) && 'foreign' === $section['kind'] ) {
+				$raw = isset( $section['serialized'] ) ? (string) $section['serialized'] : '';
+				if ( '' !== trim( $raw ) ) {
+					$parts[] = $raw;
 				}
 				continue;
 			}
-			$filtered[] = $block;
-		}
 
-		if ( $first_page_block_index === -1 ) {
-			$first_page_block_index = count( $filtered );
-		}
+			$normalized = $this->normalize_builder_section( $section );
+			$sections[] = $normalized;
 
-		$replacement_blocks = array();
-		foreach ( $sections as $section ) {
+			$attrs = $normalized;
 			// Keep a real link, but leave ordinary sections unmarked rather
 			// than writing blockId:0 into every block in post_content.
-			if ( empty( $section['blockId'] ) ) {
-				unset( $section['blockId'] );
+			if ( empty( $attrs['blockId'] ) ) {
+				unset( $attrs['blockId'] );
 			}
+			unset( $attrs['kind'] );
 
-			$replacement_blocks[] = array(
+			$parts[] = serialize_block( array(
 				'blockName'    => self::BLOCK_NAME,
-				'attrs'        => $section,
+				'attrs'        => $attrs,
 				'innerBlocks'  => array(),
 				'innerHTML'    => '',
 				'innerContent' => array(),
+			) );
+		}
+
+		// A payload with no page-block sections at all would blank a page that
+		// only failed to send them. Refuse rather than destroy content.
+		if ( ! $parts ) {
+			wp_send_json_error( array( 'message' => __( 'Refusing to save an empty document.', 'page-blocks-builder' ) ), 400 );
+		}
+
+		// Safety net for the blocks the builder cannot rebuild. If the payload
+		// carries fewer of them than the page currently has, something dropped
+		// them in transit — a stale client, a serialisation bug — and saving
+		// would silently delete content the builder never had the means to
+		// recreate. Refuse instead. This is not hypothetical: an early version
+		// of the client whitelisted the page-block fields and stripped these,
+		// which rewrote a mixed page as empty page blocks.
+		$existing_foreign = 0;
+		foreach ( parse_blocks( (string) $post->post_content ) as $block ) {
+			$name = (string) ( $block['blockName'] ?? '' );
+			if ( '' === $name ) {
+				if ( '' !== trim( (string) ( $block['innerHTML'] ?? '' ) ) ) {
+					++$existing_foreign;
+				}
+				continue;
+			}
+			if ( ! self::is_page_block_name( $name ) ) {
+				++$existing_foreign;
+			}
+		}
+
+		$payload_foreign = 0;
+		foreach ( $decoded as $section ) {
+			if ( is_array( $section ) && isset( $section['kind'] ) && 'foreign' === $section['kind'] ) {
+				++$payload_foreign;
+			}
+		}
+
+		if ( $payload_foreign < $existing_foreign ) {
+			wp_send_json_error(
+				array(
+					'message' => sprintf(
+						/* translators: 1: blocks in the payload, 2: blocks on the page */
+						__( 'Refusing to save: this page has %2$d block(s) the builder cannot edit but the save only accounted for %1$d. Reload the builder and try again.', 'page-blocks-builder' ),
+						$payload_foreign,
+						$existing_foreign
+					),
+				),
+				409
 			);
 		}
 
-		$next_blocks = array_merge(
-			array_slice( $filtered, 0, $first_page_block_index ),
-			$replacement_blocks,
-			array_slice( $filtered, $first_page_block_index )
-		);
-
 		$update_args = array(
 			'ID'           => $post_id,
-			'post_content' => wp_slash( serialize_blocks( $next_blocks ) ),
+			'post_content' => wp_slash( implode( "\n\n", $parts ) ),
 		);
 
 		$updated = wp_update_post( $update_args, true );

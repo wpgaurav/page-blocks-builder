@@ -40,13 +40,15 @@ body {
 
 .md-pb-shell {
 	display: grid;
-	grid-template-rows: 48px minmax(220px, 1fr) 2px var(--pb-bottom-height, 360px) 24px;
+	/* auto, not a fixed 48px: the top bar is allowed to wrap on narrow
+	   screens and a fixed row clipped it. */
+	grid-template-rows: auto minmax(220px, 1fr) 2px var(--pb-bottom-height, 360px) 24px;
 	height: 100%;
 	min-height: 100%;
 }
 
 .md-pb-shell.is-code-hidden {
-	grid-template-rows: 48px minmax(220px, 1fr) 0 0 24px;
+	grid-template-rows: auto minmax(220px, 1fr) 0 0 24px;
 }
 
 .md-pb-shell.is-resizing,
@@ -59,9 +61,10 @@ body {
 	display: grid;
 	grid-template-columns: 1fr auto 1fr;
 	align-items: center;
+	min-height: 48px;
 	background: linear-gradient(180deg, #131a2b, #101726);
 	border-bottom: 1px solid var(--pb-border);
-	padding: 0 12px;
+	padding: 6px 12px;
 	gap: 10px;
 	position: relative;
 	z-index: 30;
@@ -170,6 +173,9 @@ body {
 	display: flex;
 	flex-direction: column;
 	min-height: 0;
+	/* The preview iframe is sized from its content and would otherwise paint
+	   straight over the panel below it. */
+	overflow: hidden;
 	background:
 		radial-gradient(80% 70% at 18% 8%, rgba(99, 179, 237, 0.08), rgba(99, 179, 237, 0)),
 		radial-gradient(70% 70% at 88% 95%, rgba(104, 211, 145, 0.06), rgba(104, 211, 145, 0)),
@@ -246,6 +252,7 @@ body {
 	border-left: 1px solid var(--pb-border);
 	background: var(--pb-surface);
 	min-height: 0;
+	overflow: hidden;
 }
 
 .md-pb-template-bar {
@@ -312,8 +319,12 @@ body {
 	list-style: none;
 	margin: 0;
 	padding: 8px;
-	flex: 1;
-	overflow: auto;
+	flex: 1 1 auto;
+	/* A floor at every width, not just when stacked: on a short screen the
+	   template bar, header, Add Section and meta block together crushed the
+	   list to a couple of pixels and the panel showed one row. */
+	min-height: 90px;
+	overflow-y: auto;
 }
 
 .md-pb-index-item {
@@ -1062,16 +1073,113 @@ body {
 	align-self: flex-end;
 }
 
-@media (max-width: 980px) {
-	.md-pb-main {
-		grid-template-columns: 1fr;
+/* ─────────────────────────────────────────────────────────────────────────
+   Responsive
+
+   The builder is a fixed five-row grid with a three-column top bar, which
+   holds up on a wide screen and collapses badly below roughly 1200px: the
+   bar's three groups collide, and the middle row has to fit both the canvas
+   and the section index while the code panel keeps its full height.
+
+   Each step below gives back the space the previous one ran out of.
+   ───────────────────────────────────────────────────────────────────────── */
+
+/* Laptop: the top bar stops pretending it has three equal columns. */
+@media (max-width: 1200px) {
+	.md-pb-topbar {
+		display: flex;
+		flex-wrap: wrap;
+		justify-content: space-between;
+		row-gap: 6px;
+	}
+
+	.md-pb-topbar-left,
+	.md-pb-topbar-center,
+	.md-pb-topbar-right {
+		justify-content: flex-start;
 	}
 
 	.md-pb-index {
+		width: 200px;
+	}
+
+	.md-pb-main {
+		grid-template-columns: minmax(0, 1fr) 200px;
+	}
+}
+
+/* Small laptop: the AI panel is the first thing to go — it is the widest
+   pane and the least often needed mid-edit. */
+@media (max-width: 1100px) {
+	.md-pb-ai-panel {
+		position: absolute;
+		inset: 0 auto 0 0;
+		z-index: 40;
+		width: min(360px, 90vw);
+		box-shadow: 0 0 40px rgba(0, 0, 0, 0.5);
+	}
+
+	.md-pb-canvas-wrap {
+		position: relative;
+	}
+}
+
+@media (max-width: 980px) {
+	/* The canvas and the index now share one row, so the row needs to be tall
+	   enough for both and the code panel must stop claiming a fixed 360px. */
+	.md-pb-shell {
+		grid-template-rows: auto minmax(320px, 1fr) 2px clamp(200px, var(--pb-bottom-height, 360px), 45vh) 24px;
+	}
+
+	.md-pb-main {
+		display: flex;
+		flex-direction: column;
+		/* Both panes now share one row. Clipping here is what stops them
+		   overflowing the row and drawing on top of each other. */
+		overflow: hidden;
+	}
+
+	.md-pb-canvas-wrap {
+		flex: 1 1 auto;
+		min-height: 0;
+	}
+
+	.md-pb-index {
+		width: auto;
 		border-left: 0;
 		border-top: 1px solid var(--pb-border);
-		max-height: 240px;
+		/* A share of the row rather than a share of the viewport: a vh cap
+		   could exceed the space the row actually has, which is how the panel
+		   ended up overlapping the canvas. */
+		flex: 0 0 auto;
+		max-height: 55%;
+		min-height: 0;
+		/* The panel itself does not scroll; the list inside it does, which
+		   keeps Add Section reachable instead of pushing it out of view. */
+		overflow: hidden;
 	}
+
+	.md-pb-index-list {
+		flex: 1 1 auto;
+		/* Not 0: with the header, Add Section and the meta block also in this
+		   column, a zero floor let the list shrink to nothing and the panel
+		   showed a header and a button with no sections between them. */
+		min-height: 90px;
+		max-height: none;
+		overflow-y: auto;
+	}
+
+	.md-pb-add-section-btn {
+		flex: 0 0 auto;
+	}
+
+	/* The active-section fields are reference information, not something you
+	   act on mid-edit. Below this width the list needs their room more. */
+	.md-pb-meta {
+		display: none;
+	}
+
+
 
 	.md-pb-code-grid {
 		grid-template-columns: 1fr;
@@ -1113,4 +1221,142 @@ body {
 
 .md-pb-shell.is-section-linked .md-pb-options {
 	opacity: 0.55;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   Blocks the builder does not own, and links to library blocks.
+
+   Both are shown rather than hidden: a section list that silently omitted
+   half the page would be lying about the document. They read as inert —
+   muted, no hover affordance, no destructive actions — so it is obvious at a
+   glance which rows you can act on.
+   ───────────────────────────────────────────────────────────────────────── */
+
+.md-pb-index-item.is-foreign {
+	opacity: 0.72;
+	background: rgba(255, 255, 255, 0.02);
+}
+
+.md-pb-index-item.is-foreign .md-pb-index-item-name {
+	cursor: default;
+	font-style: italic;
+}
+
+.md-pb-index-item.is-foreign:hover {
+	opacity: 0.9;
+}
+
+.md-pb-index-badge {
+	display: inline-block;
+	padding: 1px 6px;
+	border-radius: 2px;
+	font-size: 10px;
+	font-weight: 500;
+	letter-spacing: 0.02em;
+	white-space: nowrap;
+	background: rgba(255, 255, 255, 0.08);
+	color: rgba(255, 255, 255, 0.65);
+}
+
+.md-pb-index-badge.is-link {
+	background: rgba(91, 178, 255, 0.16);
+	color: #9ecbff;
+}
+
+/* Detach control, shown only while a linked section is selected. */
+
+.md-pb-detach-bar {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	padding: 8px 12px;
+	border-bottom: 1px solid rgba(153, 187, 255, 0.2);
+	background: rgba(91, 178, 255, 0.06);
+	font-size: 12px;
+}
+
+.md-pb-detach-text {
+	color: #b9cbe8;
+	flex: 1 1 auto;
+	min-width: 0;
+}
+
+.md-pb-detach-btn {
+	flex: 0 0 auto;
+}
+
+.md-pb-detach-btn:disabled {
+	opacity: 0.6;
+	cursor: default;
+}
+
+/* Narrow: single-column everything, and drop chrome that costs more room
+   than it earns. */
+@media (max-width: 680px) {
+	.md-pb-shell {
+		grid-template-rows: auto minmax(260px, 1fr) 2px clamp(180px, var(--pb-bottom-height, 360px), 50vh) 24px;
+	}
+
+	.md-pb-topbar {
+		padding: 6px 8px;
+		gap: 6px;
+	}
+
+	.md-pb-topbar-left,
+	.md-pb-topbar-center,
+	.md-pb-topbar-right {
+		gap: 4px;
+		flex-wrap: wrap;
+	}
+
+	.md-pb-brand {
+		display: none;
+	}
+
+	.md-pb-ai-panel {
+		width: 100vw;
+	}
+
+	.md-pb-index {
+		max-height: 58%;
+	}
+
+	/* At this width the template select wraps to two lines and takes the room
+	   Add Section needs. It is set-once configuration, so it yields to the
+	   list. Available again on a wider screen. */
+	.md-pb-template-bar {
+		display: none;
+	}
+
+	.md-pb-detach-bar {
+		flex-wrap: wrap;
+		row-gap: 6px;
+	}
+
+	/* Viewport presets are meaningless when the pane is narrower than the
+	   smallest preset. */
+	.md-pb-viewport-controls {
+		display: none;
+	}
+}
+
+/* Short windows: a laptop at 1280x720 with browser chrome leaves very little
+   vertical room, and the fixed rows added up to more than the viewport. */
+@media (max-height: 720px) {
+	.md-pb-meta {
+		display: none;
+	}
+
+	.md-pb-shell {
+		grid-template-rows: auto minmax(180px, 1fr) 2px clamp(160px, var(--pb-bottom-height, 360px), 40vh) 24px;
+	}
+}
+
+/* Capping the index to a share of the row is only right when it sits BELOW
+   the canvas. Side by side it is a column of full height, and the cap made
+   the panel shorter than its own contents, pushing Add Section out of it. */
+@media (max-width: 980px) and (max-height: 720px) {
+	.md-pb-index {
+		max-height: 60%;
+	}
 }

@@ -59,6 +59,16 @@
 	function createDefaultSection() {
 		return {
 			name: '',
+			// 'block'   — an editable Page Block.
+			// 'foreign' — anything else on the page (core or third-party). The
+			//             builder cannot edit these, but it shows them so the
+			//             section list matches the real document, and it writes
+			//             them back verbatim and in place on save.
+			kind: 'block',
+			blockName: '',
+			label: '',
+			serialized: '',
+			rendered: '',
 			// Non-zero blockId means the section renders a Page Blocks library
 			// row; its own content/css/js are ignored by render_block().
 			blockId: 0,
@@ -78,6 +88,15 @@
 		var source = input && typeof input === 'object' ? input : {};
 
 		section.name = typeof source.name === 'string' ? source.name : '';
+		section.kind = source.kind === 'foreign' ? 'foreign' : 'block';
+		section.blockName = typeof source.blockName === 'string' ? source.blockName : '';
+		section.label = typeof source.label === 'string' ? source.label : '';
+		// The original markup. This is what gets written back on save, so a
+		// block the builder cannot edit round-trips byte for byte.
+		section.serialized = typeof source.serialized === 'string' ? source.serialized : '';
+		// Server-rendered output, used so the preview shows the whole page
+		// rather than only the parts the builder can edit.
+		section.rendered = typeof source.rendered === 'string' ? source.rendered : '';
 		section.blockId = Math.max(0, parseInt(source.blockId, 10) || 0);
 		section.content = typeof source.content === 'string' ? source.content : '';
 		section.css = typeof source.css === 'string' ? source.css : '';
@@ -101,10 +120,21 @@
 	}
 
 	function getSectionDisplayName(section, index) {
+		if (section && section.kind === 'foreign') {
+			return section.label || section.blockName || 'Block';
+		}
 		if (section && section.name && section.name.trim()) {
 			return section.name.trim();
 		}
 		return inferSectionName(section ? section.content : '', index);
+	}
+
+	function isForeign(section) {
+		return !!(section && section.kind === 'foreign');
+	}
+
+	function isLinked(section) {
+		return !!(section && section.kind !== 'foreign' && section.blockId > 0);
 	}
 
 	function inferSectionName(content, index) {
@@ -299,6 +329,13 @@
 
 		state.sections.forEach(function(section, i) {
 			if (section.collapsed) {
+				return;
+			}
+
+			if (section.kind === 'foreign') {
+				// Rendered server-side and inert here. Included so the preview
+				// is the actual page, not just its editable parts.
+				html.push('<div data-pb-section="' + i + '" data-pb-foreign="1">' + (section.rendered || '') + '</div>');
 				return;
 			}
 
@@ -791,7 +828,20 @@
 	function getApplyPayloadSections() {
 		return state.sections.map(function(section) {
 			var normalized = normalizeSection(section);
+
+			// A block the builder does not own travels as its original markup
+			// and nothing else. Sending it through the page-block fields would
+			// hand the server an empty page block and overwrite the real one.
+			if (normalized.kind === 'foreign') {
+				return {
+					kind: 'foreign',
+					blockName: normalized.blockName,
+					serialized: normalized.serialized
+				};
+			}
+
 			return {
+				kind: 'block',
 				blockId: normalized.blockId,
 				content: normalized.content,
 				css: normalized.css,
@@ -976,6 +1026,15 @@
 				item.classList.add('is-collapsed');
 			}
 
+			if (isForeign(section)) {
+				item.classList.add('is-foreign');
+				item.title = section.blockName
+					? section.blockName + ' — edit this block in the WordPress editor'
+					: 'Edit this content in the WordPress editor';
+			} else if (isLinked(section)) {
+				item.classList.add('is-linked');
+			}
+
 			var nameButton = document.createElement('button');
 			nameButton.type = 'button';
 			nameButton.className = 'md-pb-index-item-name';
@@ -987,6 +1046,9 @@
 			// Double-click to rename
 			nameButton.addEventListener('dblclick', function(e) {
 				e.stopPropagation();
+				if (isForeign(state.sections[index])) {
+					return;
+				}
 				var idx = parseInt(nameButton.getAttribute('data-index') || '', 10);
 				if (Number.isNaN(idx) || idx < 0 || idx >= state.sections.length) return;
 
@@ -1048,9 +1110,23 @@
 			remove.setAttribute('data-action', 'delete');
 			remove.setAttribute('data-index', String(index));
 
-			actions.appendChild(collapse);
-			actions.appendChild(duplicate);
-			actions.appendChild(remove);
+			if (isForeign(section)) {
+				var badge = document.createElement('span');
+				badge.className = 'md-pb-index-badge';
+				badge.textContent = 'Not editable here';
+				actions.appendChild(badge);
+			} else {
+				if (isLinked(section)) {
+					var linkBadge = document.createElement('span');
+					linkBadge.className = 'md-pb-index-badge is-link';
+					linkBadge.textContent = '#' + section.blockId;
+					linkBadge.title = 'Renders Page Blocks library block #' + section.blockId;
+					actions.appendChild(linkBadge);
+				}
+				actions.appendChild(collapse);
+				actions.appendChild(duplicate);
+				actions.appendChild(remove);
+			}
 			item.appendChild(grip);
 			item.appendChild(nameButton);
 			item.appendChild(actions);
@@ -1094,6 +1170,7 @@
 		dom.format.checked = !!section.format;
 		dom.phpExec.checked = !!section.phpExec;
 		applyLinkedSectionLock(section);
+		renderDetachControl(section);
 		renderActiveSectionMeta();
 		updateStatusBar();
 	}
@@ -1104,11 +1181,22 @@
 	 * why, rather than accept edits that go nowhere.
 	 */
 	function applyLinkedSectionLock(section) {
-		var locked = !!(section && section.blockId > 0);
-		var reason = locked
-			? 'This section renders Page Blocks library block #' + section.blockId +
-				'. Edit it in the library, or unlink it in the block editor.'
-			: '';
+		var foreign = isForeign(section);
+		var linked  = isLinked(section);
+		var locked  = foreign || linked;
+		var reason  = '';
+
+		if (foreign) {
+			// Showing the block's own markup here would invite editing it,
+			// and the builder has no way to write structured block markup
+			// back. It is displayed in the list and preview instead.
+			reason = (section.label || section.blockName || 'This block') +
+				' is not a Page Block. It stays exactly as it is and keeps its ' +
+				'place on the page — edit it in the WordPress editor.';
+		} else if (linked) {
+			reason = 'This section renders Page Blocks library block #' + section.blockId +
+				'. Edit it in the library, or detach a copy to edit it here.';
+		}
 
 		if (state.hasCodeMirror) {
 			['html', 'css', 'js'].forEach(function(key) {
@@ -1145,6 +1233,94 @@
 				dom.bottom.removeAttribute('data-linked-note');
 			}
 		}
+	}
+
+	/**
+	 * Detach control for a linked section.
+	 *
+	 * Copies the library row's code into this placement and clears the link,
+	 * so the section becomes editable here while the library block itself is
+	 * left untouched for everything else that points at it.
+	 */
+	function renderDetachControl(section) {
+		if (!dom.bottom) {
+			return;
+		}
+
+		var existing = dom.bottom.querySelector('.md-pb-detach-bar');
+		if (existing) {
+			existing.remove();
+		}
+
+		if (!isLinked(section)) {
+			return;
+		}
+
+		var bar = document.createElement('div');
+		bar.className = 'md-pb-detach-bar';
+
+		var text = document.createElement('span');
+		text.className = 'md-pb-detach-text';
+		text.textContent = 'Renders library block #' + section.blockId + '.';
+
+		var button = document.createElement('button');
+		button.type = 'button';
+		button.className = 'md-pb-btn md-pb-btn-secondary md-pb-detach-btn';
+		button.textContent = 'Detach a copy';
+		button.title = 'Copy the library code into this section. The library block is not changed.';
+
+		button.addEventListener('click', function() {
+			var current = getCurrentSection();
+			if (!isLinked(current)) {
+				return;
+			}
+			if (!window.confirm(
+				'Copy library block #' + current.blockId + ' into this section?\n\n' +
+				'This section stops following the library. The library block itself is unchanged, ' +
+				'and every other page using it keeps updating.'
+			)) {
+				return;
+			}
+
+			var cfg = window.mdPbBuilder || {};
+			if (!cfg.restUrl) {
+				window.alert('Cannot reach the Page Blocks library from here.');
+				return;
+			}
+
+			button.disabled = true;
+			button.textContent = 'Detaching…';
+
+			window.fetch(cfg.restUrl.replace(/\/$/, '') + '/blocks/' + current.blockId, {
+				credentials: 'same-origin',
+				headers: { 'X-WP-Nonce': cfg.restNonce || '' }
+			}).then(function(res) {
+				if (!res.ok) { throw new Error('HTTP ' + res.status); }
+				return res.json();
+			}).then(function(row) {
+				current.content = typeof row.content === 'string' ? row.content : '';
+				current.css = typeof row.css === 'string' ? row.css : '';
+				current.js = typeof row.js === 'string' ? row.js : '';
+				current.jsLocation = row.js_location === 'inline' ? 'inline' : 'footer';
+				current.output = row.output === 'file' ? 'file' : 'inline';
+				current.format = !!row.format;
+				current.phpExec = !!row.php_exec;
+				current.blockId = 0;
+
+				renderIndexList();
+				renderCurrentSectionToEditors();
+				queuePreviewRender(0, true);
+				queueAutosave();
+			}).catch(function() {
+				button.disabled = false;
+				button.textContent = 'Detach a copy';
+				window.alert('Could not load that library block. Nothing was changed.');
+			});
+		});
+
+		bar.appendChild(text);
+		bar.appendChild(button);
+		dom.bottom.insertBefore(bar, dom.bottom.firstChild);
 	}
 
 	function refreshCodeEditors() {
