@@ -60,7 +60,25 @@ if ( ! function_exists( 'md_page_blocks_builder_post_types' ) ) {
 			}
 		}
 
-		$post_types = apply_filters( 'md_page_blocks_builder_post_types', $post_types );
+		// Renamed to the gt_ prefix in 2.7.4. The old name still runs first, so
+		// a site that hooked it keeps working; the current filter gets the last
+		// word. apply_filters_deprecated() is silent unless something is
+		// actually listening on the old name.
+		$post_types = apply_filters_deprecated(
+			'md_page_blocks_builder_post_types',
+			array( $post_types ),
+			'2.7.4',
+			'gt_page_blocks_builder_post_types'
+		);
+
+		/**
+		 * Post types the visual builder is offered on.
+		 *
+		 * @since 2.7.4 Renamed from md_page_blocks_builder_post_types.
+		 *
+		 * @param string[] $post_types Post type slugs.
+		 */
+		$post_types = apply_filters( 'gt_page_blocks_builder_post_types', $post_types );
 		if ( ! is_array( $post_types ) ) {
 			return $defaults;
 		}
@@ -1039,7 +1057,23 @@ class GT_Page_Blocks_Builder {
 			'jsFooter'      => (string) get_option( 'gt_pb_preview_js_footer', '' ),
 		);
 
-		$injection = apply_filters( 'md_page_blocks_builder_preview_injection', $defaults, $post_id );
+		$injection = apply_filters_deprecated(
+			'md_page_blocks_builder_preview_injection',
+			array( $defaults, $post_id ),
+			'2.7.4',
+			'gt_page_blocks_builder_preview_injection'
+		);
+
+		/**
+		 * Markup, CSS and JS injected into the builder preview document.
+		 *
+		 * @since 2.7.4 Renamed from md_page_blocks_builder_preview_injection.
+		 *
+		 * @param array<string,string> $injection Keys: headHtml, bodyStartHtml,
+		 *                                        bodyEndHtml, css, jsHead, jsFooter.
+		 * @param int                  $post_id   Post being edited.
+		 */
+		$injection = apply_filters( 'gt_page_blocks_builder_preview_injection', $injection, $post_id );
 		if ( ! is_array( $injection ) ) {
 			return $defaults;
 		}

@@ -228,11 +228,16 @@ Inline blocks live in `post_content` with no separately stored checksum, so a da
 |---|---|---|
 | `gt_pb_positions` | filter | Add/remove position + region options |
 | `gt_pb_can_execute_php` | filter | Gate PHP execution (`bool $can, string $content`) |
-| `md_page_blocks_builder_post_types` | filter | Builder-enabled post types |
-| `md_page_blocks_builder_preview_injection` | filter | Inject `headHtml` / `css` / `jsFooter` into the builder preview (`array $injection, int $post_id`) |
+| `gt_page_blocks_builder_post_types` | filter | Builder-enabled post types |
+| `gt_page_blocks_builder_preview_injection` | filter | Inject `headHtml` / `css` / `jsFooter` into the builder preview (`array $injection, int $post_id`) |
 | `gt_pb_class_scan_content` | filter | Filter stylesheet content before class-suggestion scanning |
 | `gt_pb_ai_request_timeout` | filter | AI request timeout (`int $seconds, string $provider`) |
 | `gt_pb_ai_debug_enabled` / `gt_pb_ai_debug_log_raw_payload` / `gt_pb_ai_debug_max_length` | filter | AI debug logging controls |
+
+Both builder filters were named `md_page_blocks_builder_*` before 2.7.4. The old
+names still run, immediately before the new ones, so existing snippets keep
+working — update them when convenient, since a deprecation notice is raised
+under `WP_DEBUG` while they are in use.
 
 ---
 
