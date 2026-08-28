@@ -68,11 +68,17 @@ When set to "file", CSS and JS for that block are written to external files in `
 = 2.7.0 =
 * Dropin migration: `wp gt-pb migrate-library [--dry-run] [--overwrite]` (or Settings -> Tools -> Import from dropin) copies the Marketers Delight `md_page_blocks` table into this plugin **preserving block IDs**, so existing `[page_block id="N"]` shortcodes and `blockId` block references keep resolving.
 * Blocks can reference the library again: `blockId` is a registered attribute and renders the library row server-side. Editing one library block updates every placement, instead of each block carrying its own copy.
+* The block editor understands the reference: a linked block shows the library block's title, ID, and badges, previews through the library's own render route (so PHP, shortcodes, and wpautop match the front end), and hides the inline HTML/CSS/JS editors that render_block() would ignore. Missing and unpublished targets are called out instead of silently rendering nothing.
+* Library modal offers **Link** alongside **Copy code**, so a placement can follow the library or take a one-off copy, deliberately.
+* **Unlink** detaches a copy: the library code is written into the block's own attributes and the reference is dropped.
+* Fixed two paths that silently unlinked migrated blocks. The editor's client-side block registration did not declare `blockId`, so re-saving a page dropped it; the visual builder normalized it away on load and reserialized every section without it. Both now round-trip the link, and the builder locks a linked section's editors instead of accepting edits that never render.
 * `marketers-delight/inline-page-block` is now covered by the block-name migration alongside `marketers-delight/page-block`.
 * Security: PHP execution now requires two independent gates — a site constant (`GT_PB_ALLOW_PHP`, or `MD_ALLOW_PHP_SNIPPETS` for sites coming from the dropin) **and** a save-time content checksum. Content mutated directly in the database no longer executes; it falls back to stripping PHP tags. Inline blocks need a further opt-in (`GT_PB_ALLOW_INLINE_PHP` / `MD_ALLOW_INLINE_PHP`) because post_content carries no separate checksum.
 * Display conditions work: they are saved from the block edit screen and evaluated when rendering positioned blocks (post types, page types, specific post IDs). Previously the UI existed but nothing was stored or checked.
 * Dropin `md_hook_*` positions are remapped to plugin positions and theme regions on import; anything with no equivalent is cleared to shortcode/block only and reported, rather than silently never rendering.
 * Schema: adds `php_checksum` (table version 1.1), back-filled for existing PHP-enabled blocks on upgrade.
+* Render parity with the dropin, from diffing real output on live sites: library CSS is emitted once per request and hoisted into `<head>` rather than inlined at every placement; library HTML is minified like the inline path already was.
+* Fixed `minify_css()` corrupting quoted strings. `[style*="font-weight: 300"]` and `[style*="font-weight:300"]` are different selectors, and collapsing the space merged them so one stopped matching. Quoted strings and `url()` payloads are now preserved verbatim.
 
 = 2.6.0 =
 * Theme building: library blocks can be assigned to theme regions (header, hero, before/after content, sidebar, footer, 404) and rendered by any theme via gt_pb_region( 'header' ) / gt_pb_has_region() — a blank hybrid theme can be little more than region calls.

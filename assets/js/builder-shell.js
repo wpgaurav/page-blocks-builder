@@ -59,6 +59,9 @@
 	function createDefaultSection() {
 		return {
 			name: '',
+			// Non-zero blockId means the section renders a Page Blocks library
+			// row; its own content/css/js are ignored by render_block().
+			blockId: 0,
 			content: '',
 			css: '',
 			js: '',
@@ -75,6 +78,7 @@
 		var source = input && typeof input === 'object' ? input : {};
 
 		section.name = typeof source.name === 'string' ? source.name : '';
+		section.blockId = Math.max(0, parseInt(source.blockId, 10) || 0);
 		section.content = typeof source.content === 'string' ? source.content : '';
 		section.css = typeof source.css === 'string' ? source.css : '';
 		section.js = typeof source.js === 'string' ? source.js : '';
@@ -788,6 +792,7 @@
 		return state.sections.map(function(section) {
 			var normalized = normalizeSection(section);
 			return {
+				blockId: normalized.blockId,
 				content: normalized.content,
 				css: normalized.css,
 				js: normalized.js,
@@ -1088,8 +1093,58 @@
 		dom.jsLocation.value = section.jsLocation;
 		dom.format.checked = !!section.format;
 		dom.phpExec.checked = !!section.phpExec;
+		applyLinkedSectionLock(section);
 		renderActiveSectionMeta();
 		updateStatusBar();
+	}
+
+	/**
+	 * A linked section renders a library row, so anything typed into these
+	 * fields would be silently discarded at render time. Lock them and say
+	 * why, rather than accept edits that go nowhere.
+	 */
+	function applyLinkedSectionLock(section) {
+		var locked = !!(section && section.blockId > 0);
+		var reason = locked
+			? 'This section renders Page Blocks library block #' + section.blockId +
+				'. Edit it in the library, or unlink it in the block editor.'
+			: '';
+
+		if (state.hasCodeMirror) {
+			['html', 'css', 'js'].forEach(function(key) {
+				if (state.editors[key] && state.editors[key].codemirror) {
+					state.editors[key].codemirror.setOption('readOnly', locked ? 'nocursor' : false);
+				}
+			});
+		}
+
+		[dom.textareaHtml, dom.textareaCss, dom.textareaJs].forEach(function(node) {
+			if (node) {
+				node.readOnly = locked;
+				node.title = reason;
+			}
+		});
+
+		[dom.jsLocation, dom.format, dom.phpExec].forEach(function(node) {
+			if (node) {
+				node.disabled = locked;
+				node.title = reason;
+			}
+		});
+
+		if (dom.shell) {
+			dom.shell.classList.toggle('is-section-linked', locked);
+		}
+
+		// Rendered as a strip above the code panes (CSS attr()), so the lock
+		// is visible rather than only discoverable by trying to type.
+		if (dom.bottom) {
+			if (locked) {
+				dom.bottom.setAttribute('data-linked-note', reason);
+			} else {
+				dom.bottom.removeAttribute('data-linked-note');
+			}
+		}
 	}
 
 	function refreshCodeEditors() {

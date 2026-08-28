@@ -5,6 +5,7 @@
 		useRef            = wp.element.useRef,
 		useEffect         = wp.element.useEffect,
 		__                = wp.i18n.__,
+		sprintf           = wp.i18n.sprintf,
 		InspectorControls = wp.blockEditor.InspectorControls,
 		BlockControls     = wp.blockEditor.BlockControls,
 		PanelBody         = wp.components.PanelBody,
@@ -248,6 +249,31 @@
 		return false;
 	}
 
+	/**
+	 * Shape a library REST row like block attributes, so the preview, badges,
+	 * and the detach path can treat a linked block and an inline one the same.
+	 *
+	 * @param {Object|null|false} row Row from GET /pbb/v1/blocks/<id>.
+	 */
+	function libraryRowAsSource( row ) {
+		if ( ! row || typeof row !== 'object' ) {
+			return {
+				content: '', css: '', js: '',
+				jsLocation: 'footer', format: false, phpExec: false, output: 'inline'
+			};
+		}
+
+		return {
+			content:    typeof row.content === 'string' ? row.content : '',
+			css:        typeof row.css === 'string' ? row.css : '',
+			js:         typeof row.js === 'string' ? row.js : '',
+			jsLocation: row.js_location === 'inline' ? 'inline' : 'footer',
+			format:     !! row.format,
+			phpExec:    !! row.php_exec,
+			output:     row.output === 'file' ? 'file' : 'inline'
+		};
+	}
+
 	function shouldUseServerPreview( attributes ) {
 		return !! ( attributes && ( attributes.phpExec || attributes.format ) );
 	}
@@ -359,6 +385,12 @@
 		},
 
 		attributes: {
+			// A non-zero blockId makes this block a *reference* to a library
+			// row: the code lives in one place and every placement follows it.
+			// This must mirror the PHP registration — a client registration
+			// that omits an attribute drops it from stored content on re-save,
+			// which would silently unlink every migrated block.
+			blockId:    { type: 'number', default: 0 },
 			content:    { type: 'string', default: '' },
 			css:        { type: 'string', default: '' },
 			js:         { type: 'string', default: '' },
@@ -372,13 +404,18 @@
 			var attributes = props.attributes;
 			var config = window.mdPageBlockEditor || {};
 
+			// Reference mode: render_block() resolves this to a library row and
+			// ignores the inline content/css/js attributes entirely.
+			var linkedId = Math.max( 0, parseInt( attributes.blockId, 10 ) || 0 );
+			var isLinked = linkedId > 0;
+
 			var activeTabState = useState( 'html' );
 			var activeTab = activeTabState[0];
 			var setActiveTab = activeTabState[1];
 
 			var hasAnyContent = !! ( attributes.content || attributes.css || attributes.js );
 
-			var modeState = useState( hasAnyContent ? 'preview' : 'editor' );
+			var modeState = useState( hasAnyContent || isLinked ? 'preview' : 'editor' );
 			var mode = modeState[0];
 			var setMode = modeState[1];
 			var previewDocState = useState( '' );
@@ -426,7 +463,28 @@
 			var libLoading = libLoadingState[0];
 			var setLibLoading = libLoadingState[1];
 
-			var phpDetected = /<\?(?:php|=)/.test( attributes.content || '' );
+			// The library row behind a linked block: null while it is being
+			// fetched, false once the fetch failed (deleted row, or no access).
+			var linkedRowState = useState( null );
+			var linkedRow = linkedRowState[0];
+			var setLinkedRow = linkedRowState[1];
+
+			var linkedReqRef = useRef( 0 );
+
+			// Everything the preview, badges, and detach path describe: the
+			// library row for a linked block, the block's own attributes
+			// otherwise.
+			var source        = isLinked ? libraryRowAsSource( linkedRow ) : attributes;
+			var linkedPending = isLinked && linkedRow === null;
+			var linkedMissing = isLinked && linkedRow === false;
+			var linkedDraft   = isLinked && !! linkedRow && 'publish' !== linkedRow.status;
+
+			// Linked blocks have no editable code here, so they never leave
+			// preview — the editor tabs would write attributes render_block()
+			// throws away.
+			var viewMode = isLinked ? 'preview' : mode;
+
+			var phpDetected = /<\?(?:php|=)/.test( source.content || '' );
 			var notices = wp.data && wp.data.dispatch ? wp.data.dispatch( 'core/notices' ) : null;
 
 			var tabs = [
@@ -533,15 +591,15 @@
 			}, [ attributes.content, attributes.css, attributes.js ] );
 
 			useEffect( function() {
-				if ( mode === 'preview' ) {
+				if ( viewMode === 'preview' ) {
 					destroyCodeEditors();
 					return;
 				}
 				tabs.forEach( initCodeEditor );
-			}, [ mode ] );
+			}, [ viewMode ] );
 
 			useEffect( function() {
-				if ( mode !== 'editor' ) {
+				if ( viewMode !== 'editor' ) {
 					return;
 				}
 				tabs.forEach( function( tab ) {
@@ -558,10 +616,10 @@
 					cm.setValue( nextValue );
 					isSyncingRef.current = false;
 				} );
-			}, [ attributes.content, attributes.css, attributes.js, mode ] );
+			}, [ attributes.content, attributes.css, attributes.js, viewMode ] );
 
 			useEffect( function() {
-				if ( mode !== 'editor' ) {
+				if ( viewMode !== 'editor' ) {
 					return;
 				}
 				var cm = editorsRef.current[ activeTab ];
@@ -571,7 +629,7 @@
 				setTimeout( function() {
 					cm.refresh();
 				}, 40 );
-			}, [ activeTab, mode ] );
+			}, [ activeTab, viewMode ] );
 
 			useEffect( function() {
 				return function() {
@@ -579,11 +637,39 @@
 				};
 			}, [] );
 
+			// Resolve the linked library row. Keyed on linkedId so re-pointing
+			// a block never leaves the previous target's title or code on screen.
+			useEffect( function() {
+				if ( ! isLinked ) {
+					setLinkedRow( null );
+					return;
+				}
+
+				var requestId = linkedReqRef.current + 1;
+				linkedReqRef.current = requestId;
+				setLinkedRow( null );
+
+				if ( ! apiFetch ) {
+					setLinkedRow( false );
+					return;
+				}
+
+				apiFetch( { path: '/pbb/v1/blocks/' + linkedId } ).then( function( row ) {
+					if ( requestId === linkedReqRef.current ) {
+						setLinkedRow( row && typeof row === 'object' ? row : false );
+					}
+				} ).catch( function() {
+					if ( requestId === linkedReqRef.current ) {
+						setLinkedRow( false );
+					}
+				} );
+			}, [ linkedId ] );
+
 			function buildPreviewDoc( renderedData, dark ) {
 				var data = renderedData && typeof renderedData === 'object' ? renderedData : {};
-				var css = typeof data.css === 'string' ? data.css : ( attributes.css || '' );
-				var html = typeof data.html === 'string' ? data.html : ( attributes.content || '' );
-				var inlineJs = typeof data.jsInline === 'string' ? data.jsInline : ( attributes.js || '' );
+				var css = typeof data.css === 'string' ? data.css : ( source.css || '' );
+				var html = typeof data.html === 'string' ? data.html : ( source.content || '' );
+				var inlineJs = typeof data.jsInline === 'string' ? data.jsInline : ( source.js || '' );
 				var footerJs = typeof data.jsFooter === 'string' ? data.jsFooter : '';
 
 				var themeLinks = '';
@@ -610,7 +696,7 @@
 			// Rebuild the preview document (debounced) whenever it is visible:
 			// full preview mode, or the live pane under the code editor.
 			useEffect( function() {
-				if ( mode !== 'preview' && ! ( mode === 'editor' && livePane ) ) {
+				if ( viewMode !== 'preview' && ! ( viewMode === 'editor' && livePane ) ) {
 					return;
 				}
 
@@ -618,12 +704,45 @@
 					var requestId = previewReqRef.current + 1;
 					previewReqRef.current = requestId;
 
-					if ( ! shouldUseServerPreview( attributes ) ) {
+					// A linked block previews through the library's own render
+					// route, so PHP, shortcodes, and wpautop run exactly as
+					// render_library_block() runs them on the front end.
+					if ( isLinked ) {
+						if ( linkedPending || linkedMissing || ! apiFetch ) {
+							return;
+						}
+
+						apiFetch( { path: '/pbb/v1/blocks/' + linkedId + '/render' } )
+							.then( function( payload ) {
+								if ( requestId !== previewReqRef.current ) {
+									return;
+								}
+								// That route already embeds the CSS (and inline
+								// JS) inside `html`; footer JS is only ever
+								// returned separately, so re-add just that.
+								setPreviewDoc( buildPreviewDoc( {
+									html: payload && typeof payload.html === 'string' ? payload.html : '',
+									css: '',
+									jsInline: 'inline' === source.jsLocation
+										? ''
+										: ( payload && typeof payload.js === 'string' ? payload.js : '' )
+								}, previewDark ) );
+							} )
+							.catch( function() {
+								if ( requestId !== previewReqRef.current ) {
+									return;
+								}
+								setPreviewDoc( buildPreviewDoc( null, previewDark ) );
+							} );
+						return;
+					}
+
+					if ( ! shouldUseServerPreview( source ) ) {
 						setPreviewDoc( buildPreviewDoc( null, previewDark ) );
 						return;
 					}
 
-					requestServerPreviewPayload( attributes )
+					requestServerPreviewPayload( source )
 						.then( function( payload ) {
 							if ( requestId !== previewReqRef.current ) {
 								return;
@@ -636,10 +755,10 @@
 							}
 							setPreviewDoc( buildPreviewDoc( null, previewDark ) );
 						} );
-				}, mode === 'preview' ? 0 : 400 );
+				}, viewMode === 'preview' ? 0 : 400 );
 
 				return function() { clearTimeout( timer ); };
-			}, [ mode, livePane, previewDark, attributes.content, attributes.css, attributes.js, attributes.jsLocation, attributes.format, attributes.phpExec ] );
+			}, [ viewMode, livePane, previewDark, linkedId, linkedRow, source.content, source.css, source.js, source.jsLocation, source.format, source.phpExec ] );
 
 			// Copy the active tab's code to the clipboard.
 			function copyActiveCode() {
@@ -742,6 +861,9 @@
 			function insertFromLibrary( item ) {
 				function applyBlock( full ) {
 					props.setAttributes( {
+						// Copy semantics: this placement owns the code from
+						// here on, so any existing library link is dropped.
+						blockId: 0,
 						content: full.content || '',
 						css: full.css || '',
 						js: full.js || '',
@@ -775,6 +897,83 @@
 				} );
 			}
 
+			// Point this block at a library row. The inline code is cleared so
+			// the block is unambiguously a reference: render_block() ignores
+			// those attributes, and unlinking refills them from the library.
+			function linkToLibrary( item ) {
+				props.setAttributes( {
+					blockId: item.id,
+					content: '',
+					css: '',
+					js: ''
+				} );
+				setLibOpen( false );
+				setMode( 'preview' );
+				if ( notices ) {
+					notices.createSuccessNotice(
+						sprintf(
+							/* translators: %s: library block title. */
+							__( 'Linked to library block: %s' ),
+							item.title || '#' + item.id
+						),
+						{ type: 'snackbar' }
+					);
+				}
+			}
+
+			// Detach: copy the library row's code into this block's own
+			// attributes and drop the reference, so later library edits stop
+			// reaching this placement.
+			function unlinkBlock() {
+				function detach( row ) {
+					var copy = libraryRowAsSource( row );
+					props.setAttributes( {
+						blockId:    0,
+						content:    copy.content,
+						css:        copy.css,
+						js:         copy.js,
+						jsLocation: copy.jsLocation,
+						output:     copy.output,
+						format:     copy.format,
+						phpExec:    copy.phpExec
+					} );
+					setMode( 'editor' );
+					if ( notices ) {
+						notices.createSuccessNotice(
+							__( 'Detached a copy. This block no longer follows the library.' ),
+							{ type: 'snackbar' }
+						);
+					}
+				}
+
+				if ( ! window.confirm( __( 'Copy the library code into this block? It will stop updating when the library block changes.' ) ) ) {
+					return;
+				}
+
+				if ( linkedRow && typeof linkedRow === 'object' ) {
+					detach( linkedRow );
+					return;
+				}
+
+				if ( ! apiFetch ) {
+					return;
+				}
+
+				// The row has not resolved yet (or the first fetch failed):
+				// try once more rather than detaching an empty block.
+				apiFetch( { path: '/pbb/v1/blocks/' + linkedId } ).then( detach ).catch( function() {
+					if ( notices ) {
+						notices.createErrorNotice( __( 'Could not load the linked library block.' ), { type: 'snackbar' } );
+					}
+				} );
+			}
+
+			// Drop a link with no code to copy (the target is gone).
+			function clearLink() {
+				props.setAttributes( { blockId: 0 } );
+				setMode( 'editor' );
+			}
+
 			function libraryModal() {
 				if ( ! libOpen ) {
 					return null;
@@ -805,26 +1004,58 @@
 					),
 					! libLoading && libItems && libItems.length > 0 && el( 'ul', { className: 'md-page-block-library-list' },
 						libItems.map( function( item ) {
-							return el( 'li', { key: item.id, className: 'md-page-block-library-item' },
+							var isCurrent = isLinked && item.id === linkedId;
+
+							// Both actions overwrite what the block renders now,
+							// so confirm whenever there is something to lose.
+							function confirmReplace() {
+								if ( ! hasAnyContent && ! isLinked ) {
+									return true;
+								}
+								return window.confirm( __( 'Replace what this block renders with the library block?' ) );
+							}
+
+							return el( 'li', {
+								key: item.id,
+								className: 'md-page-block-library-item' + ( isCurrent ? ' is-linked' : '' )
+							},
 								el( 'div', { className: 'md-page-block-library-info' },
 									el( 'strong', {}, item.title || '(untitled)' ),
 									el( 'span', { className: 'md-page-block-library-meta' },
 										el( 'code', {}, item.slug ),
 										( item.has_css || item.css ) ? ' · CSS' : '',
 										( item.has_js || item.js ) ? ' · JS' : '',
-										item.php_exec ? ' · PHP' : ''
+										item.php_exec ? ' · PHP' : '',
+										isCurrent ? ' · ' + __( 'linked' ) : ''
 									)
 								),
-								el( 'button', {
-									type: 'button',
-									className: 'button button-small',
-									onClick: function() {
-										if ( hasAnyContent && ! window.confirm( __( 'Replace this block\u2019s current code with the library block?' ) ) ) {
-											return;
+								el( 'div', { className: 'md-page-block-library-actions' },
+									el( 'button', {
+										type: 'button',
+										className: 'button button-small',
+										title: __( 'Copy this block\u2019s code in. The copy stops following the library.' ),
+										onClick: function() {
+											if ( ! confirmReplace() ) {
+												return;
+											}
+											insertFromLibrary( item );
 										}
-										insertFromLibrary( item );
-									}
-								}, __( 'Insert copy' ) )
+									}, __( 'Copy code' ) ),
+									el( 'button', {
+										type: 'button',
+										className: 'button button-small button-primary',
+										disabled: isCurrent,
+										title: isCurrent
+											? __( 'Already linked to this block.' )
+											: __( 'Render this library block here. Library edits reach every linked placement.' ),
+										onClick: function() {
+											if ( ! confirmReplace() ) {
+												return;
+											}
+											linkToLibrary( item );
+										}
+									}, __( 'Link' ) )
+								)
 							);
 						} )
 					)
@@ -833,12 +1064,12 @@
 
 			function badges() {
 				return el( 'span', { className: 'md-page-block-badges' },
-					attributes.content && el( 'span', { className: 'md-page-block-badge' }, 'HTML' ),
-					attributes.css && el( 'span', { className: 'md-page-block-badge' }, 'CSS' ),
-					attributes.js && el( 'span', { className: 'md-page-block-badge' }, 'JS' ),
-					( phpDetected || attributes.phpExec ) && el( 'span', {
+					source.content && el( 'span', { className: 'md-page-block-badge' }, 'HTML' ),
+					source.css && el( 'span', { className: 'md-page-block-badge' }, 'CSS' ),
+					source.js && el( 'span', { className: 'md-page-block-badge' }, 'JS' ),
+					( phpDetected || source.phpExec ) && el( 'span', {
 						className: 'md-page-block-badge md-page-block-badge--php',
-						title: attributes.phpExec ? __( 'PHP runs on the front end (and in this server-rendered preview).' ) : __( 'Contains PHP tags.' )
+						title: source.phpExec ? __( 'PHP runs on the front end (and in this server-rendered preview).' ) : __( 'Contains PHP tags.' )
 					}, 'PHP' )
 				);
 			}
@@ -884,13 +1115,16 @@
 					el( ToolbarButton, {
 						icon: 'visibility',
 						label: __( 'Preview' ),
-						isPressed: mode === 'preview',
+						isPressed: viewMode === 'preview',
 						onClick: function() { setMode( 'preview' ); }
 					} ),
 					el( ToolbarButton, {
 						icon: 'editor-code',
-						label: __( 'Edit code' ),
-						isPressed: mode === 'editor',
+						label: isLinked
+							? __( 'Code lives in the library — unlink to edit it here' )
+							: __( 'Edit code' ),
+						isPressed: viewMode === 'editor',
+						disabled: isLinked,
 						onClick: function() { setMode( 'editor' ); }
 					} ),
 					el( ToolbarButton, {
@@ -901,11 +1135,49 @@
 				)
 			);
 
+			// While linked, these mirror the library row and are read-only:
+			// render_block() takes them from the row, not from the block.
+			var settingsHelp = isLinked
+				? __( 'Set on the library block. Unlink to control it here.' )
+				: undefined;
+
 			var inspector = el( InspectorControls, null,
+				isLinked && el( PanelBody, { title: __( 'Library link' ) },
+					el( 'p', { className: 'md-page-block-linked-help' },
+						linkedMissing
+							? sprintf(
+								/* translators: %d: library block ID. */
+								__( 'Library block #%d is missing, so this block renders nothing.' ),
+								linkedId
+							)
+							: sprintf(
+								/* translators: 1: library block title, 2: library block ID. */
+								__( 'Rendering \u201c%1$s\u201d (#%2$d) from the Page Blocks library. Every placement of it updates together.' ),
+								linkedPending ? __( 'library block' ) : ( linkedRow.title || __( '(untitled)' ) ),
+								linkedId
+							)
+					),
+					config.libraryEditUrl && ! linkedMissing && el( 'p', {},
+						el( 'a', {
+							href: config.libraryEditUrl + linkedId,
+							target: '_blank',
+							rel: 'noreferrer'
+						}, __( 'Edit in library' ) )
+					),
+					el( 'p', {},
+						el( 'button', {
+							type: 'button',
+							className: 'button button-secondary',
+							onClick: linkedMissing ? clearLink : unlinkBlock
+						}, linkedMissing ? __( 'Remove link' ) : __( 'Unlink (detach copy)' ) )
+					)
+				),
 				el( PanelBody, { title: __( 'Settings' ) },
 					el( SelectControl, {
 						label: __( 'JavaScript Location' ),
-						value: attributes.jsLocation,
+						value: source.jsLocation,
+						disabled: isLinked,
+						help: settingsHelp,
 						options: [
 							{ label: __( 'Footer' ), value: 'footer' },
 							{ label: __( 'Inline' ), value: 'inline' }
@@ -916,14 +1188,18 @@
 					}),
 					el( ToggleControl, {
 						label: __( 'WordPress formatting (wpautop)' ),
-						checked: attributes.format,
+						checked: !! source.format,
+						disabled: isLinked,
+						help: settingsHelp,
 						onChange: function( val ) {
 							props.setAttributes( { format: val } );
 						}
 					}),
 					el( ToggleControl, {
 						label: __( 'Execute PHP code' ),
-						checked: attributes.phpExec,
+						checked: !! source.phpExec,
+						disabled: isLinked,
+						help: settingsHelp,
 						onChange: function( val ) {
 							props.setAttributes( { phpExec: val } );
 						}
@@ -931,8 +1207,70 @@
 				)
 			);
 
+			// Linked mode: the library row is the subject, and there is no
+			// inline code to edit here.
+			if ( isLinked ) {
+				return el( Fragment, null,
+					toolbar,
+					inspector,
+					libraryModal(),
+					el( 'div', { className: 'md-page-block-preview-wrap is-linked' },
+						el( 'div', { className: 'md-page-block-bar' },
+							el( 'span', { className: 'dashicons dashicons-admin-links md-page-block-bar-icon' } ),
+							el( 'span', { className: 'md-page-block-bar-title' },
+								linkedPending || linkedMissing
+									? __( 'Linked Page Block' )
+									: ( linkedRow.title || __( '(untitled)' ) )
+							),
+							el( 'span', { className: 'md-page-block-linked-id' }, '#' + linkedId ),
+							! linkedPending && ! linkedMissing && badges(),
+							el( 'span', { className: 'md-page-block-bar-spacer' } ),
+							! linkedMissing && previewControls(),
+							config.libraryEditUrl && ! linkedMissing && el( 'a', {
+								className: 'md-page-block-bar-btn',
+								href: config.libraryEditUrl + linkedId,
+								target: '_blank',
+								rel: 'noreferrer',
+								title: __( 'Open this block in the Page Blocks library' )
+							}, __( 'Edit in library' ) ),
+							el( 'button', {
+								type: 'button',
+								className: 'md-page-block-bar-btn',
+								onClick: openLibrary,
+								title: __( 'Link this block to a different library block' )
+							}, __( 'Change' ) ),
+							el( 'button', {
+								type: 'button',
+								className: 'md-page-block-bar-btn md-page-block-bar-btn--primary',
+								onClick: linkedMissing ? clearLink : unlinkBlock,
+								title: linkedMissing
+									? __( 'Drop the broken link so this block can hold its own code' )
+									: __( 'Copy the library code into this block and stop following the library' )
+							}, linkedMissing ? __( 'Remove link' ) : __( 'Unlink' ) )
+						),
+						el( 'p', {
+							className: 'md-page-block-linked-note' +
+								( linkedMissing || linkedDraft ? ' is-warning' : '' )
+						},
+							linkedMissing
+								? sprintf(
+									/* translators: %d: library block ID. */
+									__( 'Library block #%d no longer exists, so this renders nothing on the front end. Remove the link to write code here instead.' ),
+									linkedId
+								)
+								: ( linkedDraft
+									? __( 'This library block is not published, so it renders nothing on the front end.' )
+									: __( 'The code lives in the Page Blocks library, so edits here would be ignored. Edit the library block, or unlink to take a copy.' ) )
+						),
+						linkedPending
+							? el( 'div', { className: 'md-page-block-library-loading' }, el( Spinner ) )
+							: ( ! linkedMissing && viewportFrame() )
+					)
+				);
+			}
+
 			// Preview mode
-			if ( mode === 'preview' ) {
+			if ( viewMode === 'preview' ) {
 				return el( Fragment, null,
 					toolbar,
 					inspector,
