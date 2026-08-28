@@ -186,6 +186,7 @@ html.dark body.md-page-blocks-builder-shell {
 
 .md-pb-shell {
 	display: grid;
+	min-width: 0;
 	/* auto, not a fixed 48px: the top bar is allowed to wrap on narrow
 	   screens and a fixed row clipped it. */
 	grid-template-rows: auto minmax(220px, 1fr) 2px var(--pb-bottom-height, 360px) 24px;
@@ -310,7 +311,7 @@ html.dark body.md-page-blocks-builder-shell {
 .md-pb-main {
 	display: grid;
 	grid-template-columns: minmax(0, 1fr) 220px;
-	min-height: 0;
+	min-height: 0;	min-width: 0;
 }
 
 .md-pb-shell.is-sidebar-hidden .md-pb-main {
@@ -746,6 +747,7 @@ html.dark body.md-page-blocks-builder-shell {
 	display: flex;
 	flex-direction: column;
 	min-height: 0;
+	min-width: 0;
 	background: var(--pb-surface);
 	border-top: 0;
 	position: relative;
@@ -845,20 +847,28 @@ html.dark body.md-page-blocks-builder-shell {
 .md-pb-code-wrap {
 	flex: 1;
 	min-height: 0;
-	display: flex;
+	display: flex;	min-width: 0;
 }
 
+/* min-width: 0 all the way down, and tracks with a zero floor.
+   Without it every one of these boxes reports its intrinsic width as a
+   minimum — the snippet toolbar alone is a nowrap row of thirteen buttons —
+   and a grid row that refuses to shrink props open the whole shell. The
+   sections panel is the last column of the row above, so it is what gets
+   pushed off the right edge: with the AI panel open the shell would not go
+   below 1552px, which is wider than a 14-inch laptop. */
 .md-pb-code-grid {
 	display: grid;
-	grid-template-columns: 1fr 1fr 1fr;
+	grid-template-columns: repeat(3, minmax(0, 1fr));
 	flex: 1;
 	min-height: 0;
+	min-width: 0;
 }
 
 .md-pb-code-column {
 	display: flex;
 	flex-direction: column;
-	min-height: 0;
+	min-height: 0;	min-width: 0;
 }
 
 .md-pb-code-column + .md-pb-code-column {
@@ -869,6 +879,7 @@ html.dark body.md-page-blocks-builder-shell {
 	height: 30px;
 	display: flex;
 	align-items: center;
+	min-width: 0;
 	padding: 0 10px;
 	border-bottom: 1px solid var(--pb-border);
 	font: 11px var(--pb-font-code);
@@ -880,11 +891,20 @@ html.dark body.md-page-blocks-builder-shell {
 	gap: 8px;
 }
 
+/* Thirteen tag buttons in a nowrap row. They scroll inside the title bar
+   rather than setting a floor for the column that holds them. */
 .md-pb-snippets {
 	display: flex;
 	align-items: center;
 	gap: 2px;
 	margin-inline-start: auto;
+	min-width: 0;
+	overflow-x: auto;
+	scrollbar-width: none;
+}
+
+.md-pb-snippets::-webkit-scrollbar {
+	display: none;
 }
 
 .md-pb-snippet-btn {
@@ -1782,6 +1802,17 @@ select.md-pb-field-input {
 	display: flex;
 	gap: 8px;
 	flex-wrap: wrap;
+}
+
+.md-pb-field-status {
+	margin: 0;
+	font-size: 11px;
+	line-height: 1.5;
+	color: var(--pb-green);
+}
+
+.md-pb-field-status.is-error {
+	color: var(--pb-danger);
 }
 
 .md-pb-modal--wide {

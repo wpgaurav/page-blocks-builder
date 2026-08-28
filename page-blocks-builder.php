@@ -1979,11 +1979,13 @@ class GT_Page_Blocks_Builder {
 	 */
 	public static function ai_models() {
 		return array(
-			// OpenAI.
+			// OpenAI — the GPT-5.6 family, deepest reasoning first. A site
+			// still holding a retired id falls back to the default, so
+			// dropping the older models cannot leave one stuck on a model the
+			// request path would reject.
+			array( 'id' => 'gpt-5.6-sol', 'label' => 'GPT-5.6 Sol', 'provider' => 'openai' ),
+			array( 'id' => 'gpt-5.6-terra', 'label' => 'GPT-5.6 Terra', 'provider' => 'openai' ),
 			array( 'id' => 'gpt-5.6-luna', 'label' => 'GPT-5.6 Luna', 'provider' => 'openai' ),
-			array( 'id' => 'gpt-5.2', 'label' => 'GPT-5.2', 'provider' => 'openai' ),
-			array( 'id' => 'gpt-5-mini', 'label' => 'GPT-5 Mini', 'provider' => 'openai' ),
-			array( 'id' => 'gpt-4o-mini', 'label' => 'GPT-4o Mini', 'provider' => 'openai' ),
 			// Anthropic — Claude 5 family.
 			array( 'id' => 'claude-opus-5', 'label' => 'Claude Opus 5', 'provider' => 'anthropic' ),
 			array( 'id' => 'claude-sonnet-5', 'label' => 'Claude Sonnet 5', 'provider' => 'anthropic' ),

@@ -4060,11 +4060,19 @@
 					'</div>' +
 					'<div class="md-pb-field">' +
 						'<span class="md-pb-field-label">Sections</span>' +
+						'<p class="md-pb-field-help" data-role="setting-summary">' + sectionSummary() + '</p>' +
 						'<div class="md-pb-field-actions">' +
-							'<button type="button" class="md-pb-button" data-role="setting-export">Export JSON</button>' +
-							'<button type="button" class="md-pb-button" data-role="setting-import">Import JSON</button>' +
+							'<button type="button" class="md-pb-button" data-role="setting-export" ' +
+								'title="Download every section on this page as JSON">Export</button>' +
+							'<button type="button" class="md-pb-button" data-role="setting-import-append" ' +
+								'title="Add the sections in a JSON file after the ones already here">Import &amp; add</button>' +
+							'<button type="button" class="md-pb-button" data-role="setting-import-replace" ' +
+								'title="Replace every section on this page with the ones in a JSON file">Import &amp; replace</button>' +
 						'</div>' +
-						'<p class="md-pb-field-help">Export downloads every section on this page. Import replaces them.</p>' +
+						// Import used to be one button behind a confirm() whose
+						// Cancel meant "replace everything" — the destructive
+						// choice on the dismissive button. Now each is its own.
+						'<p class="md-pb-field-status" data-role="setting-status" hidden></p>' +
 					'</div>' +
 				'</div>' +
 				'<div class="md-pb-modal-footer">' +
@@ -4079,6 +4087,22 @@
 		var slugInput     = overlay.querySelector('[data-role="setting-slug"]');
 		var templateInput = overlay.querySelector('[data-role="setting-template"]');
 		var permalinkNote = overlay.querySelector('[data-role="setting-permalink"]');
+		var statusNote    = overlay.querySelector('[data-role="setting-status"]');
+		var summaryNote   = overlay.querySelector('[data-role="setting-summary"]');
+
+		function say(message, isError) {
+			if (!statusNote) {
+				return;
+			}
+			statusNote.textContent = message;
+			statusNote.hidden = false;
+			statusNote.classList.toggle('is-error', !!isError);
+
+			// Keep the count honest after an import changed it.
+			if (summaryNote) {
+				summaryNote.textContent = sectionSummary();
+			}
+		}
 
 		function renderPermalink() {
 			if (!permalinkNote) {
@@ -4137,13 +4161,18 @@
 			}
 
 			if (target.closest('[data-role="setting-export"]')) {
-				exportSections();
+				var count = exportSections();
+				say('Exported ' + count + ' section' + (1 === count ? '' : 's') + '.', false);
 				return;
 			}
 
-			if (target.closest('[data-role="setting-import"]')) {
-				closeDialog();
-				importSections();
+			if (target.closest('[data-role="setting-import-append"]')) {
+				importSections('append', say);
+				return;
+			}
+
+			if (target.closest('[data-role="setting-import-replace"]')) {
+				importSections('replace', say);
 			}
 		});
 
@@ -4154,6 +4183,23 @@
 			titleInput.focus();
 			titleInput.select();
 		}
+	}
+
+	/** "6 sections, 3 of them blocks the builder cannot edit." */
+	function sectionSummary() {
+		var total = state.sections.length;
+		var locked = state.sections.filter(isForeign).length;
+		var linked = state.sections.filter(isLinked).length;
+		var parts = [ total + ' section' + (1 === total ? '' : 's') + ' on this page' ];
+
+		if (locked) {
+			parts.push(locked + ' the builder cannot edit');
+		}
+		if (linked) {
+			parts.push(linked + ' linked to the library');
+		}
+
+		return parts.join(', ') + '.';
 	}
 
 	/**
@@ -4180,6 +4226,9 @@
 		var data = JSON.stringify({
 			version: '1.0',
 			exported: new Date().toISOString(),
+			postId: config.postId || 0,
+			slug: state.pageSlug || '',
+			title: state.pageTitle || '',
 			sections: sections
 		}, null, 2);
 
@@ -4187,19 +4236,32 @@
 		var url = URL.createObjectURL(blob);
 		var a = document.createElement('a');
 		a.href = url;
-		a.download = 'page-blocks-' + (config.postId || 'export') + '.json';
+		// Named after the page rather than its numeric id, so a folder of
+		// these is readable.
+		a.download = 'page-blocks-' + (state.pageSlug || config.postId || 'export') + '.json';
 		a.click();
 		URL.revokeObjectURL(url);
+
+		return sections.length;
 	}
 
-	function importSections() {
+	/**
+	 * Read a sections JSON file and merge it into the page.
+	 *
+	 * @param {string}   mode   'append' or 'replace'.
+	 * @param {Function} report Called with a human-readable outcome.
+	 */
+	function importSections(mode, report) {
+		var say = typeof report === 'function' ? report : function() {};
 		var input = document.createElement('input');
 		input.type = 'file';
-		input.accept = '.json';
+		input.accept = '.json,application/json';
 
 		input.addEventListener('change', function() {
 			var file = input.files && input.files[0];
-			if (!file) return;
+			if (!file) {
+				return;
+			}
 
 			var reader = new FileReader();
 			reader.onload = function(e) {
@@ -4207,31 +4269,37 @@
 				try {
 					data = JSON.parse(e.target.result);
 				} catch (err) {
-					window.alert('Invalid JSON file.');
+					say('That file is not valid JSON.', true);
 					return;
 				}
 
 				if (!data || !Array.isArray(data.sections) || !data.sections.length) {
-					window.alert('No sections found in import file.');
+					say('No sections found in that file.', true);
 					return;
-				}
-
-				var mode = window.confirm(
-					'Import ' + data.sections.length + ' section(s).\n\n' +
-					'OK = Append to existing sections\n' +
-					'Cancel = Replace all sections'
-				) ? 'append' : 'replace';
-
-				if (mode === 'replace') {
-					if (!window.confirm('This will replace ALL existing sections. Are you sure?')) {
-						return;
-					}
 				}
 
 				var imported = data.sections.map(normalizeSection);
 
-				if (mode === 'replace') {
-					state.sections = imported.length ? imported : [createDefaultSection()];
+				if ('replace' === mode) {
+					// Replacing drops whatever is on the page, including
+					// blocks the builder cannot rebuild. The server counts
+					// those, so the save has to declare them or it is refused.
+					var droppedForeign = state.sections.filter(isForeign).length;
+					var keptForeign = imported.filter(isForeign).length;
+
+					if (!window.confirm(
+						'Replace all ' + state.sections.length + ' section(s) on this page with ' +
+						imported.length + ' from the file?' +
+						(droppedForeign > keptForeign
+							? '\n\n' + (droppedForeign - keptForeign) + ' block(s) the builder cannot rebuild ' +
+							  'will be removed from the page.'
+							: '')
+					)) {
+						return;
+					}
+
+					state.removedForeign += Math.max(0, droppedForeign - keptForeign);
+					state.sections = imported;
 					state.selectedIndex = 0;
 				} else {
 					imported.forEach(function(section) {
@@ -4239,8 +4307,14 @@
 					});
 				}
 
+				ensureAllSectionRootIds();
 				renderAll();
 				queueAutosave();
+				say(
+					('replace' === mode ? 'Replaced with ' : 'Added ') + imported.length +
+					' section' + (1 === imported.length ? '' : 's') + '. Save to keep it.',
+					false
+				);
 			};
 
 			reader.readAsText(file);
