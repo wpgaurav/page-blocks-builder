@@ -271,12 +271,6 @@ class GT_Page_Blocks_Builder {
 	private $theme_class_suggestions = null;
 
 	/**
-	 * Whether CSS has been output to head already.
-	 *
-	 * @var bool
-	 */
-	private $css_in_head = false;
-
 	/**
 	 * Library block IDs whose CSS has already been emitted this request.
 	 *
@@ -286,6 +280,19 @@ class GT_Page_Blocks_Builder {
 	 * @var array<int,bool>
 	 */
 	private $library_css_done = array();
+
+	/**
+	 * Hashes of inline-block CSS already emitted this request.
+	 *
+	 * Keyed by the CSS itself rather than by a global "did we write a <head>
+	 * block" flag: collect_css_for_head() only scans the queried post, so a
+	 * block rendered from anywhere else (a widget shortcode, a synced
+	 * pattern, a template part) would otherwise be silenced by a flag set on
+	 * its behalf and lose its styles entirely.
+	 *
+	 * @var array<string,bool>
+	 */
+	private $inline_css_done = array();
 
 	/**
 	 * Parsed blocks cache for the current request.
@@ -560,8 +567,16 @@ class GT_Page_Blocks_Builder {
 		$is_file_mode = $output_mode === 'file';
 		$output       = '';
 
-		if ( $css !== '' && ! $is_file_mode && ! $this->css_in_head ) {
-			$output .= '<style>' . self::minify_css( self::sanitize_css( $css ) ) . '</style>' . "\n";
+		// Emit this block's CSS unless this exact CSS already went out — either
+		// hoisted into <head> by collect_css_for_head() or written by an
+		// earlier placement — rather than on a request-global flag, which would
+		// drop the styles of any block that scan never saw.
+		if ( $css !== '' && ! $is_file_mode ) {
+			$css_key = md5( $css );
+			if ( ! isset( $this->inline_css_done[ $css_key ] ) ) {
+				$this->inline_css_done[ $css_key ] = true;
+				$output .= '<style>' . self::minify_css( self::sanitize_css( $css ) ) . '</style>' . "\n";
+			}
 		}
 
 		if ( $content !== '' ) {
@@ -576,11 +591,17 @@ class GT_Page_Blocks_Builder {
 				$content = $this->execute_php( $content, '' );
 			}
 
+			// The toggle is labelled "WordPress formatting (wpautop)" and the
+			// dropin these blocks were authored under ran exactly that. Running
+			// the whole the_content chain instead re-enters a filter stack that
+			// is already mid-run (blocks render during the_content), invites
+			// injectors like schema/footnotes/related-posts to write inside a
+			// block, and costs a full chain per block. Verified identical
+			// output across every format-enabled block on the live sites.
 			if ( $format ) {
-				$content = apply_filters( 'the_content', $content );
-			} else {
-				$content = do_shortcode( $content );
+				$content = wpautop( $content );
 			}
+			$content = do_shortcode( $content );
 
 			$output .= self::minify_html( (string) $content );
 		}
@@ -1177,7 +1198,11 @@ class GT_Page_Blocks_Builder {
 					$content = $this->execute_php( $content, md5( $content ) );
 				}
 
-				$content = $format ? apply_filters( 'the_content', $content ) : do_shortcode( $content );
+				// Same formatting rule as the front end (see render_block()).
+				if ( $format ) {
+					$content = wpautop( $content );
+				}
+				$content = do_shortcode( $content );
 				$html_output[] = self::minify_html( (string) $content );
 			}
 
@@ -2112,11 +2137,12 @@ class GT_Page_Blocks_Builder {
 			$content = $this->execute_php( $content, (string) ( $block->php_checksum ?? '' ) );
 		}
 
+		// Same formatting rule as render_block(): wpautop, not the full
+		// the_content chain.
 		if ( ! empty( $block->format ) ) {
-			$content = apply_filters( 'the_content', $content );
-		} else {
-			$content = do_shortcode( $content );
+			$content = wpautop( $content );
 		}
+		$content = do_shortcode( $content );
 
 		// Match the inline block path (and the dropin this replaces), which
 		// both minify. Without it, a page of referenced blocks ships every
@@ -2132,9 +2158,7 @@ class GT_Page_Blocks_Builder {
 		// anything rendered later (shortcodes, theme regions) inlines here.
 		// The done-set is the only guard: a block hoisted into <head> is
 		// already marked, and one that was not (shortcode in a widget, a
-		// region rendered after wp_head) still needs its CSS inline. Testing
-		// $css_in_head here instead would drop the latter, because that flag
-		// is global to the request rather than per block.
+		// region rendered after wp_head) still needs its CSS inline.
 		if ( ! empty( $css ) && empty( $this->library_css_done[ $block_id ] ) ) {
 			$this->library_css_done[ $block_id ] = true;
 			$out .= '<style id="gt-pb-block-' . $block_id . '">'
@@ -2437,6 +2461,11 @@ class GT_Page_Blocks_Builder {
 			if ( $output === 'file' ) {
 				$file_parts[] = self::sanitize_css( $css );
 			} else {
+				$key = md5( (string) $css );
+				if ( isset( $this->inline_css_done[ $key ] ) ) {
+					continue;
+				}
+				$this->inline_css_done[ $key ] = true;
 				$inline_parts[] = self::sanitize_css( $css );
 			}
 		}
@@ -2444,8 +2473,6 @@ class GT_Page_Blocks_Builder {
 		if ( empty( $inline_parts ) && empty( $file_parts ) ) {
 			return;
 		}
-
-		$this->css_in_head = true;
 
 		$post = get_queried_object();
 		if ( ! $post || ! isset( $post->ID ) ) {
