@@ -3,7 +3,7 @@
  * Plugin Name: GT Page Blocks Builder
  * Plugin URI: https://gauravtiwari.org/product/gt-page-blocks-builder/
  * Description: Standalone visual Page Blocks builder with HTML/CSS/JS sections synced to Gutenberg block content.
- * Version: 2.6.0
+ * Version: 2.7.0
  * Author: Gaurav Tiwari
  * Author URI: https://gauravtiwari.org
  * Text Domain: page-blocks-builder
@@ -14,7 +14,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 if ( ! defined( 'GT_PB_BUILDER_VERSION' ) ) {
-	define( 'GT_PB_BUILDER_VERSION', '2.6.0' );
+	define( 'GT_PB_BUILDER_VERSION', '2.7.0' );
 }
 
 if ( ! defined( 'GT_PB_BUILDER_FILE' ) ) {
@@ -125,23 +125,77 @@ if ( ! function_exists( 'gt_pb_get_positions' ) ) {
 	}
 }
 
+if ( ! function_exists( 'gt_pb_php_enabled' ) ) {
+	/**
+	 * Whether PHP execution in page blocks is switched on for this site.
+	 *
+	 * Opt-in via wp-config.php. `MD_ALLOW_PHP_SNIPPETS` is honoured as well
+	 * so sites migrating off the Marketers Delight dropin keep working
+	 * without editing wp-config first.
+	 *
+	 * @since 2.7.0
+	 */
+	function gt_pb_php_enabled(): bool {
+		return ( defined( 'GT_PB_ALLOW_PHP' ) && GT_PB_ALLOW_PHP )
+			|| ( defined( 'MD_ALLOW_PHP_SNIPPETS' ) && MD_ALLOW_PHP_SNIPPETS );
+	}
+}
+
+if ( ! function_exists( 'gt_pb_inline_php_enabled' ) ) {
+	/**
+	 * Whether PHP may run inside inline (post_content) blocks.
+	 *
+	 * Separate from gt_pb_php_enabled(): inline content carries no
+	 * save-time checksum, so it needs its own explicit opt-in. Mirrors the
+	 * dropin's MD_ALLOW_INLINE_PHP gate.
+	 *
+	 * @since 2.7.0
+	 */
+	function gt_pb_inline_php_enabled(): bool {
+		return gt_pb_php_enabled()
+			&& ( ( defined( 'GT_PB_ALLOW_INLINE_PHP' ) && GT_PB_ALLOW_INLINE_PHP )
+				|| ( defined( 'MD_ALLOW_INLINE_PHP' ) && MD_ALLOW_INLINE_PHP ) );
+	}
+}
+
 if ( ! function_exists( 'gt_pb_execute_php' ) ) {
 	/**
 	 * Execute PHP in page block content.
 	 *
-	 * @param string $content Content with PHP tags.
-	 * @return string Executed content.
+	 * Two independent gates, both required:
+	 *
+	 *   1. The site opts in with GT_PB_ALLOW_PHP (or MD_ALLOW_PHP_SNIPPETS).
+	 *   2. The caller supplies the content checksum recorded at save time.
+	 *      Any DB-only mutation of the content invalidates the checksum and
+	 *      falls back to stripping PHP tags, so a write that reaches the row
+	 *      without going through the editor cannot become executable code.
+	 *
+	 * Inline blocks have no library row and therefore no stored checksum, so
+	 * they pass an empty one (never executed) unless the site also sets
+	 * GT_PB_ALLOW_INLINE_PHP — see gt_pb_inline_php_enabled().
+	 *
+	 * @param string $content  Content with PHP tags.
+	 * @param string $checksum md5 of $content as recorded at save time. Empty
+	 *                         disables execution.
+	 * @return string Executed content, or content with PHP tags stripped.
 	 */
-	function gt_pb_execute_php( string $content ): string {
+	function gt_pb_execute_php( string $content, string $checksum = '' ): string {
 		if ( strpos( $content, '<?php' ) === false && strpos( $content, '<?=' ) === false ) {
 			return $content;
 		}
 
-		$is_frontend = ! is_admin() && ! wp_doing_ajax() && ! ( defined( 'REST_REQUEST' ) && REST_REQUEST );
+		$gate_default = gt_pb_php_enabled()
+			&& '' !== $checksum
+			&& hash_equals( $checksum, md5( $content ) );
+
+		// The filter receives the conservative default. A site can override it
+		// in either direction with full context, but the default is
+		// constant + checksum.
 		$can_execute = (bool) apply_filters(
 			'gt_pb_can_execute_php',
-			current_user_can( 'manage_options' ) || $is_frontend,
-			$content
+			$gate_default,
+			$content,
+			$checksum
 		);
 
 		if ( ! $can_execute ) {
@@ -341,6 +395,10 @@ class GT_Page_Blocks_Builder {
 		$args = array(
 			'render_callback' => array( $this, 'render_block' ),
 			'attributes'      => array(
+				// A non-zero blockId makes this block a *reference* to a library
+				// row: the code lives in one place and every placement updates
+				// together. Zero means the code is inline in these attributes.
+				'blockId'    => array( 'type' => 'number', 'default' => 0 ),
 				'content'    => array( 'type' => 'string', 'default' => '' ),
 				'css'        => array( 'type' => 'string', 'default' => '' ),
 				'js'         => array( 'type' => 'string', 'default' => '' ),
@@ -438,6 +496,21 @@ class GT_Page_Blocks_Builder {
 	 */
 	public function render_block( $attributes ) {
 		$attributes   = is_array( $attributes ) ? $attributes : array();
+
+		// Reference mode: the block points at a library row, so render that
+		// row instead of the (empty) inline attributes. Blocks migrated from
+		// the Marketers Delight dropin arrive in this shape.
+		$block_id = isset( $attributes['blockId'] ) ? (int) $attributes['blockId'] : 0;
+		if ( $block_id > 0 ) {
+			$row = $this->db->get( $block_id );
+
+			if ( ! $row || 'publish' !== $row->status ) {
+				return '';
+			}
+
+			return $this->render_library_block( $row );
+		}
+
 		$content      = isset( $attributes['content'] ) ? (string) $attributes['content'] : '';
 		$css          = isset( $attributes['css'] ) ? (string) $attributes['css'] : '';
 		$js           = isset( $attributes['js'] ) ? (string) $attributes['js'] : '';
@@ -453,8 +526,15 @@ class GT_Page_Blocks_Builder {
 		}
 
 		if ( $content !== '' ) {
-			if ( $php_exec ) {
-				$content = $this->execute_php( $content );
+			// Inline blocks live in post_content with no separately-stored
+			// save-time checksum, so a DB-only mutation of the post body could
+			// not be detected. PHP execution therefore needs a second opt-in
+			// (GT_PB_ALLOW_INLINE_PHP / MD_ALLOW_INLINE_PHP) on top of the
+			// site-wide one; otherwise the tags are stripped.
+			if ( $php_exec && gt_pb_inline_php_enabled() ) {
+				$content = $this->execute_php( $content, md5( $content ) );
+			} elseif ( $php_exec ) {
+				$content = $this->execute_php( $content, '' );
 			}
 
 			if ( $format ) {
@@ -1020,8 +1100,11 @@ class GT_Page_Blocks_Builder {
 			$js_location = isset( $section['jsLocation'] ) && $section['jsLocation'] === 'inline' ? 'inline' : 'footer';
 
 			if ( $content !== '' ) {
+				// Admin-authenticated preview of code the editor just supplied:
+				// a self-checksum reduces the gate to the site-wide constant,
+				// matching what the block will do once saved.
 				if ( $php_exec ) {
-					$content = $this->execute_php( $content );
+					$content = $this->execute_php( $content, md5( $content ) );
 				}
 
 				$content = $format ? apply_filters( 'the_content', $content ) : do_shortcode( $content );
@@ -1734,9 +1817,12 @@ class GT_Page_Blocks_Builder {
 			'format'      => isset( $_POST['block_format'] ) ? 1 : 0,
 			'position'    => sanitize_text_field( wp_unslash( $_POST['block_position'] ?? '' ) ),
 			'priority'    => isset( $_POST['block_priority'] ) ? (int) $_POST['block_priority'] : 10,
+			'conditions'  => $this->parse_conditions_from_post(),
 			'author'      => get_current_user_id(),
 		);
 		// phpcs:enable
+		// php_checksum is derived in gt_pb_db, so every write path — admin
+		// form, AJAX, REST — records it the same way.
 
 		if ( $id > 0 ) {
 			$this->db->update( $id, $data );
@@ -1748,6 +1834,39 @@ class GT_Page_Blocks_Builder {
 
 		wp_safe_redirect( admin_url( "admin.php?page=gt_pb_edit&id={$id}&msg={$msg}" ) );
 		exit;
+	}
+
+	/**
+	 * Build the conditions JSON from the block edit form.
+	 *
+	 * Shape: { post_types: [...], page_types: [...], post_ids: [...] }.
+	 * An empty result is stored as '' meaning "show everywhere".
+	 *
+	 * @return string JSON, or '' when no condition was set.
+	 */
+	private function parse_conditions_from_post(): string {
+		$post_types = isset( $_POST['block_condition_post_types'] ) && is_array( $_POST['block_condition_post_types'] )
+			? array_values( array_filter( array_map( 'sanitize_key', wp_unslash( $_POST['block_condition_post_types'] ) ) ) )
+			: array();
+
+		$page_types = isset( $_POST['block_condition_page_types'] ) && is_array( $_POST['block_condition_page_types'] )
+			? array_values( array_filter( array_map( 'sanitize_key', wp_unslash( $_POST['block_condition_page_types'] ) ) ) )
+			: array();
+
+		$raw_ids  = isset( $_POST['block_condition_post_ids'] )
+			? (string) wp_unslash( $_POST['block_condition_post_ids'] )
+			: '';
+		$post_ids = array_values( array_filter( array_map( 'absint', preg_split( '/[\s,]+/', $raw_ids ) ?: array() ) ) );
+
+		if ( ! $post_types && ! $page_types && ! $post_ids ) {
+			return '';
+		}
+
+		return (string) wp_json_encode( array(
+			'post_types' => $post_types,
+			'page_types' => $page_types,
+			'post_ids'   => $post_ids,
+		) );
 	}
 
 	/**
@@ -1864,7 +1983,9 @@ class GT_Page_Blocks_Builder {
 
 		$html = $content;
 		if ( $php ) {
-			$html = $this->execute_php( $html );
+			// Same policy as build_preview_payload(): admin preview of
+			// just-submitted code, gated by the site-wide constant only.
+			$html = $this->execute_php( $html, md5( $html ) );
 		}
 		if ( $format ) {
 			$html = wpautop( $html );
@@ -1912,7 +2033,7 @@ class GT_Page_Blocks_Builder {
 		$js      = $block->js ?? '';
 
 		if ( ! empty( $block->php_exec ) ) {
-			$content = $this->execute_php( $content );
+			$content = $this->execute_php( $content, (string) ( $block->php_checksum ?? '' ) );
 		}
 
 		if ( ! empty( $block->format ) ) {
@@ -2141,44 +2262,16 @@ class GT_Page_Blocks_Builder {
 	/**
 	 * Execute PHP in block content.
 	 *
-	 * @param string $content Raw content.
+	 * Delegates to gt_pb_execute_php() so there is a single gate. Callers
+	 * must pass the save-time checksum; an empty checksum (inline blocks,
+	 * unsaved previews) means the PHP is stripped rather than run.
+	 *
+	 * @param string $content  Raw content.
+	 * @param string $checksum md5 of $content recorded at save time.
 	 * @return string
 	 */
-	private function execute_php( $content ) {
-		if ( strpos( $content, '<?php' ) === false && strpos( $content, '<?=' ) === false ) {
-			return $content;
-		}
-
-		$is_frontend = ! is_admin() && ! wp_doing_ajax() && ! ( defined( 'REST_REQUEST' ) && REST_REQUEST );
-		$can_execute = (bool) apply_filters(
-			'gt_page_blocks_can_execute_php',
-			current_user_can( 'manage_options' ) || $is_frontend,
-			$content
-		);
-
-		if ( ! $can_execute ) {
-			return preg_replace( '/<\?(?:php|=).*?\?>/is', '', $content );
-		}
-
-		$temp_file = tempnam( sys_get_temp_dir(), 'gt_page_block_' );
-		if ( ! $temp_file ) {
-			return $content;
-		}
-
-		file_put_contents( $temp_file, $content );
-
-		ob_start();
-		try {
-			include $temp_file;
-		} catch ( Throwable $e ) {
-			if ( defined( 'WP_DEBUG' ) && WP_DEBUG ) {
-				echo '<!-- Page Block PHP Error: ' . esc_html( $e->getMessage() ) . ' -->';
-			}
-		} finally {
-			@unlink( $temp_file );
-		}
-
-		return (string) ob_get_clean();
+	private function execute_php( $content, $checksum = '' ) {
+		return gt_pb_execute_php( (string) $content, (string) $checksum );
 	}
 
 	/**

@@ -170,6 +170,32 @@ $load_utilities      = (bool) get_option( 'gt_pb_load_utilities', false );
 		</p></div>
 	<?php endif; ?>
 
+	<?php
+	$pbb_lib_notice = isset( $_GET['pbb_lib'] ) ? get_transient( 'gt_pb_library_migration_notice' ) : false;
+	if ( is_array( $pbb_lib_notice ) ) :
+		delete_transient( 'gt_pb_library_migration_notice' );
+		?>
+		<div class="notice notice-<?php echo empty( $pbb_lib_notice['ok'] ) ? 'error' : 'success'; ?> inline">
+			<p><?php echo esc_html( (string) $pbb_lib_notice['message'] ); ?></p>
+			<?php if ( ! empty( $pbb_lib_notice['remapped'] ) ) : ?>
+				<p><strong><?php esc_html_e( 'Positions remapped:', 'page-blocks-builder' ); ?></strong></p>
+				<ul style="list-style: disc; margin-left: 20px;">
+					<?php foreach ( $pbb_lib_notice['remapped'] as $pbb_id => $pbb_change ) : ?>
+						<li><?php printf( 'Block %d: %s', (int) $pbb_id, esc_html( (string) $pbb_change ) ); ?></li>
+					<?php endforeach; ?>
+				</ul>
+			<?php endif; ?>
+			<?php if ( ! empty( $pbb_lib_notice['cleared'] ) ) : ?>
+				<p><strong><?php esc_html_e( 'Positions cleared (no plugin equivalent — these blocks are now shortcode/block only):', 'page-blocks-builder' ); ?></strong></p>
+				<ul style="list-style: disc; margin-left: 20px;">
+					<?php foreach ( $pbb_lib_notice['cleared'] as $pbb_id => $pbb_was ) : ?>
+						<li><?php printf( 'Block %d: %s', (int) $pbb_id, esc_html( (string) $pbb_was ) ); ?></li>
+					<?php endforeach; ?>
+				</ul>
+			<?php endif; ?>
+		</div>
+	<?php endif; ?>
+
 	<?php $pbb_pending = class_exists( 'gt_pb_migration' ) ? ( new gt_pb_migration() )->count_pending() : 0; ?>
 	<table class="form-table" role="presentation">
 		<tbody>
@@ -196,6 +222,56 @@ $load_utilities      = (bool) get_option( 'gt_pb_load_utilities', false );
 				<p class="description" style="margin-top: 8px;">
 					<?php esc_html_e( 'Also available via WP-CLI: wp gt-pb migrate-blocks [--dry-run]', 'page-blocks-builder' ); ?>
 				</p>
+			</td>
+		</tr>
+
+		<?php
+		$pbb_mig = class_exists( 'gt_pb_migration' ) ? new gt_pb_migration() : null;
+		$pbb_lib = $pbb_mig ? $pbb_mig->count_pending_library() : array( 'legacy' => 0, 'importable' => 0, 'conflicts' => 0 );
+		?>
+		<tr>
+			<th scope="row"><?php esc_html_e( 'Import from dropin', 'page-blocks-builder' ); ?></th>
+			<td>
+				<?php if ( ! $pbb_mig || ! $pbb_mig->has_legacy_table() ) : ?>
+					<p class="description">
+						<?php esc_html_e( 'No Marketers Delight page-blocks table found in this database. Nothing to import.', 'page-blocks-builder' ); ?>
+					</p>
+				<?php else : ?>
+					<p class="description" style="margin-bottom: 8px;">
+						<?php
+						printf(
+							/* translators: 1: total dropin rows, 2: importable count, 3: conflicting count */
+							esc_html__( 'Copies the dropin library into this plugin, keeping the original block IDs so existing shortcodes and blocks keep resolving. Found %1$d dropin block(s): %2$d new, %3$d already present here.', 'page-blocks-builder' ),
+							(int) $pbb_lib['legacy'],
+							(int) $pbb_lib['importable'],
+							(int) $pbb_lib['conflicts']
+						);
+						?>
+					</p>
+					<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" style="display:inline-block; margin-right: 8px;">
+						<?php wp_nonce_field( 'gt_pb_migrate_library' ); ?>
+						<input type="hidden" name="action" value="gt_pb_migrate_library">
+						<input type="hidden" name="dry_run" value="1">
+						<?php submit_button( __( 'Dry run', 'page-blocks-builder' ), 'secondary', 'submit', false ); ?>
+					</form>
+					<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" style="display:inline-block; margin-right: 8px;">
+						<?php wp_nonce_field( 'gt_pb_migrate_library' ); ?>
+						<input type="hidden" name="action" value="gt_pb_migrate_library">
+						<?php submit_button( __( 'Import blocks', 'page-blocks-builder' ), 'primary', 'submit', false, $pbb_lib['importable'] ? array() : array( 'disabled' => 'disabled' ) ); ?>
+					</form>
+					<?php if ( ! empty( $pbb_lib['conflicts'] ) ) : ?>
+						<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" style="display:inline-block;"
+							onsubmit="return confirm('<?php echo esc_js( __( 'This overwrites blocks in this plugin that share an ID with a dropin block. Continue?', 'page-blocks-builder' ) ); ?>');">
+							<?php wp_nonce_field( 'gt_pb_migrate_library' ); ?>
+							<input type="hidden" name="action" value="gt_pb_migrate_library">
+							<input type="hidden" name="overwrite" value="1">
+							<?php submit_button( __( 'Import and overwrite', 'page-blocks-builder' ), 'delete', 'submit', false ); ?>
+						</form>
+					<?php endif; ?>
+					<p class="description" style="margin-top: 8px;">
+						<?php esc_html_e( 'Also available via WP-CLI: wp gt-pb migrate-library [--dry-run] [--overwrite]', 'page-blocks-builder' ); ?>
+					</p>
+				<?php endif; ?>
 			</td>
 		</tr>
 		</tbody>

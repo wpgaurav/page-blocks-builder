@@ -11,7 +11,7 @@ if ( ! defined( 'ABSPATH' ) ) exit;
 
 class gt_pb_db {
 
-	const TABLE_VERSION = '1.0';
+	const TABLE_VERSION = '1.1';
 	const VERSION_OPTION = 'gt_pb_table_version';
 	const ASSET_VERSION_OPTION = 'gt_pb_asset_version';
 
@@ -59,6 +59,7 @@ class gt_pb_db {
 			js_location varchar(10) NOT NULL DEFAULT 'footer',
 			output varchar(10) NOT NULL DEFAULT 'inline',
 			php_exec tinyint(1) NOT NULL DEFAULT 0,
+			php_checksum varchar(32) NOT NULL DEFAULT '',
 			format tinyint(1) NOT NULL DEFAULT 0,
 			position varchar(100) NOT NULL DEFAULT '',
 			priority int(11) NOT NULL DEFAULT 10,
@@ -74,6 +75,20 @@ class gt_pb_db {
 
 		require_once ABSPATH . 'wp-admin/includes/upgrade.php';
 		dbDelta( $sql );
+
+		// Back-fill checksums for php_exec rows that predate the column.
+		// Without this, existing PHP blocks would silently fall back to
+		// tag-stripping once the checksum gate is enforced.
+		$rows = $wpdb->get_results( "SELECT id, content FROM {$this->table_name} WHERE php_exec = 1 AND php_checksum = ''" );
+		foreach ( (array) $rows as $row ) {
+			$wpdb->update(
+				$this->table_name,
+				array( 'php_checksum' => md5( (string) $row->content ) ),
+				array( 'id' => (int) $row->id ),
+				array( '%s' ),
+				array( '%d' )
+			);
+		}
 
 		update_option( self::VERSION_OPTION, self::TABLE_VERSION );
 	}
@@ -227,6 +242,7 @@ class gt_pb_db {
 		$data = $this->sanitize_data( $data );
 		$data['created_at'] = current_time( 'mysql' );
 		$data['updated_at'] = current_time( 'mysql' );
+		$data['php_checksum'] = $this->derive_checksum( $data, null );
 
 		if ( empty( $data['slug'] ) && ! empty( $data['title'] ) ) {
 			$data['slug'] = $this->generate_unique_slug( $data['title'] );
@@ -255,6 +271,7 @@ class gt_pb_db {
 
 		$data = $this->sanitize_data( $data );
 		$data['updated_at'] = current_time( 'mysql' );
+		$data['php_checksum'] = $this->derive_checksum( $data, $this->get( $id ) );
 
 		$result = $wpdb->update(
 			$this->table_name,
@@ -269,6 +286,36 @@ class gt_pb_db {
 		}
 
 		return $result !== false;
+	}
+
+	/**
+	 * Derive the PHP-execution checksum for a write.
+	 *
+	 * The checksum is what lets gt_pb_execute_php() tell "content an admin
+	 * saved" apart from "content something else wrote straight into the
+	 * table", so it is always recomputed here rather than accepted from the
+	 * caller. Partial updates fall back to the stored row for whichever of
+	 * content / php_exec the payload omits.
+	 *
+	 * @param array       $data     Sanitized write payload.
+	 * @param object|null $existing Current row, for partial updates.
+	 * @return string md5 of the content, or '' when PHP execution is off.
+	 * @since 2.7.0
+	 */
+	private function derive_checksum( array $data, ?object $existing ): string {
+		$php_exec = array_key_exists( 'php_exec', $data )
+			? (bool) $data['php_exec']
+			: ! empty( $existing->php_exec );
+
+		if ( ! $php_exec ) {
+			return '';
+		}
+
+		$content = array_key_exists( 'content', $data )
+			? (string) $data['content']
+			: (string) ( $existing->content ?? '' );
+
+		return md5( $content );
 	}
 
 	/**
@@ -465,6 +512,7 @@ class gt_pb_db {
 			'js_location' => '%s',
 			'output'      => '%s',
 			'php_exec'    => '%d',
+			'php_checksum' => '%s',
 			'format'      => '%d',
 			'position'    => '%s',
 			'priority'    => '%d',

@@ -139,9 +139,92 @@ class gt_pb_theme_builder {
 		}
 
 		foreach ( $grouped[ $position ] as $block ) {
+			if ( ! $this->matches_conditions( $block ) ) {
+				continue;
+			}
+
 			// phpcs:ignore WordPress.Security.EscapeOutput -- block markup, escaped at render
 			echo $this->plugin->render_library_block( $block );
 		}
+	}
+
+	/**
+	 * Whether a positioned block's display conditions match this request.
+	 *
+	 * Conditions are stored as
+	 * `{ post_types: [...], page_types: [...], post_ids: [...] }`. Each group
+	 * that is non-empty must match (AND between groups, OR inside a group);
+	 * an empty or absent set means "show everywhere".
+	 *
+	 * @since 2.7.0
+	 */
+	public function matches_conditions( object $block ): bool {
+		$raw = (string) ( $block->conditions ?? '' );
+		if ( '' === $raw ) {
+			return true;
+		}
+
+		$rules = json_decode( $raw, true );
+		if ( ! is_array( $rules ) ) {
+			return true;
+		}
+
+		$post_types = array_filter( (array) ( $rules['post_types'] ?? array() ) );
+		$page_types = array_filter( (array) ( $rules['page_types'] ?? array() ) );
+		$post_ids   = array_filter( array_map( 'absint', (array) ( $rules['post_ids'] ?? array() ) ) );
+
+		if ( $post_types ) {
+			$current = get_post_type();
+			if ( ! $current || ! in_array( $current, $post_types, true ) ) {
+				return false;
+			}
+		}
+
+		if ( $page_types && ! $this->matches_page_type( $page_types ) ) {
+			return false;
+		}
+
+		if ( $post_ids ) {
+			$id = get_queried_object_id();
+			if ( ! $id || ! in_array( (int) $id, $post_ids, true ) ) {
+				return false;
+			}
+		}
+
+		return (bool) apply_filters( 'gt_pb_block_conditions_match', true, $block, $rules );
+	}
+
+	/**
+	 * Whether the current request matches any of the given page types.
+	 *
+	 * @param array<int,string> $page_types Page type keys.
+	 */
+	private function matches_page_type( array $page_types ): bool {
+		$checks = array(
+			'front_page' => 'is_front_page',
+			'blog'       => 'is_home',
+			'singular'   => 'is_singular',
+			'single'     => 'is_single',
+			'page'       => 'is_page',
+			'archive'    => 'is_archive',
+			'category'   => 'is_category',
+			'tag'        => 'is_tag',
+			'tax'        => 'is_tax',
+			'author'     => 'is_author',
+			'date'       => 'is_date',
+			'search'     => 'is_search',
+			'404'        => 'is_404',
+			'attachment' => 'is_attachment',
+		);
+
+		foreach ( $page_types as $type ) {
+			$fn = $checks[ $type ] ?? '';
+			if ( $fn && call_user_func( $fn ) ) {
+				return true;
+			}
+		}
+
+		return false;
 	}
 
 	/**
@@ -158,7 +241,15 @@ class gt_pb_theme_builder {
 	 */
 	public function has_region( string $name ): bool {
 		$grouped = $this->positioned_blocks();
-		return ! empty( $grouped[ 'region:' . $name ] );
+		$blocks  = $grouped[ 'region:' . $name ] ?? array();
+
+		foreach ( $blocks as $block ) {
+			if ( $this->matches_conditions( $block ) ) {
+				return true;
+			}
+		}
+
+		return false;
 	}
 
 	/**
