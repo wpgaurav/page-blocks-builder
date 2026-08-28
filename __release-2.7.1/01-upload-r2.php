@@ -71,9 +71,28 @@ if ( ! is_array( $res ) ) {
 	pbb_fail( 'driver returned no result' );
 	return;
 }
-printf( "OK   uploaded: driver=%s path=%s\n", $res['driver'] ?? '?', $res['file_path'] ?? '?' );
-if ( ( $res['driver'] ?? '' ) !== 'r2' ) {
+// uploadFile() returns { message, path, file: { driver, size, bucket, region, name } }.
+$uploaded_driver = $res['file']['driver'] ?? '';
+$uploaded_path   = $res['path'] ?? ( $res['file']['name'] ?? '' );
+$uploaded_bucket = $res['file']['bucket'] ?? '';
+$uploaded_size   = (int) ( $res['file']['size'] ?? 0 );
+
+printf( "OK   uploaded: driver=%s path=%s bucket=%s size=%d\n", $uploaded_driver, $uploaded_path, $uploaded_bucket, $uploaded_size );
+
+if ( $uploaded_driver !== 'r2' ) {
 	pbb_fail( 'driver did not report r2' );
+	return;
+}
+if ( $uploaded_path !== $KEY ) {
+	pbb_fail( "driver stored key {$uploaded_path}, expected {$KEY}" );
+	return;
+}
+if ( $uploaded_bucket !== $BUCKET ) {
+	pbb_fail( "driver used bucket {$uploaded_bucket}, expected {$BUCKET}" );
+	return;
+}
+if ( $uploaded_size !== $EXPECT_SIZE ) {
+	pbb_fail( "driver reported size {$uploaded_size}, expected {$EXPECT_SIZE}" );
 	return;
 }
 

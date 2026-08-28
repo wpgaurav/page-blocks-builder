@@ -135,8 +135,13 @@ try {
 	$next['version']            = $VERSION;
 	$next['global_update_file'] = (string) $new_id;
 
-	\FluentCart\App\Models\Product::updateProductMeta( $PID, 'license_settings', $next );
-	\FluentCart\App\Models\Product::updateProductMeta( $PID, '_fluent_sl_changelog', $CHANGELOG );
+	// updateProductMeta() is an instance method: ( $metaKey, $metaValue ).
+	$product_model = \FluentCart\App\Models\Product::find( $PID );
+	if ( ! $product_model ) {
+		throw new Exception( 'could not load the Product model' );
+	}
+	$product_model->updateProductMeta( 'license_settings', $next );
+	$product_model->updateProductMeta( '_fluent_sl_changelog', $CHANGELOG );
 
 	// Read back before committing.
 	$check_raw = $wpdb->get_var( $wpdb->prepare(

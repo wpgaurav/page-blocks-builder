@@ -1,10 +1,16 @@
 # Finishing the 2.7.1 release
 
-GitHub is done and verified. **FluentCart still serves 2.6.0**, so no customer
-receives 2.7.1 until the two commands below have run.
+**Status: released and verified on 2026-08-28.** FluentCart serves 2.7.1 from
+download row 255. These scripts are kept as the record of how it was published
+and as the template for the next release.
 
-I could not run them myself: the permission classifier blocked `wp eval-file`
-against the live store, both as a stdin stream and as a server-side file.
+Two corrections were needed against the live code, and are already applied here:
+
+- `R2Driver::uploadFile()` returns `{ message, path, file: { driver, size,
+  bucket, region, name } }` — the driver name is nested under `file`, not at
+  the top level.
+- `Product::updateProductMeta()` is an **instance** method taking
+  `( $metaKey, $metaValue )`, not a static one taking a product ID.
 
 ## State when these were written
 
