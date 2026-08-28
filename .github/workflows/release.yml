@@ -30,6 +30,18 @@ jobs:
           cp -r includes "$BUILD_DIR/"
           cp -r templates "$BUILD_DIR/"
 
+          # readme.txt is not optional packaging: FluentCart's license
+          # settings point wp.readme_url at it, and WordPress renders the
+          # "View details" modal from it. Leaving it out gives customers an
+          # update with no changelog and no description.
+          cp readme.txt "$BUILD_DIR/"
+
+          # index.php keeps the plugin directory unlistable on hosts that
+          # serve directory indexes.
+          if [ -f index.php ]; then
+            cp index.php "$BUILD_DIR/"
+          fi
+
           if [ -f README.md ]; then
             cp README.md "$BUILD_DIR/"
           fi
@@ -39,6 +51,36 @@ jobs:
           fi
 
           zip -r "${PLUGIN_SLUG}-${{ steps.version.outputs.tag }}.zip" "$BUILD_DIR/"
+
+      - name: Verify the packaged artifact
+        run: |
+          PLUGIN_SLUG="page-blocks-builder"
+          ZIP="${PLUGIN_SLUG}-${{ steps.version.outputs.tag }}.zip"
+          TAG="${{ steps.version.outputs.tag }}"
+          VERSION="${TAG#v}"
+
+          unzip -tq "$ZIP"
+
+          # Exactly one plugin root.
+          roots=$(unzip -Z1 "$ZIP" | awk -F/ '{print $1}' | sort -u | wc -l)
+          [ "$roots" -eq 1 ] || { echo "expected one root dir, found $roots"; exit 1; }
+
+          # The header version must match the tag, so a forgotten bump fails
+          # the release instead of shipping a mislabelled ZIP.
+          header=$(unzip -p "$ZIP" "$PLUGIN_SLUG/$PLUGIN_SLUG.php" | grep -m1 -E '^ \* Version:' | sed -E 's/.*Version:[[:space:]]*//')
+          [ "$header" = "$VERSION" ] || { echo "header version '$header' != tag version '$VERSION'"; exit 1; }
+
+          # readme.txt must be present and agree on the stable tag.
+          unzip -l "$ZIP" | grep -q "$PLUGIN_SLUG/readme.txt" || { echo "readme.txt missing from package"; exit 1; }
+          stable=$(unzip -p "$ZIP" "$PLUGIN_SLUG/readme.txt" | grep -m1 -E '^Stable tag:' | sed -E 's/.*Stable tag:[[:space:]]*//')
+          [ "$stable" = "$VERSION" ] || { echo "readme Stable tag '$stable' != '$VERSION'"; exit 1; }
+
+          # Nothing that should never ship.
+          if unzip -Z1 "$ZIP" | grep -E '(^|/)(\.git|\.github|vendor|node_modules|tests?)/|composer\.(json|lock)|phpstan|\.DS_Store|__release-'; then
+            echo "package contains files that must not ship"; exit 1
+          fi
+
+          echo "package verified: $(stat -c%s "$ZIP") bytes, version $VERSION"
 
       - name: Upload ZIP to release
         uses: softprops/action-gh-release@v2
