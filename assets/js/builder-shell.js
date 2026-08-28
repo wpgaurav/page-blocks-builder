@@ -1113,7 +1113,12 @@
 			if (isForeign(section)) {
 				var badge = document.createElement('span');
 				badge.className = 'md-pb-index-badge';
-				badge.textContent = 'Not editable here';
+				// Short label: the panel is ~200px and a sentence here left the
+				// section name about 36px to render in. The full explanation
+				// lives in the tooltip and in the note above the code panes.
+				badge.textContent = 'Locked';
+				badge.title = (section.label || section.blockName || 'This block') +
+					' is not a Page Block — edit it in the WordPress editor.';
 				actions.appendChild(badge);
 			} else {
 				if (isLinked(section)) {
@@ -2569,9 +2574,16 @@
 							'</div>' +
 							'<div class="md-pb-code-pane"><textarea class="md-pb-code-textarea" data-role="textarea-html" spellcheck="false"></textarea></div>' +
 						'</div>' +
-						'<div class="md-pb-code-column md-pb-code-column-right">' +
-							'<div class="md-pb-code-title md-pb-code-title-swap"><span data-role="right-pane-label">CSS</span><button type="button" class="md-pb-icon-btn" data-role="swap-right-pane">JS</button></div>' +
+						// CSS and JS were stacked in one column behind a swap
+						// button, which meant a section's JavaScript was never
+						// on screen unless you went looking for it. Three
+						// columns, all visible.
+						'<div class="md-pb-code-column md-pb-code-column--css">' +
+							'<div class="md-pb-code-title"><span data-role="right-pane-label">CSS</span></div>' +
 							'<div class="md-pb-code-pane md-pb-code-pane--css"><textarea class="md-pb-code-textarea" data-role="textarea-css" spellcheck="false"></textarea></div>' +
+						'</div>' +
+						'<div class="md-pb-code-column md-pb-code-column--js">' +
+							'<div class="md-pb-code-title"><span>JS</span></div>' +
 							'<div class="md-pb-code-pane md-pb-code-pane--js"><textarea class="md-pb-code-textarea" data-role="textarea-js" spellcheck="false"></textarea></div>' +
 						'</div>' +
 					'</div>' +
