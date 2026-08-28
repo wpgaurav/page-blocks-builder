@@ -4,7 +4,7 @@ Tags: page builder, html blocks, css sections, gutenberg, visual builder
 Requires at least: 6.0
 Tested up to: 6.9.1
 Requires PHP: 8.1
-Stable tag: 2.7.2
+Stable tag: 2.7.3
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -64,6 +64,18 @@ Yes. Enable PHP execution per block. PHP runs on the frontend and in server-rend
 When set to "file", CSS and JS for that block are written to external files in `wp-content/uploads/gt-page-blocks/` and served as cacheable resources instead of inline output.
 
 == Changelog ==
+
+= 2.7.3 =
+* Page settings live in one dialog. Title, slug, template, import and export are page-level rather than section-level, so they sit together behind one button instead of being spread across the top bar and the section panel. The slug shows the permalink it will produce, and WordPress' own sanitised result is adopted after saving rather than what was typed.
+* Sections get an id. Where the outermost element has none, the builder writes one in — an id you wrote yourself is never touched. The edit is made on the opening tag as text rather than by reparsing the markup, so quote style, self-closing tags and indentation survive, a `>` inside an attribute value does not end the tag early, and `data-id=` is not mistaken for `id=`. Sections named after a generated id are listed by their first ten characters of text instead.
+* Every section drags, from anywhere on its row. Reordering was HTML5 drag-and-drop on a row covered by buttons, and a mousedown on a form control does not start its draggable ancestor's drag — in practice only a 14px grip worked. Locked and linked sections reorder too, a drop can land past the last row, and the drop point is shown while dragging.
+* Clicking anything in the preview selects the section it belongs to, without disturbing the inline edit the same click opens.
+* The AI assistant applies its own answers. A reply lands in the section and the preview updates, rather than arriving as code to copy into the editor beside it; bundled CSS and JS are unpacked into their own panes, so one prompt can fill all three. Undo restores the section exactly. A "Whole page" toggle sends every section's code with the prompt, so generated markup matches the class names, spacing and variables already on the page.
+* Latest AI models, and one list behind them. The model list was duplicated in four places and had already drifted — the registered default and the request-path fallback named different models, so a saved choice could be silently replaced. GPT-5.6 Luna is the new default, alongside the Claude 5 family.
+* Locked blocks can be deleted from the section panel. Locked means the builder will not rewrite a block's markup, not that the block has to stay on the page. It asks first, and the save guard that refuses to drop blocks the builder cannot rebuild stays exactly as strict. Their empty code panes are hidden.
+* The builder keeps its own palette on any theme. It renders on a front-end route, so the active theme's stylesheet loads beside it — and themes style bare `select`, `input`, `textarea`, `pre` and `details` under a `[data-theme]` ancestor, which outranked the builder's own rules. Controls were wearing the theme's dark palette while the chrome around them stayed light, a tiled dropdown arrow filled the model picker with black triangles, and stray label and textarea margins pushed controls off their rows. The preview iframe had the mirror-image problem: a transparent body took the operating system's dark canvas while the theme supplied its light-mode text.
+* Detach a copy is a real button again, with a broken-link icon. It carried two class names this plugin has never defined and fell through to the browser's default.
+* Plainer names in the code toolbar: wpauto is Auto-format, PHP is Run PHP, and the bare "JS:" prefix is a Script label. The AI composer sends on Enter, so its button is an arrow.
 
 = 2.7.2 =
 * Editor previews mount only while near the viewport. Each preview is a full document carrying the theme's CSS — measured at ~25 stylesheets and ~2,200 rules to style ~30 elements — so a page of eight blocks kept roughly 200 stylesheets and 17,600 rules live at once, and scrolling paid for all of it. On a 12-block page at most 3 frames are now mounted instead of 12.
