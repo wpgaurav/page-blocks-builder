@@ -270,6 +270,11 @@
 .md-page-block-bar {
 	display: flex;
 	align-items: center;
+	/* Wrap rather than clip: in a narrow canvas (sidebar open, split view, or
+	   a nested column) a single row pushed the trailing action off the edge,
+	   leaving a half-visible "Un…" button that could not be clicked. */
+	flex-wrap: wrap;
+	row-gap: 6px;
 	gap: 8px;
 	padding: 8px 12px;
 	border-bottom: 1px solid rgba(153, 187, 255, 0.2);
@@ -293,7 +298,8 @@
 }
 
 .md-page-block-bar-spacer {
-	flex: 1;
+	flex: 1 1 0;
+	min-width: 0;
 }
 
 .md-page-block-bar-btn {

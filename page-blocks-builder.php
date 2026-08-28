@@ -402,8 +402,29 @@ class GT_Page_Blocks_Builder {
 	 * Register block type.
 	 */
 	public function register_block() {
+		// The block's own editor chrome (badges, library-link panel, preview
+		// frame, code toggles) renders inside the block canvas. Since WP 6.3
+		// that canvas is an iframe, and styles enqueued on
+		// enqueue_block_editor_assets only reach the outer admin document —
+		// which is why the inspector looked right while the block itself
+		// rendered unstyled. Registering the stylesheet as the block type's
+		// editor_style is what gets it injected into the iframe.
+		$style_path = GT_PB_BUILDER_DIR . 'assets/css/block-editor.css';
+		if ( file_exists( $style_path ) && ! wp_style_is( 'gt-page-block-editor', 'registered' ) ) {
+			wp_register_style(
+				'gt-page-block-editor',
+				GT_PB_BUILDER_URL . 'assets/css/block-editor.css',
+				// dashicons is a dependency, not a nicety: the device-preview
+				// and dark-scheme controls are dashicon glyphs, and inside the
+				// canvas iframe they render as blank squares without it.
+				array( 'dashicons' ),
+				filemtime( $style_path )
+			);
+		}
+
 		$args = array(
 			'render_callback' => array( $this, 'render_block' ),
+			'editor_style'    => 'gt-page-block-editor',
 			'attributes'      => array(
 				// A non-zero blockId makes this block a *reference* to a library
 				// row: the code lives in one place and every placement updates
@@ -461,10 +482,11 @@ class GT_Page_Blocks_Builder {
 				true
 			);
 
-			$preview_styles = array( get_stylesheet_uri() );
-			if ( is_child_theme() ) {
-				$preview_styles[] = get_template_directory_uri() . '/style.css';
-			}
+			// Use the same stylesheet set as the builder preview. Loading only
+			// style.css left blocks previewing unstyled on themes that split
+			// their CSS across modular files (Marketers Delight ships ~30),
+			// which made the preview useless for judging a section.
+			$preview_styles = $this->get_theme_style_urls();
 
 			wp_localize_script(
 				'gt-page-block-editor',
@@ -488,13 +510,20 @@ class GT_Page_Blocks_Builder {
 			);
 		}
 
+		// Also load it in the outer admin document, for the parts of the UI
+		// that render outside the canvas (inspector panel, modals). The handle
+		// is registered in register_block(); enqueue it by handle so both
+		// contexts share one registration.
 		if ( file_exists( $style_path ) ) {
-			wp_enqueue_style(
-				'gt-page-block-editor',
-				GT_PB_BUILDER_URL . 'assets/css/block-editor.css',
-				array( 'wp-edit-blocks' ),
-				filemtime( $style_path )
-			);
+			if ( ! wp_style_is( 'gt-page-block-editor', 'registered' ) ) {
+				wp_register_style(
+					'gt-page-block-editor',
+					GT_PB_BUILDER_URL . 'assets/css/block-editor.css',
+					array( 'dashicons' ),
+					filemtime( $style_path )
+				);
+			}
+			wp_enqueue_style( 'gt-page-block-editor' );
 		}
 	}
 
