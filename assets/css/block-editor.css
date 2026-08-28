@@ -1,46 +1,51 @@
+/**
+ * Page Block — block editor UI.
+ *
+ * Deliberately quiet: this chrome sits inside the WordPress editor canvas, so it
+ * borrows the admin's own palette, 2px radii, and system font rather than
+ * competing with them. No gradients, glows, or lifts — a block should read as
+ * part of the editor, not as a widget dropped into it.
+ */
+
+.md-page-block-editor,
+.md-page-block-preview-wrap,
+.md-page-block-live,
+.md-page-block-viewport,
+.md-page-block-library-modal {
+	--pb-editor-bg: #fff;
+	--pb-editor-surface: #f6f7f7;
+	--pb-editor-surface-soft: #fbfbfc;
+	--pb-editor-border: #e0e0e0;
+	--pb-editor-border-strong: #949494;
+	--pb-editor-text: #1e1e1e;
+	--pb-editor-muted: #757575;
+	--pb-editor-accent: #3858e9;
+	--pb-editor-accent-hover: #2145e6;
+	--pb-editor-accent-soft: #f0f3ff;
+	--pb-editor-radius: 2px;
+	--pb-editor-font-ui: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen-Sans, Ubuntu, Cantarell, "Helvetica Neue", sans-serif;
+	--pb-editor-font-code: ui-monospace, SFMono-Regular, Menlo, Consolas, Monaco, "Liberation Mono", monospace;
+}
+
 .md-page-block-editor {
-	--pb-editor-bg: #070d18;
-	--pb-editor-surface: #111a2b;
-	--pb-editor-surface-soft: #162239;
-	--pb-editor-border: rgba(153, 187, 255, 0.22);
-	--pb-editor-text: #e9f0ff;
-	--pb-editor-muted: #9caecc;
-	--pb-editor-accent: #5bb2ff;
-	--pb-editor-accent-soft: rgba(91, 178, 255, 0.2);
-	--pb-editor-shadow: 0 14px 32px rgba(5, 10, 18, 0.38);
-	--pb-editor-radius: 14px;
-	--pb-editor-font-ui: "System Sans", system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-	--pb-editor-font-code: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
 	border: 1px solid var(--pb-editor-border);
 	border-radius: var(--pb-editor-radius);
-	background:
-		radial-gradient(120% 90% at 95% 0%, rgba(91, 178, 255, 0.16), rgba(91, 178, 255, 0)),
-		linear-gradient(160deg, #0b1424 0%, #08101d 100%);
-	box-shadow: var(--pb-editor-shadow);
+	background: var(--pb-editor-bg);
 	overflow: hidden;
 	position: relative;
 	font-family: var(--pb-editor-font-ui);
+	color: var(--pb-editor-text);
 }
 
-.md-page-block-editor::before {
-	content: "";
-	position: absolute;
-	inset: 0 auto auto 0;
-	width: 100%;
-	height: 3px;
-	background: linear-gradient(90deg, #5bb2ff 0%, #87d97f 52%, #f8bf6b 100%);
-	opacity: 0.92;
-	pointer-events: none;
-	z-index: 2;
-}
+/* Toolbar (code-edit mode) */
 
 .md-page-block-toolbar {
 	display: flex;
 	align-items: center;
-	gap: 10px;
-	padding: 9px 10px 8px;
-	border-bottom: 1px solid rgba(153, 187, 255, 0.2);
-	background: linear-gradient(180deg, rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0));
+	gap: 8px;
+	padding: 6px 8px;
+	border-bottom: 1px solid var(--pb-editor-border);
+	background: var(--pb-editor-surface);
 	position: relative;
 	z-index: 1;
 }
@@ -48,7 +53,7 @@
 .md-page-block-tabs {
 	display: inline-flex;
 	align-items: center;
-	gap: 8px;
+	gap: 2px;
 	flex: 1;
 	padding: 0;
 	margin: 0;
@@ -58,67 +63,58 @@
 	display: inline-flex;
 	align-items: center;
 	justify-content: center;
-	padding: 7px 14px;
-	border: 1px solid transparent;
-	background: rgba(255, 255, 255, 0.03);
+	padding: 6px 10px;
+	border: 0;
+	background: transparent;
 	cursor: pointer;
+	font-family: inherit;
 	font-size: 12px;
-	font-weight: 700;
-	letter-spacing: 0.04em;
-	text-transform: uppercase;
+	font-weight: 500;
 	color: var(--pb-editor-muted);
-	border-radius: 999px;
-	transition:
-		color 0.16s ease,
-		background-color 0.16s ease,
-		border-color 0.16s ease,
-		transform 0.16s ease;
+	border-radius: var(--pb-editor-radius);
+	transition: color 0.1s ease, background-color 0.1s ease;
 }
 
 .md-page-block-tab:hover {
 	color: var(--pb-editor-text);
-	border-color: rgba(153, 187, 255, 0.28);
-	background: rgba(255, 255, 255, 0.06);
+	background: rgba(0, 0, 0, 0.04);
 }
 
 .md-page-block-tab.is-active {
-	color: #041324;
-	background: linear-gradient(180deg, #7dc6ff, #4fa3ff);
-	border-color: #4fa3ff;
-	box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.08) inset;
-	transform: translateY(-1px);
+	color: var(--pb-editor-text);
+	background: #fff;
+	box-shadow: inset 0 0 0 1px var(--pb-editor-border);
+	font-weight: 600;
 }
 
+/* A filled dot marks a tab that already has code in it. */
 .md-page-block-tab.has-content::after {
 	content: "";
 	display: inline-block;
-	width: 7px;
-	height: 7px;
+	width: 5px;
+	height: 5px;
 	border-radius: 50%;
-	background: #8ae283;
-	margin-left: 7px;
-	box-shadow: 0 0 8px rgba(138, 226, 131, 0.85);
+	background: var(--pb-editor-accent);
+	margin-left: 6px;
 }
 
 .md-page-block-preview-btn {
 	display: inline-flex;
 	align-items: center;
 	justify-content: center;
-	width: 34px;
-	height: 34px;
-	border: 1px solid rgba(153, 187, 255, 0.25);
-	background: rgba(255, 255, 255, 0.03);
+	width: 30px;
+	height: 30px;
+	border: 0;
+	background: transparent;
 	color: var(--pb-editor-muted);
 	cursor: pointer;
-	border-radius: 10px;
-	transition: color 0.15s ease, border-color 0.15s ease, background-color 0.15s ease, transform 0.15s ease;
+	border-radius: var(--pb-editor-radius);
+	transition: color 0.1s ease, background-color 0.1s ease;
 }
 
 .md-page-block-preview-btn:hover {
 	color: var(--pb-editor-text);
-	border-color: var(--pb-editor-accent);
-	background: var(--pb-editor-accent-soft);
-	transform: translateY(-1px);
+	background: rgba(0, 0, 0, 0.04);
 }
 
 .md-page-block-preview-btn .dashicons {
@@ -130,9 +126,11 @@
 .md-page-block-tab:focus-visible,
 .md-page-block-preview-btn:focus-visible,
 .md-page-block-edit-btn:focus-visible {
-	outline: 2px solid var(--pb-editor-accent);
-	outline-offset: 2px;
+	outline: 1.5px solid var(--pb-editor-accent);
+	outline-offset: 1px;
 }
+
+/* Code panes */
 
 .md-page-block-panel {
 	background: var(--pb-editor-bg);
@@ -143,7 +141,7 @@
 	width: 100%;
 	min-height: 280px;
 	max-height: 1200px;
-	padding: 13px 14px;
+	padding: 12px;
 	border: none;
 	resize: vertical;
 	overflow: auto;
@@ -158,7 +156,7 @@
 }
 
 .md-page-block-textarea::placeholder {
-	color: #7d91b3;
+	color: #a7aaad;
 }
 
 .md-page-block-panel .CodeMirror {
@@ -182,15 +180,15 @@
 
 .md-page-block-panel .CodeMirror-gutters {
 	background: var(--pb-editor-surface);
-	border-right: 1px solid rgba(153, 187, 255, 0.18);
+	border-right: 1px solid var(--pb-editor-border);
 }
 
 .md-page-block-panel .CodeMirror-linenumber {
-	color: #6f85ab;
+	color: #a7aaad;
 }
 
 .md-page-block-panel .CodeMirror-cursor {
-	border-left: 1px solid #dbe8ff;
+	border-left: 1px solid var(--pb-editor-text);
 }
 
 .md-page-block-panel .CodeMirror-foldgutter {
@@ -203,57 +201,59 @@
 }
 
 .md-page-block-panel .CodeMirror-activeline-background {
-	background: rgba(91, 178, 255, 0.12);
+	background: #f6f7f7;
 }
 
 .md-page-block-panel .CodeMirror-selected {
-	background: rgba(91, 178, 255, 0.24);
+	background: #cfd8f8;
 }
 
+/* Syntax: WordPress's own light code-editor palette. */
+
 .md-page-block-panel .cm-comment {
-	color: #8192ae;
+	color: #757575;
 }
 
 .md-page-block-panel .cm-string {
-	color: #9de0a2;
+	color: #007017;
 }
 
 .md-page-block-panel .cm-number,
 .md-page-block-panel .cm-atom {
-	color: #f2c07a;
+	color: #a1590a;
 }
 
 .md-page-block-panel .cm-keyword {
-	color: #91bbff;
+	color: #0073aa;
 }
 
 .md-page-block-panel .cm-tag {
-	color: #6ad6ff;
+	color: #007017;
 }
 
 .md-page-block-panel .cm-attribute {
-	color: #f7d17d;
+	color: #a1590a;
 }
 
 .md-page-block-panel .cm-def,
 .md-page-block-panel .cm-variable,
 .md-page-block-panel .cm-property {
-	color: #d1b7ff;
+	color: #1e1e1e;
 }
 
 .md-page-block-panel .CodeMirror-hints {
 	z-index: 100000;
 }
 
+/* Preview surface */
+
 .md-page-block-preview-wrap {
 	position: relative;
-	border: 1px solid rgba(153, 187, 255, 0.2);
+	border: 1px solid var(--pb-editor-border);
 	border-radius: var(--pb-editor-radius);
 	overflow: hidden;
 	min-height: 100px;
-	background:
-		radial-gradient(100% 80% at 100% 0%, rgba(91, 178, 255, 0.12), rgba(91, 178, 255, 0)),
-		#0a121f;
+	background: #fff;
 }
 
 .md-page-block-preview-iframe {
@@ -276,24 +276,24 @@
 	flex-wrap: wrap;
 	row-gap: 6px;
 	gap: 8px;
-	padding: 8px 12px;
-	border-bottom: 1px solid rgba(153, 187, 255, 0.2);
-	background: linear-gradient(180deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0));
-	font-family: "System Sans", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+	padding: 6px 8px;
+	border-bottom: 1px solid var(--pb-editor-border);
+	background: var(--pb-editor-surface);
+	font-family: var(--pb-editor-font-ui);
 }
 
 .md-page-block-bar-icon {
 	font-size: 16px;
 	width: 16px;
 	height: 16px;
-	color: #5bb2ff;
+	color: var(--pb-editor-muted);
+	flex-shrink: 0;
 }
 
 .md-page-block-bar-title {
 	font-size: 12px;
-	font-weight: 700;
-	letter-spacing: 0.03em;
-	color: #e9f0ff;
+	font-weight: 600;
+	color: var(--pb-editor-text);
 	white-space: nowrap;
 }
 
@@ -302,63 +302,78 @@
 	min-width: 0;
 }
 
+/* Secondary button, matching .components-button.is-secondary. */
 .md-page-block-bar-btn {
-	padding: 5px 11px;
-	border: 1px solid rgba(153, 187, 255, 0.3);
-	border-radius: 999px;
-	background: rgba(255, 255, 255, 0.04);
-	color: #c9d9f5;
-	font-size: 11px;
-	font-weight: 600;
+	padding: 4px 10px;
+	border: 0;
+	border-radius: var(--pb-editor-radius);
+	box-shadow: inset 0 0 0 1px var(--pb-editor-border-strong);
+	background: transparent;
+	color: var(--pb-editor-text);
+	font-family: inherit;
+	font-size: 12px;
+	font-weight: 400;
+	line-height: 1.8;
 	cursor: pointer;
 	white-space: nowrap;
-	transition: color 0.15s ease, border-color 0.15s ease, background-color 0.15s ease;
+	transition: box-shadow 0.1s ease, background-color 0.1s ease, color 0.1s ease;
 }
 
 .md-page-block-bar-btn:hover {
-	color: #fff;
-	border-color: #5bb2ff;
-	background: rgba(91, 178, 255, 0.16);
+	color: var(--pb-editor-accent-hover);
+	box-shadow: inset 0 0 0 1px var(--pb-editor-accent-hover);
+	background: transparent;
+}
+
+.md-page-block-bar-btn:focus-visible {
+	outline: 1.5px solid var(--pb-editor-accent);
+	outline-offset: 1px;
 }
 
 .md-page-block-bar-btn:disabled {
-	opacity: 0.55;
+	color: #a7aaad;
+	box-shadow: inset 0 0 0 1px var(--pb-editor-border);
 	cursor: default;
 }
 
+/* Primary button, matching .components-button.is-primary. */
 .md-page-block-bar-btn--primary {
-	background: linear-gradient(180deg, #7dc6ff, #4fa3ff);
-	border-color: #4fa3ff;
-	color: #041324;
+	background: var(--pb-editor-accent);
+	box-shadow: none;
+	color: #fff;
 }
 
 .md-page-block-bar-btn--primary:hover {
-	color: #041324;
-	background: linear-gradient(180deg, #8fd0ff, #5fadff);
+	background: var(--pb-editor-accent-hover);
+	box-shadow: none;
+	color: #fff;
 }
 
-/* Badges */
+/* Badges — plain capability labels, not status colour. */
 
 .md-page-block-badges {
 	display: inline-flex;
 	gap: 4px;
+	flex-wrap: wrap;
 }
 
 .md-page-block-badge {
 	display: inline-block;
-	padding: 2px 8px;
+	padding: 1px 6px;
 	font-size: 10px;
-	font-weight: 700;
-	letter-spacing: 0.05em;
-	border-radius: 999px;
-	background: rgba(91, 178, 255, 0.14);
-	color: #9ecbff;
-	line-height: 1.5;
+	font-weight: 500;
+	letter-spacing: 0.02em;
+	text-transform: uppercase;
+	border-radius: var(--pb-editor-radius);
+	background: rgba(0, 0, 0, 0.06);
+	color: var(--pb-editor-muted);
+	line-height: 1.6;
 }
 
+/* PHP is the one badge worth a second glance: it means the block executes code. */
 .md-page-block-badge--php {
-	background: rgba(248, 191, 107, 0.16);
-	color: #f8bf6b;
+	background: #fcf0e4;
+	color: #8a4b08;
 }
 
 /* Viewport + dark-scheme controls */
@@ -366,7 +381,7 @@
 .md-page-block-controls {
 	display: inline-flex;
 	align-items: center;
-	gap: 2px;
+	gap: 0;
 }
 
 .md-page-block-ctrl {
@@ -375,23 +390,27 @@
 	justify-content: center;
 	width: 26px;
 	height: 26px;
-	border: 1px solid transparent;
-	border-radius: 7px;
+	border: 0;
+	border-radius: var(--pb-editor-radius);
 	background: transparent;
-	color: #9caecc;
+	color: var(--pb-editor-muted);
 	cursor: pointer;
-	transition: color 0.15s ease, background-color 0.15s ease, border-color 0.15s ease;
+	transition: color 0.1s ease, background-color 0.1s ease;
 }
 
 .md-page-block-ctrl:hover {
-	color: #e9f0ff;
-	background: rgba(255, 255, 255, 0.06);
+	color: var(--pb-editor-text);
+	background: rgba(0, 0, 0, 0.04);
 }
 
 .md-page-block-ctrl.is-on {
-	color: #5bb2ff;
-	border-color: rgba(91, 178, 255, 0.4);
-	background: rgba(91, 178, 255, 0.14);
+	color: var(--pb-editor-text);
+	background: rgba(0, 0, 0, 0.08);
+}
+
+.md-page-block-ctrl:focus-visible {
+	outline: 1.5px solid var(--pb-editor-accent);
+	outline-offset: -1px;
 }
 
 .md-page-block-ctrl .dashicons {
@@ -403,10 +422,8 @@
 /* Responsive viewport well */
 
 .md-page-block-viewport.is-narrow {
-	background:
-		radial-gradient(100% 80% at 100% 0%, rgba(91, 178, 255, 0.08), rgba(91, 178, 255, 0)),
-		#0a121f;
-	padding: 18px 12px;
+	background: var(--pb-editor-surface);
+	padding: 16px 12px;
 }
 
 .md-page-block-viewport-inner {
@@ -414,17 +431,16 @@
 }
 
 .md-page-block-viewport.is-narrow .md-page-block-viewport-inner {
-	border: 1px solid rgba(153, 187, 255, 0.3);
-	border-radius: 10px;
+	border: 1px solid var(--pb-editor-border);
+	border-radius: var(--pb-editor-radius);
 	overflow: hidden;
-	box-shadow: 0 10px 28px rgba(5, 10, 18, 0.5);
 	background: #fff;
 }
 
 /* Live preview pane under the code editor */
 
 .md-page-block-live {
-	border-top: 1px solid rgba(153, 187, 255, 0.2);
+	border-top: 1px solid var(--pb-editor-border);
 	background: var(--pb-editor-bg);
 }
 
@@ -440,20 +456,21 @@
 	align-items: center;
 	gap: 6px;
 	flex: 1;
-	padding: 7px 12px;
+	padding: 6px 8px;
 	border: 0;
 	background: transparent;
-	color: #9caecc;
+	color: var(--pb-editor-muted);
+	font-family: inherit;
 	font-size: 11px;
-	font-weight: 700;
-	letter-spacing: 0.05em;
+	font-weight: 500;
 	text-transform: uppercase;
+	letter-spacing: 0.02em;
 	cursor: pointer;
-	transition: color 0.15s ease;
+	transition: color 0.1s ease;
 }
 
 .md-page-block-live-toggle:hover {
-	color: #e9f0ff;
+	color: var(--pb-editor-text);
 }
 
 .md-page-block-live-toggle .dashicons {
@@ -463,21 +480,21 @@
 }
 
 .md-page-block-live .md-page-block-viewport {
-	border-top: 1px solid rgba(153, 187, 255, 0.14);
+	border-top: 1px solid var(--pb-editor-border);
 }
 
 @media (max-width: 782px) {
 	.md-page-block-toolbar {
-		padding: 8px;
-		gap: 8px;
-	}
-
-	.md-page-block-tabs {
+		padding: 6px;
 		gap: 6px;
 	}
 
+	.md-page-block-tabs {
+		gap: 2px;
+	}
+
 	.md-page-block-tab {
-		padding: 6px 10px;
+		padding: 6px 8px;
 		font-size: 11px;
 	}
 }
@@ -485,7 +502,10 @@
 @media (prefers-reduced-motion: reduce) {
 	.md-page-block-tab,
 	.md-page-block-preview-btn,
-	.md-page-block-edit-btn {
+	.md-page-block-edit-btn,
+	.md-page-block-bar-btn,
+	.md-page-block-ctrl,
+	.md-page-block-preview-iframe {
 		transition: none;
 	}
 }
@@ -501,7 +521,7 @@
 	padding: 8px 12px;
 	margin-bottom: 12px;
 	border: 1px solid #dcdcde;
-	border-radius: 6px;
+	border-radius: var(--pb-editor-radius);
 }
 
 .md-page-block-library-loading {
@@ -555,7 +575,7 @@
 	font-size: 11px;
 	background: #f6f7f7;
 	padding: 0 5px;
-	border-radius: 3px;
+	border-radius: var(--pb-editor-radius);
 }
 
 .md-page-block-library-actions {
@@ -565,17 +585,17 @@
 }
 
 .md-page-block-library-item.is-linked {
-	background: rgba(91, 178, 255, 0.08);
+	background: var(--pb-editor-accent-soft);
 }
 
 /* ── Linked block (renders a library row) ── */
 
 .md-page-block-preview-wrap.is-linked {
-	border-color: rgba(153, 187, 255, 0.45);
+	border-color: var(--pb-editor-border);
 }
 
 .md-page-block-preview-wrap.is-linked .md-page-block-bar-icon {
-	color: #9ecbff;
+	color: var(--pb-editor-accent);
 }
 
 .md-page-block-preview-wrap.is-linked .md-page-block-bar-title {
@@ -586,28 +606,28 @@
 
 .md-page-block-linked-id {
 	font-size: 11px;
-	font-weight: 600;
-	color: #8fa8cd;
+	font-weight: 400;
+	color: var(--pb-editor-muted);
 	white-space: nowrap;
 }
 
 .md-page-block-linked-note {
 	margin: 0;
-	padding: 8px 12px;
-	border-bottom: 1px solid rgba(153, 187, 255, 0.2);
-	background: rgba(91, 178, 255, 0.06);
-	color: #b9cbe8;
-	font-size: 11px;
+	padding: 8px 10px;
+	border-bottom: 1px solid var(--pb-editor-border);
+	background: var(--pb-editor-accent-soft);
+	color: var(--pb-editor-text);
+	font-size: 12px;
 	line-height: 1.5;
 }
 
 .md-page-block-linked-note.is-warning {
-	background: rgba(248, 191, 107, 0.1);
-	color: #f0c68a;
+	background: #fcf0e4;
+	color: #8a4b08;
 }
 
 .md-page-block-linked-help {
 	margin-top: 0;
 	font-size: 12px;
-	color: #50575e;
+	color: #757575;
 }

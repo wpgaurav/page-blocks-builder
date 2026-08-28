@@ -4,7 +4,7 @@ Tags: page builder, html blocks, css sections, gutenberg, visual builder
 Requires at least: 6.0
 Tested up to: 6.9.1
 Requires PHP: 8.1
-Stable tag: 2.7.0
+Stable tag: 2.7.1
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -64,6 +64,12 @@ Yes. Enable PHP execution per block. PHP runs on the frontend and in server-rend
 When set to "file", CSS and JS for that block are written to external files in `wp-content/uploads/gt-page-blocks/` and served as cacheable resources instead of inline output.
 
 == Changelog ==
+
+= 2.7.1 =
+* Block editor UI now actually renders. Since WP 6.3 the block canvas is an iframe, and styles enqueued for the editor only reach the outer admin document — so the block's own chrome shipped unstyled (badges ran together, buttons were browser defaults, the device-preview controls were blank squares with no dashicons). The stylesheet is now registered as the block's `editor_style`, which is what gets it into the canvas.
+* Redesigned that chrome to match the WordPress admin: its palette, 2px radii, system font, and standard primary/secondary buttons, with the gradients, glows and pill shapes removed.
+* Block editor previews load the full theme stylesheet set, as the visual builder already did. Loading only style.css left blocks previewing unstyled on themes that split their CSS across modular files.
+* The block header wraps instead of clipping, so the trailing action stays reachable in a narrow canvas.
 
 = 2.7.0 =
 * Dropin migration: `wp gt-pb migrate-library [--dry-run] [--overwrite]` (or Settings -> Tools -> Import from dropin) copies the Marketers Delight `md_page_blocks` table into this plugin **preserving block IDs**, so existing `[page_block id="N"]` shortcodes and `blockId` block references keep resolving.

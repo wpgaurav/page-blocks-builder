@@ -3,7 +3,7 @@
  * Plugin Name: GT Page Blocks Builder
  * Plugin URI: https://gauravtiwari.org/product/gt-page-blocks-builder/
  * Description: Standalone visual Page Blocks builder with HTML/CSS/JS sections synced to Gutenberg block content.
- * Version: 2.7.0
+ * Version: 2.7.1
  * Author: Gaurav Tiwari
  * Author URI: https://gauravtiwari.org
  * Text Domain: page-blocks-builder
@@ -14,7 +14,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 if ( ! defined( 'GT_PB_BUILDER_VERSION' ) ) {
-	define( 'GT_PB_BUILDER_VERSION', '2.7.0' );
+	define( 'GT_PB_BUILDER_VERSION', '2.7.1' );
 }
 
 if ( ! defined( 'GT_PB_BUILDER_FILE' ) ) {
@@ -2762,6 +2762,24 @@ class GT_Page_Blocks_Builder {
 		// the first into the second drops every element it used to match.
 		// Stash them, minify the structure, then put them back verbatim.
 		$stash = array();
+
+		// Math functions must be stashed BEFORE the structural pass: the space
+		// around `+` is required inside calc()/clamp()/min()/max(), but `+` is
+		// also the sibling combinator, where collapsing it is correct. Removing
+		// it inside a clamp silently invalidates the whole declaration — that
+		// is how `clamp(6.75rem, 6rem + 2.2vw, 9rem)` became `6rem+2.2vw` and
+		// section padding computed to 0. (?1) recurses the parenthesised group
+		// so nested var()/calc() are captured whole.
+		$css = preg_replace_callback(
+			'/\b(?:calc|clamp|min|max|minmax)\s*(\((?:[^()]++|(?1))*\))/i',
+			static function ( $m ) use ( &$stash ) {
+				$token = "\x01" . count( $stash ) . "\x02";
+				$stash[ $token ] = $m[0];
+				return $token;
+			},
+			$css
+		);
+
 		$css   = preg_replace_callback(
 			'/"(?:[^"\\\\]|\\\\.)*"|\'(?:[^\'\\\\]|\\\\.)*\'|\burl\([^)\'"]*\)/s',
 			static function ( $m ) use ( &$stash ) {
