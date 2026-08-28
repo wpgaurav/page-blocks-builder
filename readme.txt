@@ -4,7 +4,7 @@ Tags: page builder, html blocks, css sections, gutenberg, visual builder
 Requires at least: 6.0
 Tested up to: 6.9.1
 Requires PHP: 8.1
-Stable tag: 2.7.4
+Stable tag: 2.7.5
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -64,6 +64,12 @@ Yes. Enable PHP execution per block. PHP runs on the frontend and in server-rend
 When set to "file", CSS and JS for that block are written to external files in `wp-content/uploads/gt-page-blocks/` and served as cacheable resources instead of inline output.
 
 == Changelog ==
+
+= 2.7.5 =
+* Fixed: the section panel vanished off the right edge once the AI assistant had filled the code editors. Nothing was hiding it — the builder had grown wider than the window, and the panel is the last column of that row. The code area was reporting its own content width as a minimum, which with the assistant open kept the whole builder above 1552px; a 14-inch laptop is 1512. It now fits from 1920px down to 1000px with the panel fully visible, and the tag-snippet toolbar scrolls inside its own bar instead.
+* Import in Page Settings is two buttons, Import & add and Import & replace. It was one button behind a dialog whose Cancel meant "replace every section" — the destructive choice sitting on the dismissive button. Only replace asks for confirmation, and it says how many blocks the builder cannot rebuild are about to be removed.
+* Page Settings opens with a count of what is on the page, reports the result of an import or export inline instead of through a browser alert, and stays open while you work. Exported files are named after the page rather than its post ID.
+* The AI model list keeps only the GPT-5.6 family: Sol, Terra and Luna. A site still set to an older model falls back to the default rather than sending one the API would reject.
 
 = 2.7.4 =
 * The two builder filters and the four helper functions now carry the `gt_` prefix, matching everything else the plugin exposes: `gt_page_blocks_builder_preview_injection`, `gt_page_blocks_builder_post_types`, `gt_page_blocks_builder_url()`, `gt_page_blocks_builder_post_types()`, `gt_page_blocks_builder_nonce_action()` and `gt_page_blocks_preview_nonce_action()`.
