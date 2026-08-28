@@ -42,12 +42,28 @@ Insert **Page Block** (category: *Page Blocks*) into any post or page.
 - Copy button for the active tab.
 
 ### Browse library
-The block toolbar's **Browse library** button opens a searchable modal of published library blocks — *Insert copy* pulls a block's full code and settings into the current Page Block.
+The block toolbar's **Browse library** button opens a searchable modal of published library blocks, with two ways to use one:
+
+- **Copy code** — pulls the block's full code and settings into this Page Block. The copy is independent from then on.
+- **Link** — points this Page Block at the library row (`blockId`). The code stays in one place and every linked placement updates together.
+
+### Linked blocks
+A Page Block with a non-zero `blockId` renders the library row instead of its own attributes, and the editor reflects that:
+
+- The header bar shows the **library block's title, ID, and badges**, not the block's own (empty) code.
+- The preview comes from the library's `/render` route, so PHP, shortcodes, and `wpautop` run exactly as they will on the front end.
+- The HTML/CSS/JS editors are **hidden**, and the inspector's settings are read-only — edits there would be discarded at render time.
+- **Edit in library** opens the source block; **Change** re-points the link; **Unlink** copies the library code into this block's own attributes and drops the reference.
+- A link whose target is missing or unpublished is called out in place, rather than silently rendering nothing.
+
+Blocks migrated from the Marketers Delight dropin arrive already linked, so this is how those sections appear.
 
 ### Block settings (inspector)
 - **JavaScript Location**: footer (default) or inline.
 - **WordPress formatting (wpautop)**: run content through `the_content`-style formatting.
 - **Execute PHP code**: run PHP in the block's HTML on the front end (see [Security](#security-notes)).
+
+On a linked block these mirror the library row and are disabled — unlink to control them here.
 
 ---
 
@@ -58,6 +74,7 @@ A full-page frontend builder for editing all Page Block sections of a post in on
 - Launch from the admin bar on any enabled post type, or directly: `/?build=page-blocks&post_id={ID}&pb_nonce={nonce}`.
 - Sections map 1:1 to `gt-page-block/page-block` blocks in `post_content` — Gutenberg remains the source of truth; other blocks are preserved in place.
 - CodeMirror editors with Emmet expansion, live preview with your theme's CSS, page-template switching, and frontend-preview handoff.
+- Sections linked to a library block round-trip their link and render through it; their editors are locked, since edits there would never reach the front end.
 - **AI generation** (optional): bring your own OpenAI / Anthropic / Gemini API key (Settings page); generate or edit a section's HTML — bundled `<style id="ai-generated">` / `<script id="ai-generated">` tags are split into the CSS/JS editors automatically.
 
 Enabled post types are configured under **Page Blocks → Settings**.

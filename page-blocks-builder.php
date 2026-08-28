@@ -983,8 +983,13 @@ class GT_Page_Blocks_Builder {
 		$content     = isset( $section['content'] ) ? (string) $section['content'] : '';
 		$css         = isset( $section['css'] ) ? (string) $section['css'] : '';
 		$js          = isset( $section['js'] ) ? (string) $section['js'] : '';
+		// A library link has to survive the builder's load/save round trip:
+		// dropping it here would rewrite every migrated block as an empty
+		// inline one and blank the section everywhere it appears.
+		$block_id    = isset( $section['blockId'] ) ? max( 0, (int) $section['blockId'] ) : 0;
 
 		return array(
+			'blockId'    => $block_id,
 			'content'    => $this->decode_builder_unicode_sequences( $content ),
 			'css'        => $this->decode_builder_unicode_sequences( $css ),
 			'js'         => $this->decode_builder_unicode_sequences( $js ),
@@ -1091,7 +1096,30 @@ class GT_Page_Blocks_Builder {
 		$js_footer_output = array();
 
 		foreach ( (array) $sections as $section ) {
-			$section     = is_array( $section ) ? $section : array();
+			$section = is_array( $section ) ? $section : array();
+
+			// Linked sections preview through render_library_block(), the same
+			// path render_block() takes, so the row's PHP checksum gate still
+			// applies. That call queues footer JS instead of returning it, so
+			// pull this row's entry back out for the preview document.
+			$linked_id = isset( $section['blockId'] ) ? (int) $section['blockId'] : 0;
+			if ( $linked_id > 0 ) {
+				$row = $this->db->get( $linked_id );
+				if ( ! $row || 'publish' !== $row->status ) {
+					continue;
+				}
+
+				$html_output[] = self::minify_html( (string) $this->render_library_block( $row ) );
+
+				$queued_key = 'block-' . (int) $row->id;
+				if ( isset( $this->footer_scripts[ $queued_key ] ) ) {
+					$js_footer_output[] = self::minify_js( (string) $this->footer_scripts[ $queued_key ] );
+					unset( $this->footer_scripts[ $queued_key ] );
+				}
+
+				continue;
+			}
+
 			$content     = isset( $section['content'] ) ? (string) $section['content'] : '';
 			$css         = isset( $section['css'] ) ? (string) $section['css'] : '';
 			$js          = isset( $section['js'] ) ? (string) $section['js'] : '';
@@ -1228,6 +1256,12 @@ class GT_Page_Blocks_Builder {
 
 		$replacement_blocks = array();
 		foreach ( $sections as $section ) {
+			// Keep a real link, but leave ordinary sections unmarked rather
+			// than writing blockId:0 into every block in post_content.
+			if ( empty( $section['blockId'] ) ) {
+				unset( $section['blockId'] );
+			}
+
 			$replacement_blocks[] = array(
 				'blockName'    => self::BLOCK_NAME,
 				'attrs'        => $section,

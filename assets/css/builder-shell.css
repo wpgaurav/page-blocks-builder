@@ -1092,3 +1092,25 @@ body {
 		font-size: 10px;
 	}
 }
+
+/* ── Section linked to a library block: editors are locked ── */
+
+.md-pb-bottom[data-linked-note]::before {
+	content: attr(data-linked-note);
+	display: block;
+	flex: 0 0 auto;
+	padding: 6px 10px;
+	border-bottom: 1px solid var(--pb-border);
+	background: var(--pb-accent-dim);
+	color: var(--pb-text);
+	font-size: 11px;
+	line-height: 1.5;
+}
+
+.md-pb-shell.is-section-linked .md-pb-code-wrap {
+	opacity: 0.68;
+}
+
+.md-pb-shell.is-section-linked .md-pb-options {
+	opacity: 0.55;
+}
