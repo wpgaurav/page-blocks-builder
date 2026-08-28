@@ -294,13 +294,23 @@
 	background: #fff;
 }
 
-.md-page-block-preview-iframe {
+/* Reserves the frame's measured height whether or not it is mounted, so
+   lazy mounting never collapses a block mid-scroll. */
+.md-page-block-preview-holder {
 	display: block;
 	width: 100%;
 	min-height: 80px;
-	border: none;
 	background: #fff;
 	transition: height 0.2s ease;
+}
+
+.md-page-block-preview-iframe {
+	display: block;
+	width: 100%;
+	height: 100%;
+	min-height: 80px;
+	border: none;
+	background: #fff;
 }
 
 /* Preview-mode header bar */

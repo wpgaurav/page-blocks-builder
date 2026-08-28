@@ -4,7 +4,7 @@ Tags: page builder, html blocks, css sections, gutenberg, visual builder
 Requires at least: 6.0
 Tested up to: 6.9.1
 Requires PHP: 8.1
-Stable tag: 2.7.1
+Stable tag: 2.7.2
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -64,6 +64,9 @@ Yes. Enable PHP execution per block. PHP runs on the frontend and in server-rend
 When set to "file", CSS and JS for that block are written to external files in `wp-content/uploads/gt-page-blocks/` and served as cacheable resources instead of inline output.
 
 == Changelog ==
+
+= 2.7.2 =
+* Editor previews mount only while near the viewport. Each preview is a full document carrying the theme's CSS — measured at ~25 stylesheets and ~2,200 rules to style ~30 elements — so a page of eight blocks kept roughly 200 stylesheets and 17,600 rules live at once, and scrolling paid for all of it. On a 12-block page at most 3 frames are now mounted instead of 12.
 
 = 2.7.1 =
 * Code editors work again inside the block canvas. wp.codeEditor loads into the admin document, but the canvas has been an iframe since WP 6.3, so a CodeMirror mounted there resolved focus and key events against the wrong document: it rendered correctly and could not be clicked into or typed in. The plain textarea is now used there, as core's Custom HTML block does.

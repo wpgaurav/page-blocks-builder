@@ -399,10 +399,51 @@
 	 * frame height can track the rendered content.
 	 */
 	function AutoFrame( props ) {
-		var frameRef = useRef( null );
+		var frameRef  = useRef( null );
+		var holderRef = useRef( null );
+
 		var heightState = useState( 140 );
 		var height = heightState[0];
 		var setHeight = heightState[1];
+
+		// Each mounted preview is a whole document carrying the theme's CSS —
+		// on a real page that measured ~25 stylesheets and ~2,200 rules to
+		// style ~30 elements, once per block. Eight blocks meant ~200
+		// stylesheets and ~17,600 rules live at once, and scrolling paid for
+		// all of it. Frames are mounted only while near the viewport.
+		var mountedState = useState( false );
+		var mounted = mountedState[0];
+		var setMounted = mountedState[1];
+
+		useEffect( function() {
+			var node = holderRef.current;
+			if ( ! node ) {
+				return;
+			}
+
+			// The observer must come from the window the node lives in — the
+			// block canvas is its own iframe, so an observer built in the
+			// admin window would measure against the wrong viewport.
+			var view = node.ownerDocument && node.ownerDocument.defaultView;
+			if ( ! view || ! view.IntersectionObserver ) {
+				setMounted( true );
+				return;
+			}
+
+			var io = new view.IntersectionObserver(
+				function( entries ) {
+					for ( var i = 0; i < entries.length; i++ ) {
+						setMounted( entries[ i ].isIntersecting );
+					}
+				},
+				// Generous margin so a frame is ready before it is seen, and
+				// so ordinary scrolling never oscillates across the boundary.
+				{ root: null, rootMargin: '800px 0px' }
+			);
+
+			io.observe( node );
+			return function() { io.disconnect(); };
+		}, [] );
 
 		function measure() {
 			try {
@@ -422,14 +463,24 @@
 			setTimeout( measure, 1200 );
 		}
 
-		return el( 'iframe', {
-			ref: frameRef,
-			className: 'md-page-block-preview-iframe',
-			title: __( 'Page Block Preview' ),
-			srcDoc: props.doc || '',
-			onLoad: onLoad,
+		// The holder keeps the last measured height whether or not the frame
+		// is mounted, so unmounting never collapses the block and yanks the
+		// scroll position out from under the cursor.
+		return el( 'div', {
+			ref: holderRef,
+			className: 'md-page-block-preview-holder',
 			style: { height: height + 'px' }
-		} );
+		},
+			mounted
+				? el( 'iframe', {
+					ref: frameRef,
+					className: 'md-page-block-preview-iframe',
+					title: __( 'Page Block Preview' ),
+					srcDoc: props.doc || '',
+					onLoad: onLoad
+				} )
+				: null
+		);
 	}
 
 	var PB_BLOCK_NAME = 'gt-page-block/page-block';
