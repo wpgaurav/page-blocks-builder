@@ -234,10 +234,28 @@ Inline blocks live in `post_content` with no separately stored checksum, so a da
 | `gt_pb_ai_request_timeout` | filter | AI request timeout (`int $seconds, string $provider`) |
 | `gt_pb_ai_debug_enabled` / `gt_pb_ai_debug_log_raw_payload` / `gt_pb_ai_debug_max_length` | filter | AI debug logging controls |
 
-Both builder filters were named `md_page_blocks_builder_*` before 2.7.4. The old
-names still run, immediately before the new ones, so existing snippets keep
-working — update them when convenient, since a deprecation notice is raised
-under `WP_DEBUG` while they are in use.
+### Helper functions
+
+| Function | Purpose |
+|---|---|
+| `gt_page_blocks_builder_post_types()` | Post types the builder is offered on |
+| `gt_page_blocks_builder_url( $post_id, $nonce )` | Front-end builder URL for a post |
+| `gt_page_blocks_builder_nonce_action( $post_id )` | Nonce action for builder requests |
+| `gt_page_blocks_preview_nonce_action( $post_id )` | Nonce action for preview requests |
+
+### Renamed in 2.7.4
+
+Both filters and all four helper functions were prefixed `md_` before 2.7.4,
+after the theme this plugin grew out of. Every old name still works — the
+filters run immediately before their replacements, and the functions delegate to
+them — so existing snippets keep working. Each raises a pointer to its
+replacement under `WP_DEBUG` while in use, and is otherwise silent. Update them
+when convenient.
+
+`gt_page_blocks_builder_nonce_action()` still returns its original
+`md_page_blocks_builder_<id>` string: it identifies nonces already issued into
+open tabs and saved URLs, so renaming the value would invalidate them for no
+gain.
 
 ---
 

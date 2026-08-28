@@ -33,13 +33,13 @@ if ( ! defined( 'GT_PB_BUILDER_OPTION_POST_TYPES' ) ) {
 	define( 'GT_PB_BUILDER_OPTION_POST_TYPES', 'gt_pb_builder_post_types' );
 }
 
-if ( ! function_exists( 'md_page_blocks_builder_post_types' ) ) {
+if ( ! function_exists( 'gt_page_blocks_builder_post_types' ) ) {
 	/**
 	 * Get allowed post types for builder mode.
 	 *
 	 * @return array
 	 */
-	function md_page_blocks_builder_post_types() {
+	function gt_page_blocks_builder_post_types() {
 		$defaults   = array( 'post', 'page' );
 		$post_types = get_option( GT_PB_BUILDER_OPTION_POST_TYPES, array() );
 
@@ -91,26 +91,29 @@ if ( ! function_exists( 'md_page_blocks_builder_post_types' ) ) {
 	}
 }
 
-if ( ! function_exists( 'md_page_blocks_builder_nonce_action' ) ) {
+if ( ! function_exists( 'gt_page_blocks_builder_nonce_action' ) ) {
 	/**
 	 * Builder nonce action.
 	 *
 	 * @param int $post_id Post ID.
 	 * @return string
 	 */
-	function md_page_blocks_builder_nonce_action( $post_id ) {
+	function gt_page_blocks_builder_nonce_action( $post_id ) {
+		// The returned string is deliberately unchanged. It identifies nonces
+		// already issued into open builder tabs and saved URLs; renaming it
+		// would invalidate every one of them for no gain.
 		return 'md_page_blocks_builder_' . absint( $post_id );
 	}
 }
 
-if ( ! function_exists( 'md_page_blocks_preview_nonce_action' ) ) {
+if ( ! function_exists( 'gt_page_blocks_preview_nonce_action' ) ) {
 	/**
 	 * Preview nonce action.
 	 *
 	 * @param int $post_id Post ID.
 	 * @return string
 	 */
-	function md_page_blocks_preview_nonce_action( $post_id ) {
+	function gt_page_blocks_preview_nonce_action( $post_id ) {
 		return 'md_page_blocks_preview_' . absint( $post_id );
 	}
 }
@@ -242,7 +245,7 @@ if ( ! function_exists( 'gt_pb_execute_php' ) ) {
 	}
 }
 
-if ( ! function_exists( 'md_page_blocks_builder_url' ) ) {
+if ( ! function_exists( 'gt_page_blocks_builder_url' ) ) {
 	/**
 	 * Build frontend visual builder URL.
 	 *
@@ -250,7 +253,7 @@ if ( ! function_exists( 'md_page_blocks_builder_url' ) ) {
 	 * @param string $nonce   Nonce.
 	 * @return string
 	 */
-	function md_page_blocks_builder_url( $post_id, $nonce = '' ) {
+	function gt_page_blocks_builder_url( $post_id, $nonce = '' ) {
 		$args = array(
 			'build'   => 'page-blocks',
 			'post_id' => absint( $post_id ),
@@ -261,6 +264,70 @@ if ( ! function_exists( 'md_page_blocks_builder_url' ) ) {
 		}
 
 		return add_query_arg( $args, home_url( '/' ) );
+	}
+}
+
+/**
+ * Compatibility shims for the pre-2.7.4 function names.
+ *
+ * These four helpers were named md_page_blocks_* after the theme this plugin
+ * grew out of. The implementations now live under gt_, and these wrappers keep
+ * any site or snippet calling the old names working. Each raises a pointer to
+ * its replacement under WP_DEBUG and is otherwise silent.
+ *
+ * Nothing inside the plugin calls these — they exist only for callers outside
+ * it, so removing them later costs nothing internally.
+ */
+
+if ( ! function_exists( 'md_page_blocks_builder_post_types' ) ) {
+	/**
+	 * @deprecated 2.7.4 Use gt_page_blocks_builder_post_types().
+	 * @return array
+	 */
+	function md_page_blocks_builder_post_types() {
+		_deprecated_function( __FUNCTION__, '2.7.4', 'gt_page_blocks_builder_post_types' );
+
+		return gt_page_blocks_builder_post_types();
+	}
+}
+
+if ( ! function_exists( 'md_page_blocks_builder_nonce_action' ) ) {
+	/**
+	 * @deprecated 2.7.4 Use gt_page_blocks_builder_nonce_action().
+	 * @param int $post_id Post ID.
+	 * @return string
+	 */
+	function md_page_blocks_builder_nonce_action( $post_id ) {
+		_deprecated_function( __FUNCTION__, '2.7.4', 'gt_page_blocks_builder_nonce_action' );
+
+		return gt_page_blocks_builder_nonce_action( $post_id );
+	}
+}
+
+if ( ! function_exists( 'md_page_blocks_preview_nonce_action' ) ) {
+	/**
+	 * @deprecated 2.7.4 Use gt_page_blocks_preview_nonce_action().
+	 * @param int $post_id Post ID.
+	 * @return string
+	 */
+	function md_page_blocks_preview_nonce_action( $post_id ) {
+		_deprecated_function( __FUNCTION__, '2.7.4', 'gt_page_blocks_preview_nonce_action' );
+
+		return gt_page_blocks_preview_nonce_action( $post_id );
+	}
+}
+
+if ( ! function_exists( 'md_page_blocks_builder_url' ) ) {
+	/**
+	 * @deprecated 2.7.4 Use gt_page_blocks_builder_url().
+	 * @param int    $post_id Post ID.
+	 * @param string $nonce   Nonce.
+	 * @return string
+	 */
+	function md_page_blocks_builder_url( $post_id, $nonce = '' ) {
+		_deprecated_function( __FUNCTION__, '2.7.4', 'gt_page_blocks_builder_url' );
+
+		return gt_page_blocks_builder_url( $post_id, $nonce );
 	}
 }
 
@@ -497,7 +564,7 @@ class GT_Page_Blocks_Builder {
 		}
 
 		$post_id       = isset( $_GET['post'] ) ? absint( $_GET['post'] ) : 0;
-		$preview_nonce = $post_id > 0 ? wp_create_nonce( md_page_blocks_preview_nonce_action( $post_id ) ) : '';
+		$preview_nonce = $post_id > 0 ? wp_create_nonce( gt_page_blocks_preview_nonce_action( $post_id ) ) : '';
 
 		$editor_settings = array(
 			'html' => wp_enqueue_code_editor( array( 'type' => 'application/x-httpd-php' ) ),
@@ -697,7 +764,7 @@ class GT_Page_Blocks_Builder {
 			return false;
 		}
 
-		return in_array( $post_type, md_page_blocks_builder_post_types(), true );
+		return in_array( $post_type, gt_page_blocks_builder_post_types(), true );
 	}
 
 	/**
@@ -716,7 +783,7 @@ class GT_Page_Blocks_Builder {
 			return false;
 		}
 
-		if ( empty( $nonce ) || ! wp_verify_nonce( $nonce, md_page_blocks_builder_nonce_action( $post_id ) ) ) {
+		if ( empty( $nonce ) || ! wp_verify_nonce( $nonce, gt_page_blocks_builder_nonce_action( $post_id ) ) ) {
 			return false;
 		}
 
@@ -1102,8 +1169,8 @@ class GT_Page_Blocks_Builder {
 			return false;
 		}
 
-		$valid_nonce = wp_verify_nonce( $nonce, md_page_blocks_preview_nonce_action( $post_id ) )
-			|| wp_verify_nonce( $nonce, md_page_blocks_builder_nonce_action( $post_id ) );
+		$valid_nonce = wp_verify_nonce( $nonce, gt_page_blocks_preview_nonce_action( $post_id ) )
+			|| wp_verify_nonce( $nonce, gt_page_blocks_builder_nonce_action( $post_id ) );
 
 		if ( ! $valid_nonce ) {
 			return false;
@@ -1650,7 +1717,7 @@ class GT_Page_Blocks_Builder {
 			return;
 		}
 
-		$builder_url = md_page_blocks_builder_url( $post_id, wp_create_nonce( md_page_blocks_builder_nonce_action( $post_id ) ) );
+		$builder_url = gt_page_blocks_builder_url( $post_id, wp_create_nonce( gt_page_blocks_builder_nonce_action( $post_id ) ) );
 
 		$node = array(
 			'id'    => 'gt-page-blocks-builder',
@@ -1677,7 +1744,7 @@ class GT_Page_Blocks_Builder {
 			return;
 		}
 
-		if ( ! in_array( $screen->post_type, md_page_blocks_builder_post_types(), true ) ) {
+		if ( ! in_array( $screen->post_type, gt_page_blocks_builder_post_types(), true ) ) {
 			return;
 		}
 
@@ -2471,7 +2538,7 @@ class GT_Page_Blocks_Builder {
 			'objects'
 		);
 
-		$enabled = md_page_blocks_builder_post_types();
+		$enabled = gt_page_blocks_builder_post_types();
 		include GT_PB_BUILDER_DIR . 'templates/settings-page.php';
 	}
 
@@ -3065,7 +3132,7 @@ class GT_Page_Blocks_Builder {
 			return;
 		}
 
-		if ( ! in_array( $post->post_type, md_page_blocks_builder_post_types(), true ) ) {
+		if ( ! in_array( $post->post_type, gt_page_blocks_builder_post_types(), true ) ) {
 			return;
 		}
 
