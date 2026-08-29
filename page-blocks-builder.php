@@ -2126,6 +2126,12 @@ class GT_Page_Blocks_Builder {
 		?>
 		<div class="wrap">
 			<h1 class="wp-heading-inline"><?php esc_html_e( 'Page Blocks', 'page-blocks-builder' ); ?></h1>
+			<a href="<?php echo esc_url( admin_url( 'admin.php?page=gt_pb_edit&action=new' ) ); ?>" class="page-title-action">
+				<?php esc_html_e( 'Add New', 'page-blocks-builder' ); ?>
+			</a>
+			<a href="<?php echo esc_url( admin_url( 'admin.php?page=gt_page_blocks&view=list' ) ); ?>" class="page-title-action">
+				<?php esc_html_e( 'List view', 'page-blocks-builder' ); ?>
+			</a>
 			<hr class="wp-header-end">
 
 			<?php $this->render_admin_notices(); ?>
@@ -2379,6 +2385,14 @@ class GT_Page_Blocks_Builder {
 					'createFirst'       => __( 'Create your first block', 'page-blocks-builder' ),
 					'emptyFiltered'     => __( 'No blocks match', 'page-blocks-builder' ),
 					'emptyFilteredHint' => __( 'Try a different search or filter.', 'page-blocks-builder' ),
+					// Shown in place of a thumbnail when a block has no markup
+					// to render.
+					'previewCssOnly'    => __( 'CSS only', 'page-blocks-builder' ),
+					'previewJsOnly'     => __( 'JavaScript only', 'page-blocks-builder' ),
+					'previewPhpOnly'    => __( 'PHP only', 'page-blocks-builder' ),
+					'previewEmpty'      => __( 'Nothing to preview', 'page-blocks-builder' ),
+					'searchLabel'       => __( 'Search blocks', 'page-blocks-builder' ),
+					'searchSubmit'      => __( 'Search', 'page-blocks-builder' ),
 				),
 			) );
 		}

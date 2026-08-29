@@ -108,6 +108,34 @@
 
 	/* ── Preview thumbnails ── */
 
+	// Preview documents are held here, keyed by block id.
+	//
+	// They used to travel in a data-doc attribute, escaped with a helper that
+	// encodes &, < and > but not quotes — so every document was cut off at the
+	// first one, which is in <meta charset="utf-8">. Every thumbnail in the
+	// library was an empty frame for that reason.
+	var previewDocs = {};
+
+	/** What a block can actually show in a thumbnail. */
+	function previewKind( item ) {
+		var html = String( item.content || '' ).replace( /<\?(?:php|=)?[\s\S]*?(?:\?>|$)/g, '' );
+
+		if ( html.trim() ) {
+			return 'html';
+		}
+		if ( item.php_exec && String( item.content || '' ).trim() ) {
+			return 'php';
+		}
+		if ( String( item.css || '' ).trim() ) {
+			return 'css';
+		}
+		if ( String( item.js || '' ).trim() ) {
+			return 'js';
+		}
+
+		return 'empty';
+	}
+
 	function buildPreviewDoc( item ) {
 		var themeLinks = '';
 		var styles = config.previewStyles || [];
@@ -128,17 +156,50 @@
 			if ( ! entry.isIntersecting ) return;
 			var holder = entry.target;
 			observer.unobserve( holder );
-			var doc = holder.getAttribute( 'data-doc' );
-			if ( ! doc ) return;
-			var frame = document.createElement( 'iframe' );
-			frame.className = 'gt-pb-card-frame';
-			frame.setAttribute( 'tabindex', '-1' );
-			frame.setAttribute( 'loading', 'lazy' );
-			frame.srcdoc = doc;
-			holder.appendChild( frame );
-			holder.removeAttribute( 'data-doc' );
+			mountPreview( holder );
 		} );
 	}, { rootMargin: '200px' } ) : null;
+
+	/**
+	 * Put a block's rendered thumbnail into its card.
+	 *
+	 * The frame renders at a desktop width and is scaled down, so the preview
+	 * reads as a small page rather than a page squeezed into 300px — a layout
+	 * built for 1100px would otherwise show its mobile breakpoint here.
+	 */
+	function mountPreview( holder ) {
+		var id = holder.getAttribute( 'data-preview' );
+		var doc = id ? previewDocs[ id ] : '';
+
+		if ( ! doc || holder.querySelector( 'iframe' ) ) {
+			return;
+		}
+
+		var frame = document.createElement( 'iframe' );
+		frame.className = 'gt-pb-card-frame';
+		frame.setAttribute( 'tabindex', '-1' );
+		frame.setAttribute( 'loading', 'lazy' );
+		frame.setAttribute( 'sandbox', 'allow-same-origin' );
+		frame.setAttribute( 'aria-hidden', 'true' );
+		frame.srcdoc = doc;
+		holder.appendChild( frame );
+		scalePreview( holder );
+	}
+
+	var PREVIEW_WIDTH = 1200;
+
+	function scalePreview( holder ) {
+		var width = holder.clientWidth;
+		if ( width ) {
+			holder.style.setProperty( '--gt-pb-thumb-scale', ( width / PREVIEW_WIDTH ).toFixed( 4 ) );
+		}
+	}
+
+	function scaleAllPreviews() {
+		root.querySelectorAll( '.gt-pb-card-thumb' ).forEach( scalePreview );
+	}
+
+	window.addEventListener( 'resize', scaleAllPreviews );
 
 	/* ── Rendering ── */
 
@@ -177,10 +238,19 @@
 			{ key: 'draft', label: config.i18n.drafts, count: state.counts.draft },
 			{ key: 'trash', label: config.i18n.trash, count: state.counts.trash }
 		];
-		return '<div class="gt-pb-tabs" role="tablist">' + tabs.map( function( tab ) {
-			return '<button type="button" role="tab" class="gt-pb-filter' + ( state.status === tab.key ? ' is-active' : '' ) + '" data-status="' + tab.key + '" aria-selected="' + ( state.status === tab.key ? 'true' : 'false' ) + '">' +
-				esc( tab.label ) + ' <span class="gt-pb-count">' + tab.count + '</span></button>';
-		} ).join( '' ) + '</div>';
+		// ul.subsubsub is the status filter every WordPress list screen uses.
+		// A segmented pill control here was the one piece of this page that
+		// looked like it came from another product.
+		return '<ul class="subsubsub">' + tabs.map( function( tab, i ) {
+			var current = state.status === tab.key;
+			return '<li>' +
+				'<button type="button" class="button-link gt-pb-filter' + ( current ? ' current' : '' ) + '"' +
+					' data-status="' + tab.key + '"' + ( current ? ' aria-current="page"' : '' ) + '>' +
+					esc( tab.label ) + ' <span class="count">(' + tab.count + ')</span>' +
+				'</button>' +
+				( i < tabs.length - 1 ? ' |' : '' ) +
+			'</li>';
+		} ).join( ' ' ) + '</ul>';
 	}
 
 	function renderCard( item ) {
@@ -195,22 +265,48 @@
 			badges += '<span class="gt-pb-chip gt-pb-chip--position" title="' + esc( item.position ) + '">&#x1F4CD; ' + esc( posLabel ) + '</span>';
 		}
 
+		// Row actions, the way every WordPress list screen writes them:
+		// quiet links separated by pipes, destructive one last and red.
 		var actions;
 		if ( item.status === 'trash' ) {
 			actions =
-				'<button type="button" class="button button-small" data-action="restore">' + esc( config.i18n.restore ) + '</button>' +
-				'<button type="button" class="button button-small gt-pb-danger" data-action="delete">' + esc( config.i18n.deleteForever ) + '</button>';
+				'<span><button type="button" class="button-link" data-action="restore">' + esc( config.i18n.restore ) + '</button></span>' +
+				'<span class="delete"><button type="button" class="button-link" data-action="delete">' + esc( config.i18n.deleteForever ) + '</button></span>';
 		} else {
 			actions =
-				'<a class="button button-small" href="' + esc( config.editUrl + item.id ) + '">' + esc( config.i18n.edit ) + '</a>' +
-				'<button type="button" class="button button-small" data-action="duplicate">' + esc( config.i18n.duplicate ) + '</button>' +
-				'<button type="button" class="button button-small" data-action="shortcode" title="[page_block id=&quot;' + item.id + '&quot;]">' + esc( config.i18n.shortcode ) + '</button>' +
-				'<button type="button" class="button button-small gt-pb-danger" data-action="trash">' + esc( config.i18n.toTrash ) + '</button>';
+				'<span><a href="' + esc( config.editUrl + item.id ) + '">' + esc( config.i18n.edit ) + '</a></span>' +
+				'<span><button type="button" class="button-link" data-action="duplicate">' + esc( config.i18n.duplicate ) + '</button></span>' +
+				'<span><button type="button" class="button-link" data-action="shortcode" title="[page_block id=&quot;' + item.id + '&quot;]">' + esc( config.i18n.shortcode ) + '</button></span>' +
+				'<span class="trash"><button type="button" class="button-link" data-action="trash">' + esc( config.i18n.toTrash ) + '</button></span>';
+		}
+
+		var kind = previewKind( item );
+		var thumb;
+
+		if ( 'html' === kind ) {
+			previewDocs[ item.id ] = buildPreviewDoc( item );
+			thumb = '<div class="gt-pb-card-thumb" data-preview="' + item.id + '"></div>';
+		} else {
+			// A block with no markup has nothing to render. Say which kind of
+			// block it is rather than showing an empty white rectangle and
+			// letting it read as a broken preview.
+			var fallbacks = {
+				css:   { icon: 'admin-appearance', label: config.i18n.previewCssOnly },
+				js:    { icon: 'editor-code',      label: config.i18n.previewJsOnly },
+				php:   { icon: 'editor-code',      label: config.i18n.previewPhpOnly },
+				empty: { icon: 'media-default',    label: config.i18n.previewEmpty }
+			};
+			var fb = fallbacks[ kind ] || fallbacks.empty;
+			thumb =
+				'<div class="gt-pb-card-thumb is-fallback">' +
+					'<span class="dashicons dashicons-' + fb.icon + '" aria-hidden="true"></span>' +
+					'<span class="gt-pb-thumb-note">' + esc( fb.label ) + '</span>' +
+				'</div>';
 		}
 
 		return '<article class="gt-pb-card" data-id="' + item.id + '">' +
 			'<a class="gt-pb-card-preview" href="' + esc( config.editUrl + item.id ) + '" aria-label="' + esc( item.title ) + '">' +
-				'<div class="gt-pb-card-thumb" data-doc="' + esc( buildPreviewDoc( item ) ) + '"></div>' +
+				thumb +
 			'</a>' +
 			'<div class="gt-pb-card-body">' +
 				'<div class="gt-pb-card-head">' +
@@ -227,10 +323,11 @@
 		var html =
 			'<div class="gt-pb-lib-toolbar">' +
 				renderTabs() +
-				'<div class="gt-pb-lib-tools">' +
-					'<input type="search" class="gt-pb-search" placeholder="' + esc( config.i18n.searchPlaceholder ) + '" value="' + esc( state.search ) + '">' +
-					'<a class="button button-primary" href="' + esc( config.newUrl ) + '">' + esc( config.i18n.addNew ) + '</a>' +
-				'</div>' +
+				'<p class="search-box">' +
+					'<label class="screen-reader-text" for="gt-pb-search-input">' + esc( config.i18n.searchLabel ) + '</label>' +
+					'<input type="search" id="gt-pb-search-input" class="gt-pb-search" ' +
+						'placeholder="' + esc( config.i18n.searchPlaceholder ) + '" value="' + esc( state.search ) + '">' +
+				'</p>' +
 			'</div>';
 
 		if ( state.loading && ! state.items.length ) {
@@ -252,19 +349,15 @@
 
 		root.innerHTML = html;
 
+		scaleAllPreviews();
+
 		// Observe thumbnails for lazy preview loading.
 		if ( observer ) {
-			root.querySelectorAll( '.gt-pb-card-thumb[data-doc]' ).forEach( function( holder ) {
+			root.querySelectorAll( '.gt-pb-card-thumb[data-preview]' ).forEach( function( holder ) {
 				observer.observe( holder );
 			} );
 		} else {
-			root.querySelectorAll( '.gt-pb-card-thumb[data-doc]' ).forEach( function( holder ) {
-				var frame = document.createElement( 'iframe' );
-				frame.className = 'gt-pb-card-frame';
-				frame.srcdoc = holder.getAttribute( 'data-doc' );
-				holder.appendChild( frame );
-				holder.removeAttribute( 'data-doc' );
-			} );
+			root.querySelectorAll( '.gt-pb-card-thumb[data-preview]' ).forEach( mountPreview );
 		}
 
 		bindEvents();

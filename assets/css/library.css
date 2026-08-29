@@ -12,108 +12,125 @@
 
 .gt-pb-lib-toolbar {
 	display: flex;
-	align-items: center;
+	align-items: flex-end;
 	justify-content: space-between;
 	gap: 16px;
 	flex-wrap: wrap;
-	margin-bottom: 16px;
+	margin-bottom: 12px;
 }
 
-.gt-pb-tabs {
-	display: flex;
-	gap: 4px;
-	background: #fff;
-	border: 1px solid #dcdcde;
-	border-radius: 8px;
-	padding: 3px;
+/* The filters are a WordPress subsubsub list; these few rules only make the
+   buttons inside it sit like the links it normally holds. */
+.gt-pb-lib-toolbar .subsubsub {
+	margin: 8px 0 0;
+	float: none;
 }
 
 .gt-pb-filter {
-	border: 0;
-	background: transparent;
-	padding: 6px 12px;
-	border-radius: 6px;
 	font-size: 13px;
-	color: #50575e;
+	line-height: 2;
+	text-decoration: none;
+	color: #2271b1;
 	cursor: pointer;
-	transition: background-color 0.15s ease, color 0.15s ease;
 }
 
 .gt-pb-filter:hover {
-	color: #1e1e1e;
-	background: #f0f0f1;
+	color: #135e96;
 }
 
-.gt-pb-filter.is-active {
-	background: #3858e9;
-	color: #fff;
+.gt-pb-filter.current {
+	color: #000;
+	font-weight: 600;
 }
 
-.gt-pb-count {
-	opacity: 0.7;
-	font-size: 11px;
-}
-
-.gt-pb-lib-tools {
-	display: flex;
-	align-items: center;
-	gap: 8px;
+.gt-pb-lib-toolbar .search-box {
+	margin: 0;
+	float: none;
 }
 
 .gt-pb-search {
-	min-width: 260px;
-	padding: 6px 12px;
-	border-radius: 8px;
+	min-width: 280px;
 }
 
 /* ── Grid ── */
 
 .gt-pb-grid {
 	display: grid;
-	grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+	grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
 	gap: 16px;
 }
 
 .gt-pb-card {
 	background: #fff;
-	border: 1px solid #dcdcde;
-	border-radius: 10px;
+	border: 1px solid #c3c4c7;
+	border-radius: 2px;
 	overflow: hidden;
 	display: flex;
 	flex-direction: column;
-	transition: box-shadow 0.18s ease, transform 0.18s ease;
+	transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
 
 .gt-pb-card:hover {
-	box-shadow: 0 6px 20px rgba(20, 30, 60, 0.1);
-	transform: translateY(-2px);
+	border-color: #2271b1;
+	box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
 }
 
 .gt-pb-card-preview {
 	display: block;
 	text-decoration: none;
+	box-shadow: none;
 }
 
+/* A window onto the block, not a container for it. The frame inside renders
+   at a desktop width and is scaled to fit, so what you see is the layout the
+   block actually produces rather than its mobile breakpoint. */
 .gt-pb-card-thumb {
 	position: relative;
-	height: 170px;
-	background:
-		linear-gradient(45deg, #f6f7f7 25%, transparent 25%, transparent 75%, #f6f7f7 75%),
-		linear-gradient(45deg, #f6f7f7 25%, #fcfcfc 25%, #fcfcfc 75%, #f6f7f7 75%);
-	background-size: 20px 20px;
-	background-position: 0 0, 10px 10px;
-	border-bottom: 1px solid #f0f0f1;
+	aspect-ratio: 4 / 3;
+	background: #f6f7f7;
+	border-bottom: 1px solid #dcdcde;
 	overflow: hidden;
 }
 
 .gt-pb-card-frame {
-	width: 200%;
-	height: 200%;
+	width: 1200px;
+	height: 900px;
 	border: 0;
-	transform: scale(0.5);
-	transform-origin: 0 0;
-	pointer-events: none;
 	background: #fff;
+	pointer-events: none;
+	transform: scale(var(--gt-pb-thumb-scale, 0.25));
+	transform-origin: 0 0;
+}
+
+/* Nothing to render: say which kind of block it is instead of showing an
+   empty white rectangle that reads as a broken preview. */
+.gt-pb-card-thumb.is-fallback {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	justify-content: center;
+	gap: 6px;
+	color: #a7aaad;
+	background:
+		repeating-linear-gradient(
+			45deg,
+			#f6f7f7 0,
+			#f6f7f7 8px,
+			#fbfbfc 8px,
+			#fbfbfc 16px
+		);
+}
+
+.gt-pb-card-thumb.is-fallback .dashicons {
+	font-size: 28px;
+	width: 28px;
+	height: 28px;
+}
+
+.gt-pb-thumb-note {
+	font-size: 11px;
+	color: #787c82;
+	letter-spacing: 0.02em;
 }
 
 .gt-pb-card-body {
@@ -140,11 +157,11 @@
 
 .gt-pb-card-title a {
 	text-decoration: none;
-	color: #1e1e1e;
+	color: #2271b1;
 }
 
 .gt-pb-card-title a:hover {
-	color: #3858e9;
+	color: #135e96;
 }
 
 .gt-pb-card-time {
@@ -162,9 +179,9 @@
 
 .gt-pb-card-meta code {
 	font-size: 11px;
-	background: #f6f7f7;
+	background: #f0f0f1;
 	padding: 1px 6px;
-	border-radius: 4px;
+	border-radius: 2px;
 	color: #50575e;
 }
 
@@ -174,9 +191,9 @@
 	font-size: 10px;
 	font-weight: 600;
 	letter-spacing: 0.04em;
-	border-radius: 999px;
-	background: #eef2ff;
-	color: #3858e9;
+	border-radius: 2px;
+	background: #f0f0f1;
+	color: #50575e;
 	line-height: 1.6;
 }
 
@@ -195,32 +212,59 @@
 	color: #007017;
 }
 
+/* Row actions, as on every WordPress list screen: quiet links, pipe
+   separators, destructive one red. Three outlined buttons per card put more
+   weight on the actions than on the block they act upon. */
 .gt-pb-card-actions {
-	display: flex;
-	gap: 6px;
-	flex-wrap: wrap;
 	margin-top: auto;
-	padding-top: 4px;
+	padding-top: 2px;
+	font-size: 13px;
+	color: #646970;
 }
 
-.gt-pb-danger {
-	color: #b32d2e !important;
-	border-color: transparent !important;
-	background: transparent !important;
-	box-shadow: none !important;
+.gt-pb-card-actions span {
+	white-space: nowrap;
 }
 
-.gt-pb-danger:hover {
-	color: #fff !important;
-	background: #b32d2e !important;
+.gt-pb-card-actions span::after {
+	content: " | ";
+	color: #c3c4c7;
+}
+
+.gt-pb-card-actions span:last-child::after {
+	content: "";
+}
+
+.gt-pb-card-actions .button-link,
+.gt-pb-card-actions a {
+	color: #2271b1;
+	text-decoration: none;
+	font-size: 13px;
+	cursor: pointer;
+}
+
+.gt-pb-card-actions .button-link:hover,
+.gt-pb-card-actions a:hover {
+	color: #135e96;
+	text-decoration: underline;
+}
+
+.gt-pb-card-actions .trash .button-link,
+.gt-pb-card-actions .delete .button-link {
+	color: #b32d2e;
+}
+
+.gt-pb-card-actions .trash .button-link:hover,
+.gt-pb-card-actions .delete .button-link:hover {
+	color: #8c1f1f;
 }
 
 /* ── Empty state ── */
 
 .gt-pb-lib-empty {
 	background: #fff;
-	border: 1px dashed #c3c4c7;
-	border-radius: 12px;
+	border: 1px solid #c3c4c7;
+	border-radius: 2px;
 	padding: 64px 24px;
 	text-align: center;
 	color: #50575e;
@@ -258,7 +302,7 @@
 	background: #1e1e1e;
 	color: #fff;
 	padding: 10px 18px;
-	border-radius: 8px;
+	border-radius: 2px;
 	font-size: 13px;
 	box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
 	opacity: 0;
