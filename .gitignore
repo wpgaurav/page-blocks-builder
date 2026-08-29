@@ -9,3 +9,9 @@ composer.json
 composer.lock
 phpstan.neon
 phpcs.xml
+
+# Per-release operational scripts. They are run once against the live store
+# and never packaged (the release workflow copies an allowlist), so they are
+# working files rather than source. Write them here if you like; git will not
+# carry them.
+__release-*/
