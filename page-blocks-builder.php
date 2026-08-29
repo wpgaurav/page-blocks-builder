@@ -3,7 +3,7 @@
  * Plugin Name: GT Page Blocks Builder
  * Plugin URI: https://gauravtiwari.org/product/gt-page-blocks-builder/
  * Description: Standalone visual Page Blocks builder with HTML/CSS/JS sections synced to Gutenberg block content.
- * Version: 2.7.5
+ * Version: 2.8.0
  * Author: Gaurav Tiwari
  * Author URI: https://gauravtiwari.org
  * Text Domain: page-blocks-builder
@@ -14,7 +14,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 if ( ! defined( 'GT_PB_BUILDER_VERSION' ) ) {
-	define( 'GT_PB_BUILDER_VERSION', '2.7.5' );
+	define( 'GT_PB_BUILDER_VERSION', '2.8.0' );
 }
 
 if ( ! defined( 'GT_PB_BUILDER_FILE' ) ) {
@@ -466,6 +466,9 @@ class GT_Page_Blocks_Builder {
 
 		if ( ! wp_is_block_theme() ) {
 			add_filter( 'theme_page_templates', array( $this, 'register_page_templates' ) );
+			// A usage tally is only as good as the content it counted.
+			add_action( 'save_post', array( __CLASS__, 'flush_block_usage_counts' ) );
+			add_action( 'deleted_post', array( __CLASS__, 'flush_block_usage_counts' ) );
 			add_filter( 'template_include', array( $this, 'load_page_template' ) );
 			add_action( 'wp_head', array( $this, 'output_template_styles' ) );
 		}
@@ -579,7 +582,7 @@ class GT_Page_Blocks_Builder {
 			wp_enqueue_script(
 				'gt-page-block-editor',
 				GT_PB_BUILDER_URL . 'assets/js/block-editor.js',
-				array( 'wp-blocks', 'wp-element', 'wp-block-editor', 'wp-components', 'wp-i18n', 'wp-data', 'wp-api-fetch', 'code-editor', 'wp-codemirror' ),
+				array( 'wp-blocks', 'wp-element', 'wp-block-editor', 'wp-components', 'wp-i18n', 'wp-data', 'wp-api-fetch', 'wp-plugins', 'wp-editor', 'code-editor', 'wp-codemirror' ),
 				filemtime( $script_path ),
 				true
 			);
@@ -613,6 +616,12 @@ class GT_Page_Blocks_Builder {
 					'libraryNonce'       => wp_create_nonce( 'gt_pb_save_to_library' ),
 					'libraryEditUrl'     => admin_url( 'admin.php?page=gt_pb_edit&id=' ),
 					'restUrl'            => esc_url_raw( rest_url( gt_pb_rest_api::REST_NAMESPACE ) ),
+					// The visual builder, reachable from the editor. Its nonce
+					// is bound to this user, so it is minted here rather than
+					// assembled in the browser.
+					'builderUrl'         => $this->can_access_builder( $post_id, wp_create_nonce( gt_page_blocks_builder_nonce_action( $post_id ) ) )
+						? gt_page_blocks_builder_url( $post_id, wp_create_nonce( gt_page_blocks_builder_nonce_action( $post_id ) ) )
+						: '',
 				)
 			);
 		}
@@ -1966,6 +1975,72 @@ class GT_Page_Blocks_Builder {
 		) );
 	}
 
+	/** How long a usage tally stays good for. */
+	const USAGE_CACHE_TTL = 300;
+
+	/**
+	 * How many posts reference each library block.
+	 *
+	 * Counted in one pass over the posts that mention a page block at all,
+	 * rather than a LIKE per block — a library of two hundred blocks would
+	 * otherwise mean two hundred full-table scans to draw one screen. The
+	 * result is cached briefly and dropped whenever a post or a block changes.
+	 *
+	 * Both ways of placing a block count: the editor block, which carries
+	 * "blockId":N, and the [page_block id="N"] shortcode.
+	 *
+	 * @return array<int,int> Block id => number of posts using it.
+	 */
+	public static function get_block_usage_counts() {
+		$cached = get_transient( 'gt_pb_usage_counts' );
+		if ( is_array( $cached ) ) {
+			return $cached;
+		}
+
+		global $wpdb;
+
+		$rows = $wpdb->get_col(
+			"SELECT post_content FROM {$wpdb->posts}
+			 WHERE post_status NOT IN ('auto-draft', 'inherit')
+			   AND post_type NOT IN ('revision')
+			   AND ( post_content LIKE '%blockId%' OR post_content LIKE '%page_block%' )"
+		);
+
+		$counts = array();
+
+		foreach ( (array) $rows as $content ) {
+			$seen = array();
+
+			if ( preg_match_all( '/"blockId"\s*:\s*(\d+)/', (string) $content, $m ) ) {
+				foreach ( $m[1] as $id ) {
+					$seen[ (int) $id ] = true;
+				}
+			}
+
+			if ( preg_match_all( '/\[page_block[^\]]*\bid\s*=\s*["\']?(\d+)/', (string) $content, $m ) ) {
+				foreach ( $m[1] as $id ) {
+					$seen[ (int) $id ] = true;
+				}
+			}
+
+			// Counted once per post, not once per placement: the question the
+			// number answers is "where would deleting this break something".
+			foreach ( array_keys( $seen ) as $id ) {
+				if ( $id > 0 ) {
+					$counts[ $id ] = ( $counts[ $id ] ?? 0 ) + 1;
+				}
+			}
+		}
+
+		set_transient( 'gt_pb_usage_counts', $counts, self::USAGE_CACHE_TTL );
+
+		return $counts;
+	}
+
+	public static function flush_block_usage_counts() {
+		delete_transient( 'gt_pb_usage_counts' );
+	}
+
 	/**
 	 * Models the AI assistant offers.
 	 *
@@ -2128,9 +2203,6 @@ class GT_Page_Blocks_Builder {
 			<h1 class="wp-heading-inline"><?php esc_html_e( 'Page Blocks', 'page-blocks-builder' ); ?></h1>
 			<a href="<?php echo esc_url( admin_url( 'admin.php?page=gt_pb_edit&action=new' ) ); ?>" class="page-title-action">
 				<?php esc_html_e( 'Add New', 'page-blocks-builder' ); ?>
-			</a>
-			<a href="<?php echo esc_url( admin_url( 'admin.php?page=gt_page_blocks&view=list' ) ); ?>" class="page-title-action">
-				<?php esc_html_e( 'List view', 'page-blocks-builder' ); ?>
 			</a>
 			<hr class="wp-header-end">
 
@@ -2325,6 +2397,18 @@ class GT_Page_Blocks_Builder {
 	 * Enqueue admin assets on Page Blocks admin pages.
 	 */
 	public function enqueue_admin_assets( $hook ) {
+		// The settings screen had no stylesheet of its own, which is how it
+		// ended up carrying its layout in style attributes.
+		if ( strpos( $hook, 'gt_pb_settings' ) !== false ) {
+			wp_enqueue_style(
+				'gt-pb-settings',
+				GT_PB_BUILDER_URL . 'assets/css/settings.css',
+				array(),
+				GT_PB_BUILDER_VERSION
+			);
+			return;
+		}
+
 		// Match our admin pages: toplevel_page_gt_page_blocks or page-blocks_page_gt_pb_*
 		if ( strpos( $hook, 'gt_page_blocks' ) === false && strpos( $hook, 'gt_pb_edit' ) === false ) {
 			return;
@@ -2393,6 +2477,34 @@ class GT_Page_Blocks_Builder {
 					'previewEmpty'      => __( 'Nothing to preview', 'page-blocks-builder' ),
 					'searchLabel'       => __( 'Search blocks', 'page-blocks-builder' ),
 					'searchSubmit'      => __( 'Search', 'page-blocks-builder' ),
+					'usedOnePage'       => __( 'page', 'page-blocks-builder' ),
+					'usedManyPages'     => __( 'pages', 'page-blocks-builder' ),
+					'usedTitle'         => __( 'Posts and pages that place this block', 'page-blocks-builder' ),
+					'unused'            => __( 'Unused', 'page-blocks-builder' ),
+					'unusedTitle'       => __( 'Nothing on this site places this block', 'page-blocks-builder' ),
+					'copyShortcode'     => __( 'Copy shortcode', 'page-blocks-builder' ),
+					'previewWidth'      => __( 'Preview width', 'page-blocks-builder' ),
+					'sortBy'            => __( 'Sort by', 'page-blocks-builder' ),
+					'sortRecent'        => __( 'Recently updated', 'page-blocks-builder' ),
+					'sortTitle'         => __( 'Title A–Z', 'page-blocks-builder' ),
+					'sortMostUsed'      => __( 'Most used', 'page-blocks-builder' ),
+					'sortLeastUsed'     => __( 'Least used', 'page-blocks-builder' ),
+					'viewMode'          => __( 'View', 'page-blocks-builder' ),
+					'viewGrid'          => __( 'Grid view', 'page-blocks-builder' ),
+					'viewList'          => __( 'List view', 'page-blocks-builder' ),
+					'selectAll'         => __( 'Select all', 'page-blocks-builder' ),
+					'selected'          => __( 'selected', 'page-blocks-builder' ),
+					'clearSelection'    => __( 'Clear', 'page-blocks-builder' ),
+					'bulkTrashConfirm'  => __( 'Move %d block(s) to trash?', 'page-blocks-builder' ),
+					'bulkDeleteConfirm' => __( 'Permanently delete %d block(s)? This cannot be undone.', 'page-blocks-builder' ),
+					'bulkDone'          => __( '%d block(s) updated.', 'page-blocks-builder' ),
+					'bulkPartly'        => __( '%1$d updated, %2$d failed.', 'page-blocks-builder' ),
+					'colTitle'          => __( 'Title', 'page-blocks-builder' ),
+					'colSlug'           => __( 'Slug', 'page-blocks-builder' ),
+					'colContains'       => __( 'Contains', 'page-blocks-builder' ),
+					'colUsage'          => __( 'Used on', 'page-blocks-builder' ),
+					'colShortcode'      => __( 'Shortcode', 'page-blocks-builder' ),
+					'colUpdated'        => __( 'Updated', 'page-blocks-builder' ),
 				),
 			) );
 		}

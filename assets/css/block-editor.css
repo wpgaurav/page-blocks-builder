@@ -352,7 +352,14 @@
 
 /* Secondary button, matching .components-button.is-secondary. */
 .md-page-block-bar-btn {
-	padding: 4px 10px;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	flex: 0 0 auto;
+	box-sizing: border-box;
+	height: 28px;
+	min-height: 28px;
+	padding: 0 10px;
 	border: 0;
 	border-radius: var(--pb-editor-radius);
 	box-shadow: inset 0 0 0 1px var(--pb-editor-border-strong);
@@ -361,7 +368,7 @@
 	font-family: inherit;
 	font-size: 12px;
 	font-weight: 400;
-	line-height: 1.8;
+	line-height: 1;
 	cursor: pointer;
 	white-space: nowrap;
 	transition: box-shadow 0.1s ease, background-color 0.1s ease, color 0.1s ease;
@@ -432,12 +439,35 @@
 	gap: 0;
 }
 
+/* 14px in a 28px button reads as a glyph rather than an icon; WordPress'
+   own toolbar icons are 18-20px. Declared once — there were two rules for
+   this, and the later one silently won. */
+.md-page-block-ctrl .dashicons,
+.md-page-block-ctrl svg {
+	display: block;
+	width: 18px;
+	height: 18px;
+	font-size: 18px;
+	line-height: 1;
+}
+
+/* One height for everything in this bar.
+   The icon buttons were 26px and the text buttons 29.6px — the latter not
+   chosen but inherited, since padding plus a 1.8 line-height is whatever the
+   editor's font metrics make it. WordPress 7 changed those metrics, so the
+   two drifted apart. Both are pinned now, and neither depends on
+   line-height. */
 .md-page-block-ctrl {
 	display: inline-flex;
 	align-items: center;
 	justify-content: center;
-	width: 26px;
-	height: 26px;
+	flex: 0 0 auto;
+	box-sizing: border-box;
+	width: 28px;
+	height: 28px;
+	min-height: 28px;
+	padding: 0;
+	line-height: 1;
 	border: 0;
 	border-radius: var(--pb-editor-radius);
 	background: transparent;
@@ -461,11 +491,7 @@
 	outline-offset: -1px;
 }
 
-.md-page-block-ctrl .dashicons {
-	font-size: 14px;
-	width: 14px;
-	height: 14px;
-}
+
 
 /* Responsive viewport well */
 

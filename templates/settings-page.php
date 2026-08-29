@@ -14,7 +14,7 @@ $load_reset          = (bool) get_option( 'gt_pb_load_reset', false );
 $load_typography     = (bool) get_option( 'gt_pb_load_typography', false );
 $load_utilities      = (bool) get_option( 'gt_pb_load_utilities', false );
 ?>
-<div class="wrap">
+<div class="wrap gt-pb-settings">
 	<h1><?php esc_html_e( 'Page Blocks Builder', 'page-blocks-builder' ); ?></h1>
 	<p><?php esc_html_e( 'Configure where the frontend visual builder is available, your AI providers, and preview customization.', 'page-blocks-builder' ); ?></p>
 
@@ -31,7 +31,7 @@ $load_utilities      = (bool) get_option( 'gt_pb_load_utilities', false );
 							continue;
 						}
 						?>
-						<label style="display:block;margin-bottom:6px;">
+						<label class="gt-pb-setting-choice">
 							<input type="checkbox" name="<?php echo esc_attr( GT_PB_BUILDER_OPTION_POST_TYPES ); ?>[<?php echo esc_attr( $post_type->name ); ?>]" value="1" <?php checked( in_array( $post_type->name, $enabled, true ) ); ?>>
 							<?php echo esc_html( $post_type->label . ' (' . $post_type->name . ')' ); ?>
 						</label>
@@ -39,7 +39,14 @@ $load_utilities      = (bool) get_option( 'gt_pb_load_utilities', false );
 				</td>
 			</tr>
 
-			<tr><td colspan="2"><h2 style="margin-top: 1em;"><?php esc_html_e( 'Frontend CSS', 'page-blocks-builder' ); ?></h2><p class="description"><?php esc_html_e( 'Optional CSS layers loaded inline on the frontend. Both are theme-agnostic and load only what\'s needed.', 'page-blocks-builder' ); ?></p></td></tr>
+			</tbody>
+		</table>
+
+		<h2 class="title"><?php esc_html_e( 'Frontend CSS', 'page-blocks-builder' ); ?></h2>
+		<p class="description"><?php esc_html_e( 'Optional CSS layers loaded inline on the frontend. Both are theme-agnostic and load only what\'s needed.', 'page-blocks-builder' ); ?></p>
+
+		<table class="form-table" role="presentation">
+			<tbody>
 			<tr>
 				<th scope="row"><?php esc_html_e( 'Semantic Reset', 'page-blocks-builder' ); ?></th>
 				<td>
@@ -75,7 +82,14 @@ $load_utilities      = (bool) get_option( 'gt_pb_load_utilities', false );
 				</td>
 			</tr>
 
-			<tr><td colspan="2"><h2 style="margin-top: 1em;"><?php esc_html_e( 'AI Integration', 'page-blocks-builder' ); ?></h2><p class="description"><?php esc_html_e( 'Configure AI providers for the builder\'s code generation chat sidebar (Cmd+K).', 'page-blocks-builder' ); ?></p></td></tr>
+			</tbody>
+		</table>
+
+		<h2 class="title"><?php esc_html_e( 'AI Integration', 'page-blocks-builder' ); ?></h2>
+		<p class="description"><?php esc_html_e( 'Configure AI providers for the builder\'s code generation chat sidebar (Cmd+K).', 'page-blocks-builder' ); ?></p>
+
+		<table class="form-table" role="presentation">
+			<tbody>
 			<tr>
 				<th scope="row"><label for="gt_pb_ai_openai_key"><?php esc_html_e( 'OpenAI API Key', 'page-blocks-builder' ); ?></label></th>
 				<td>
@@ -126,7 +140,14 @@ $load_utilities      = (bool) get_option( 'gt_pb_load_utilities', false );
 				</td>
 			</tr>
 
-			<tr><td colspan="2"><h2 style="margin-top: 1em;"><?php esc_html_e( 'Preview Customization', 'page-blocks-builder' ); ?></h2><p class="description"><?php esc_html_e( 'Add custom CSS, HTML, or JS to the builder preview iframe. Use this for custom fonts, design tokens, or scripts the preview needs.', 'page-blocks-builder' ); ?></p></td></tr>
+			</tbody>
+		</table>
+
+		<h2 class="title"><?php esc_html_e( 'Preview Customization', 'page-blocks-builder' ); ?></h2>
+		<p class="description"><?php esc_html_e( 'Add custom CSS, HTML, or JS to the builder preview iframe. Use this for custom fonts, design tokens, or scripts the preview needs.', 'page-blocks-builder' ); ?></p>
+
+		<table class="form-table" role="presentation">
+			<tbody>
 			<tr>
 				<th scope="row"><label for="gt_pb_preview_css"><?php esc_html_e( 'Preview CSS', 'page-blocks-builder' ); ?></label></th>
 				<td>
@@ -149,12 +170,18 @@ $load_utilities      = (bool) get_option( 'gt_pb_load_utilities', false );
 				</td>
 			</tr>
 
-			<tr><td colspan="2"><h2 style="margin-top: 1em;"><?php esc_html_e( 'Preview Injection Filter (Advanced)', 'page-blocks-builder' ); ?></h2></td></tr>
+			</tbody>
+		</table>
+
+		<h2 class="title"><?php esc_html_e( 'Preview Injection Filter (Advanced)', 'page-blocks-builder' ); ?></h2>
+
+		<table class="form-table" role="presentation">
+			<tbody>
 			<tr>
 				<th scope="row"><?php esc_html_e( 'PHP Filter', 'page-blocks-builder' ); ?></th>
 				<td>
 					<p class="description"><?php esc_html_e( 'For dynamic/conditional injection, use this filter in functions.php. Settings above feed the defaults.', 'page-blocks-builder' ); ?></p>
-					<pre style="white-space: pre-wrap; margin-top: 10px; background: #f6f7f7; padding: 10px; border-radius: 4px;"><code><?php echo esc_html( "add_filter('md_page_blocks_builder_preview_injection', function(\$injection, \$post_id) {\n\t\$injection['headHtml'] .= '<meta name=\"pb-preview\" content=\"1\">';\n\t\$injection['css'] .= '.pb-preview-note{display:none;}';\n\treturn \$injection;\n}, 10, 2);" ); ?></code></pre>
+					<pre class="gt-pb-code-sample"><code><?php echo esc_html( "add_filter('gt_page_blocks_builder_preview_injection', function(\$injection, \$post_id) {\n\t\$injection['headHtml'] .= '<meta name=\"pb-preview\" content=\"1\">';\n\t\$injection['css'] .= '.pb-preview-note{display:none;}';\n\treturn \$injection;\n}, 10, 2);" ); ?></code></pre>
 				</td>
 			</tr>
 			</tbody>
@@ -190,7 +217,7 @@ $load_utilities      = (bool) get_option( 'gt_pb_load_utilities', false );
 			<p><?php echo esc_html( (string) $pbb_lib_notice['message'] ); ?></p>
 			<?php if ( ! empty( $pbb_lib_notice['remapped'] ) ) : ?>
 				<p><strong><?php esc_html_e( 'Positions remapped:', 'page-blocks-builder' ); ?></strong></p>
-				<ul style="list-style: disc; margin-left: 20px;">
+				<ul class="gt-pb-setting-list">
 					<?php foreach ( $pbb_lib_notice['remapped'] as $pbb_id => $pbb_change ) : ?>
 						<li><?php printf( 'Block %d: %s', (int) $pbb_id, esc_html( (string) $pbb_change ) ); ?></li>
 					<?php endforeach; ?>
@@ -198,7 +225,7 @@ $load_utilities      = (bool) get_option( 'gt_pb_load_utilities', false );
 			<?php endif; ?>
 			<?php if ( ! empty( $pbb_lib_notice['cleared'] ) ) : ?>
 				<p><strong><?php esc_html_e( 'Positions cleared (no plugin equivalent — these blocks are now shortcode/block only):', 'page-blocks-builder' ); ?></strong></p>
-				<ul style="list-style: disc; margin-left: 20px;">
+				<ul class="gt-pb-setting-list">
 					<?php foreach ( $pbb_lib_notice['cleared'] as $pbb_id => $pbb_was ) : ?>
 						<li><?php printf( 'Block %d: %s', (int) $pbb_id, esc_html( (string) $pbb_was ) ); ?></li>
 					<?php endforeach; ?>
@@ -213,24 +240,24 @@ $load_utilities      = (bool) get_option( 'gt_pb_load_utilities', false );
 		<tr>
 			<th scope="row"><?php esc_html_e( 'Block migration', 'page-blocks-builder' ); ?></th>
 			<td>
-				<p class="description" style="margin-bottom: 8px;">
+				<p class="description gt-pb-space-below">
 					<?php
 					/* translators: %d: number of posts */
 					printf( esc_html__( 'Rewrites marketers-delight/page-block to gt-page-block/page-block in stored content. %d post(s) currently contain the legacy block.', 'page-blocks-builder' ), (int) $pbb_pending );
 					?>
 				</p>
-				<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" style="display:inline-block; margin-right: 8px;">
+				<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" class="gt-pb-inline-form">
 					<?php wp_nonce_field( 'gt_pb_migrate_blocks' ); ?>
 					<input type="hidden" name="action" value="gt_pb_migrate_blocks">
 					<input type="hidden" name="dry_run" value="1">
 					<?php submit_button( __( 'Dry run', 'page-blocks-builder' ), 'secondary', 'submit', false ); ?>
 				</form>
-				<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" style="display:inline-block;">
+				<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" class="gt-pb-inline-form">
 					<?php wp_nonce_field( 'gt_pb_migrate_blocks' ); ?>
 					<input type="hidden" name="action" value="gt_pb_migrate_blocks">
 					<?php submit_button( __( 'Migrate blocks', 'page-blocks-builder' ), 'primary', 'submit', false, $pbb_pending ? array() : array( 'disabled' => 'disabled' ) ); ?>
 				</form>
-				<p class="description" style="margin-top: 8px;">
+				<p class="description gt-pb-space-above">
 					<?php esc_html_e( 'Also available via WP-CLI: wp gt-pb migrate-blocks [--dry-run]', 'page-blocks-builder' ); ?>
 				</p>
 			</td>
@@ -248,7 +275,7 @@ $load_utilities      = (bool) get_option( 'gt_pb_load_utilities', false );
 						<?php esc_html_e( 'No Marketers Delight page-blocks table found in this database. Nothing to import.', 'page-blocks-builder' ); ?>
 					</p>
 				<?php else : ?>
-					<p class="description" style="margin-bottom: 8px;">
+					<p class="description gt-pb-space-below">
 						<?php
 						printf(
 							/* translators: 1: total dropin rows, 2: importable count, 3: conflicting count */
@@ -259,19 +286,19 @@ $load_utilities      = (bool) get_option( 'gt_pb_load_utilities', false );
 						);
 						?>
 					</p>
-					<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" style="display:inline-block; margin-right: 8px;">
+					<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" class="gt-pb-inline-form">
 						<?php wp_nonce_field( 'gt_pb_migrate_library' ); ?>
 						<input type="hidden" name="action" value="gt_pb_migrate_library">
 						<input type="hidden" name="dry_run" value="1">
 						<?php submit_button( __( 'Dry run', 'page-blocks-builder' ), 'secondary', 'submit', false ); ?>
 					</form>
-					<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" style="display:inline-block; margin-right: 8px;">
+					<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" class="gt-pb-inline-form">
 						<?php wp_nonce_field( 'gt_pb_migrate_library' ); ?>
 						<input type="hidden" name="action" value="gt_pb_migrate_library">
 						<?php submit_button( __( 'Import blocks', 'page-blocks-builder' ), 'primary', 'submit', false, $pbb_lib['importable'] ? array() : array( 'disabled' => 'disabled' ) ); ?>
 					</form>
 					<?php if ( ! empty( $pbb_lib['conflicts'] ) ) : ?>
-						<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" style="display:inline-block;"
+						<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" class="gt-pb-inline-form"
 							onsubmit="return confirm('<?php echo esc_js( __( 'This overwrites blocks in this plugin that share an ID with a dropin block. Continue?', 'page-blocks-builder' ) ); ?>');">
 							<?php wp_nonce_field( 'gt_pb_migrate_library' ); ?>
 							<input type="hidden" name="action" value="gt_pb_migrate_library">
@@ -279,7 +306,7 @@ $load_utilities      = (bool) get_option( 'gt_pb_load_utilities', false );
 							<?php submit_button( __( 'Import and overwrite', 'page-blocks-builder' ), 'delete', 'submit', false ); ?>
 						</form>
 					<?php endif; ?>
-					<p class="description" style="margin-top: 8px;">
+					<p class="description gt-pb-space-above">
 						<?php esc_html_e( 'Also available via WP-CLI: wp gt-pb migrate-library [--dry-run] [--overwrite]', 'page-blocks-builder' ); ?>
 					</p>
 				<?php endif; ?>

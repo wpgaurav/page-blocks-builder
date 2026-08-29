@@ -4,7 +4,7 @@ Tags: page builder, html blocks, css sections, gutenberg, visual builder
 Requires at least: 6.0
 Tested up to: 6.9.1
 Requires PHP: 8.1
-Stable tag: 2.7.5
+Stable tag: 2.8.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -64,6 +64,16 @@ Yes. Enable PHP execution per block. PHP runs on the frontend and in server-rend
 When set to "file", CSS and JS for that block are written to external files in `wp-content/uploads/gt-page-blocks/` and served as cacheable resources instead of inline output.
 
 == Changelog ==
+
+= 2.8.0 =
+* The library shows what each block looks like. Every thumbnail was an empty frame: the preview document was escaped into an HTML attribute by a helper that handles &, < and > but not quotes, so each one was cut off at the quote in its own charset tag. Blocks with no markup to render — CSS-only token blocks, PHP-only blocks — say so instead of showing an empty rectangle, and thumbnails render at a desktop width and scale down, so a section built for 1200px shows the layout it actually produces.
+* Each block reports how many posts and pages place it, counted across both the editor block and the shortcode. That is the number that tells you whether a block is safe to delete. Counted in a single pass and cached, so a library of two hundred blocks does not mean two hundred table scans to draw one screen.
+* Bulk selection with duplicate, trash, restore and delete forever; sorting by recently updated, title, most used or least used; and a grid/list switch that remembers which you prefer. The shortcode is now a chip you can see and click to copy rather than an action that copied it silently.
+* Import in Page Settings is two buttons, add or replace, instead of one dialog whose Cancel meant "replace every section". Only replace confirms, and it says how many blocks the builder cannot rebuild are about to go.
+* A Build button in the block editor saves the page and opens it in the visual builder. The builder reads from the database, so saving first is what keeps unsaved editor changes from being silently absent.
+* The library and settings screens now follow the admin around them: WordPress' own status filters, search box, view switcher and row actions, real section headings instead of headings faked with table cells, and no inline styles left in the settings template.
+* Fixed: block toolbar buttons were two different heights, 26px and 29.6px, because one of them was never given a height — it inherited whatever the editor's line-height produced, and WordPress 7 changed that. Both are pinned now, and the icons are 18px rather than 14px.
+* Fixed: the settings screen still documented the old md_ filter name for preview injection. It shows gt_page_blocks_builder_preview_injection.
 
 = 2.7.5 =
 * Fixed: the section panel vanished off the right edge once the AI assistant had filled the code editors. Nothing was hiding it — the builder had grown wider than the window, and the panel is the last column of that row. The code area was reporting its own content width as a minimum, which with the assistant open kept the whole builder above 1552px; a 14-inch laptop is 1512. It now fits from 1920px down to 1000px with the panel fully visible, and the tag-snippet toolbar scrolls inside its own bar instead.

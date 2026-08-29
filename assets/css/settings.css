@@ -1,0 +1,84 @@
+/**
+ * Page Blocks — Settings screen.
+ *
+ * The screen previously carried its layout in style attributes and faked its
+ * section headings with full-width table cells. These few rules replace both,
+ * and otherwise leave WordPress' own form-table styling alone.
+ */
+
+.gt-pb-settings h2.title {
+	margin: 2em 0 0;
+	padding: 0;
+	font-size: 1.3em;
+}
+
+.gt-pb-settings h2.title + .description {
+	margin: 4px 0 0;
+	max-width: 60em;
+}
+
+.gt-pb-settings .form-table {
+	margin-top: 0.5em;
+}
+
+/* Section rules, so long screens read as groups rather than one list. */
+.gt-pb-settings h2.title {
+	border-top: 1px solid #dcdcde;
+	padding-top: 1.5em;
+}
+
+.gt-pb-settings > .wrap > h2.title:first-of-type,
+.gt-pb-settings h2.title.is-first {
+	border-top: 0;
+	padding-top: 0;
+}
+
+.gt-pb-setting-choice {
+	display: block;
+	margin-bottom: 6px;
+}
+
+.gt-pb-setting-list {
+	list-style: disc;
+	margin-left: 20px;
+}
+
+.gt-pb-space-below {
+	margin-bottom: 8px;
+}
+
+.gt-pb-space-above {
+	margin-top: 8px;
+}
+
+.gt-pb-inline-form {
+	display: inline-block;
+	margin-right: 8px;
+}
+
+.gt-pb-inline-form:last-of-type {
+	margin-right: 0;
+}
+
+/* A copyable snippet, not a quotation. */
+.gt-pb-code-sample {
+	margin: 10px 0 0;
+	padding: 12px;
+	max-width: 60em;
+	overflow-x: auto;
+	background: #f6f7f7;
+	border: 1px solid #dcdcde;
+	border-left: 4px solid #2271b1;
+	border-radius: 2px;
+	font-size: 12px;
+	line-height: 1.6;
+	white-space: pre;
+	tab-size: 4;
+}
+
+.gt-pb-code-sample code {
+	background: none;
+	padding: 0;
+	font-size: inherit;
+	color: #1d2327;
+}

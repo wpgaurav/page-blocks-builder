@@ -1692,4 +1692,73 @@
 	legacySettings.title = __( 'Page Block (legacy)' );
 	legacySettings.supports = { inserter: false };
 	registerBlockType( PB_LEGACY_NAME, legacySettings );
+
+	/**
+	 * "Build" — save the page, then open it in the visual builder.
+	 *
+	 * The builder was only reachable from the front-end admin bar, which
+	 * meant leaving the editor, finding the page, and coming back. Saving
+	 * first matters: the builder reads post_content from the database, so
+	 * anything unsaved in the editor would be silently absent from it.
+	 */
+	( function registerBuildButton() {
+		var settings = window.mdPageBlockEditor || {};
+		var plugins  = window.wp && window.wp.plugins;
+		var editPost = window.wp && ( window.wp.editor || window.wp.editPost );
+
+		if ( ! settings.builderUrl || ! plugins || ! editPost || ! editPost.PluginPostStatusInfo ) {
+			return;
+		}
+
+		var Button   = wp.components.Button;
+		var useSelect  = wp.data.useSelect;
+		var useDispatch = wp.data.useDispatch;
+
+		function BuildButton() {
+			var state = useSelect( function( select ) {
+				var editor = select( 'core/editor' );
+				return {
+					saving: editor.isSavingPost() || editor.isAutosavingPost(),
+					dirty: editor.isEditedPostDirty(),
+					isNew: editor.isEditedPostNew()
+				};
+			}, [] );
+			var savePost = useDispatch( 'core/editor' ).savePost;
+			var pending = useRef( false );
+
+			// The save is asynchronous and there is no promise to await from
+			// every entry point, so the handoff waits for saving to finish.
+			useEffect( function() {
+				if ( pending.current && ! state.saving ) {
+					pending.current = false;
+					window.location.href = settings.builderUrl;
+				}
+			}, [ state.saving ] );
+
+			return el(
+				editPost.PluginPostStatusInfo,
+				{ className: 'md-page-block-build-row' },
+				el(
+					Button,
+					{
+						variant: 'secondary',
+						className: 'md-page-block-build-btn',
+						disabled: state.saving || state.isNew,
+						icon: 'layout',
+						onClick: function() {
+							if ( state.dirty ) {
+								pending.current = true;
+								savePost();
+								return;
+							}
+							window.location.href = settings.builderUrl;
+						}
+					},
+					state.saving && pending.current ? __( 'Saving…' ) : __( 'Build' )
+				)
+			);
+		}
+
+		plugins.registerPlugin( 'gt-page-blocks-build', { render: BuildButton } );
+	} )();
 })( wp );

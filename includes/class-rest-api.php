@@ -36,6 +36,9 @@ class gt_pb_rest_api {
 	 */
 	private $plugin;
 
+	/** Usage tally, resolved once per request. */
+	private static $usage = null;
+
 	public function __construct( gt_pb_db $db, $plugin ) {
 		$this->db = $db;
 		$this->plugin = $plugin;
@@ -123,8 +126,31 @@ class gt_pb_rest_api {
 			? array( $this, 'prepare_item_summary' )
 			: array( $this, 'prepare_item' );
 
-		$items = array_map( $prepare, $this->db->query( $args ) );
-		$total = $this->db->count( $args );
+		// "Most used" is not a column, so that ordering is applied after the
+		// tally is known: fetch the filtered set, sort, then page it by hand.
+		// The library is hundreds of rows, not millions.
+		if ( 'usage' === $args['orderby'] ) {
+			$all = $this->db->query( array_merge( $args, array( 'per_page' => 500, 'page' => 1 ) ) );
+			$all = array_map( $prepare, $all );
+
+			$direction = 'asc' === strtolower( $args['order'] ) ? 1 : -1;
+			usort(
+				$all,
+				static function ( $a, $b ) use ( $direction ) {
+					if ( $a['used_on'] === $b['used_on'] ) {
+						return strcasecmp( (string) $a['title'], (string) $b['title'] );
+					}
+					return ( $a['used_on'] < $b['used_on'] ? -1 : 1 ) * $direction;
+				}
+			);
+
+			$total  = count( $all );
+			$offset = max( 0, ( $args['page'] - 1 ) * $args['per_page'] );
+			$items  = array_slice( $all, $offset, $args['per_page'] );
+		} else {
+			$items = array_map( $prepare, $this->db->query( $args ) );
+			$total = $this->db->count( $args );
+		}
 
 		$response = rest_ensure_response( $items );
 		$response->header( 'X-WP-Total', (string) $total );
@@ -287,7 +313,19 @@ class gt_pb_rest_api {
 			'has_css'     => '' !== trim( (string) ( $block->css ?? '' ) ),
 			'has_js'      => '' !== trim( (string) ( $block->js ?? '' ) ),
 			'updated_at'  => (string) ( $block->updated_at ?? '' ),
+			'used_on'     => self::usage_for( (int) $block->id ),
 		);
+	}
+
+	/**
+	 * Posts using one block, from the tally computed once per request.
+	 */
+	private static function usage_for( int $id ): int {
+		if ( null === self::$usage ) {
+			self::$usage = GT_Page_Blocks_Builder::get_block_usage_counts();
+		}
+
+		return (int) ( self::$usage[ $id ] ?? 0 );
 	}
 
 	/**
@@ -295,6 +333,7 @@ class gt_pb_rest_api {
 	 */
 	public function prepare_item( object $block ): array {
 		return array(
+			'used_on'     => self::usage_for( (int) $block->id ),
 			'id'          => (int) $block->id,
 			'title'       => (string) $block->title,
 			'slug'        => (string) $block->slug,
