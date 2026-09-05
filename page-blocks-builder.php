@@ -3,10 +3,15 @@
  * Plugin Name: GT Page Blocks Builder
  * Plugin URI: https://gauravtiwari.org/product/gt-page-blocks-builder/
  * Description: Standalone visual Page Blocks builder with HTML/CSS/JS sections synced to Gutenberg block content.
- * Version: 2.8.0
+ * Version: 2.8.1
  * Author: Gaurav Tiwari
  * Author URI: https://gauravtiwari.org
  * Text Domain: page-blocks-builder
+ * Domain Path: /languages
+ * Requires at least: 6.0
+ * Requires PHP: 8.1
+ * License: GPL-2.0-or-later
+ * License URI: https://www.gnu.org/licenses/gpl-2.0.html
  */
 
 if ( ! defined( 'ABSPATH' ) ) {
@@ -14,7 +19,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 if ( ! defined( 'GT_PB_BUILDER_VERSION' ) ) {
-	define( 'GT_PB_BUILDER_VERSION', '2.8.0' );
+	define( 'GT_PB_BUILDER_VERSION', '2.8.1' );
 }
 
 if ( ! defined( 'GT_PB_BUILDER_FILE' ) ) {
@@ -31,6 +36,34 @@ if ( ! defined( 'GT_PB_BUILDER_URL' ) ) {
 
 if ( ! defined( 'GT_PB_BUILDER_OPTION_POST_TYPES' ) ) {
 	define( 'GT_PB_BUILDER_OPTION_POST_TYPES', 'gt_pb_builder_post_types' );
+}
+
+if ( ! defined( 'GT_PB_MIN_PHP' ) ) {
+	define( 'GT_PB_MIN_PHP', '8.1' );
+}
+
+// Bail before the first require. The includes use typed properties and match(),
+// so on PHP 8.0 or older the plugin fatals during load and the site owner sees a
+// white screen with nothing naming the cause.
+if ( version_compare( PHP_VERSION, GT_PB_MIN_PHP, '<' ) ) {
+	add_action(
+		'admin_notices',
+		static function () {
+			printf(
+				'<div class="notice notice-error"><p>%s</p></div>',
+				esc_html(
+					sprintf(
+						/* translators: 1: required PHP version, 2: current PHP version */
+						__( 'GT Page Blocks Builder requires PHP %1$s or newer. This site runs PHP %2$s, so the plugin has not loaded.', 'page-blocks-builder' ),
+						GT_PB_MIN_PHP,
+						PHP_VERSION
+					)
+				)
+			);
+		}
+	);
+
+	return;
 }
 
 if ( ! function_exists( 'gt_page_blocks_builder_post_types' ) ) {
@@ -1185,6 +1218,13 @@ class GT_Page_Blocks_Builder {
 			return false;
 		}
 
+		// Parity with can_access_builder(): a post type the builder is not
+		// enabled for has no preview either. Without this the preview route
+		// reaches post types the builder itself refuses to open.
+		if ( ! $this->is_builder_post_type_allowed( $post_id ) ) {
+			return false;
+		}
+
 		return current_user_can( 'edit_post', $post_id );
 	}
 
@@ -1368,10 +1408,16 @@ class GT_Page_Blocks_Builder {
 	/**
 	 * Build preview payload.
 	 *
-	 * @param array $sections Sections.
+	 * PHP execution is a caller-supplied permission, never inferred here. The
+	 * sections arrive straight from the request body, so a checksum derived
+	 * from them would be satisfied by definition and would gate nothing.
+	 *
+	 * @param array $sections  Sections.
+	 * @param bool  $allow_php Whether this caller may execute PHP in the preview.
 	 * @return array
 	 */
-	private function build_preview_payload( $sections ) {
+	private function build_preview_payload( $sections, $allow_php = false ) {
+		$php_stripped     = false;
 		$html_output      = array();
 		$css_output       = array();
 		$js_inline_output = array();
@@ -1425,11 +1471,16 @@ class GT_Page_Blocks_Builder {
 			$js_location = isset( $section['jsLocation'] ) && $section['jsLocation'] === 'inline' ? 'inline' : 'footer';
 
 			if ( $content !== '' ) {
-				// Admin-authenticated preview of code the editor just supplied:
-				// a self-checksum reduces the gate to the site-wide constant,
-				// matching what the block will do once saved.
+				// Only run PHP when the caller established the authority for it.
+				// Everyone else previews with the tags stripped, which is what
+				// execute_php() does when handed an empty checksum.
 				if ( $php_exec ) {
-					$content = $this->execute_php( $content, md5( $content ) );
+					if ( $allow_php ) {
+						$content = $this->execute_php( $content, md5( $content ) );
+					} else {
+						$content      = $this->execute_php( $content, '' );
+						$php_stripped = true;
+					}
 				}
 
 				// Same formatting rule as the front end (see render_block()).
@@ -1455,10 +1506,14 @@ class GT_Page_Blocks_Builder {
 		}
 
 		return array(
-			'html'     => implode( "\n", $html_output ),
-			'css'      => implode( "\n", $css_output ),
-			'jsInline' => implode( ";\n", $js_inline_output ),
-			'jsFooter' => implode( ";\n", $js_footer_output ),
+			'html'        => implode( "\n", $html_output ),
+			'css'         => implode( "\n", $css_output ),
+			'jsInline'    => implode( ";\n", $js_inline_output ),
+			'jsFooter'    => implode( ";\n", $js_footer_output ),
+			'phpStripped' => $php_stripped,
+			'notice'      => $php_stripped
+				? __( 'PHP in this section was not executed in the preview. Running PHP requires administrator access.', 'page-blocks-builder' )
+				: '',
 		);
 	}
 
@@ -1704,7 +1759,9 @@ class GT_Page_Blocks_Builder {
 			$sections[] = $this->normalize_builder_section( $section );
 		}
 
-		wp_send_json_success( $this->build_preview_payload( $sections ) );
+		wp_send_json_success(
+			$this->build_preview_payload( $sections, current_user_can( 'manage_options' ) )
+		);
 	}
 
 	/**
@@ -2557,8 +2614,11 @@ class GT_Page_Blocks_Builder {
 
 		$html = $content;
 		if ( $php ) {
-			// Same policy as build_preview_payload(): admin preview of
-			// just-submitted code, gated by the site-wide constant only.
+			// This route already requires manage_options above, so the caller
+			// could edit plugin files anyway; the self-checksum is therefore
+			// gating nothing it does not already have. build_preview_payload()
+			// takes an explicit permission instead, because its route admits
+			// edit_post users.
 			$html = $this->execute_php( $html, md5( $html ) );
 		}
 		if ( $format ) {

@@ -4,7 +4,7 @@ Tags: page builder, html blocks, css sections, gutenberg, visual builder
 Requires at least: 6.0
 Tested up to: 6.9.1
 Requires PHP: 8.1
-Stable tag: 2.8.0
+Stable tag: 2.8.1
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -63,7 +63,21 @@ Yes. Enable PHP execution per block. PHP runs on the frontend and in server-rend
 
 When set to "file", CSS and JS for that block are written to external files in `wp-content/uploads/gt-page-blocks/` and served as cacheable resources instead of inline output.
 
+== Upgrade Notice ==
+
+= 2.8.1 =
+Security release. Fixes privilege escalation in the block preview (any Author could execute PHP on sites with PHP blocks enabled) and restores certificate verification on the update channel. If you have PHP blocks turned on, update now. Requires PHP 8.1.
+
 == Changelog ==
+
+= 2.8.1 =
+Security release. Update before anything else.
+
+* PHP in a Page Block no longer runs for users who can merely edit the post. The builder's preview endpoint is reachable by anyone with `edit_post` — an Author, or a Contributor on their own draft — and it executed the section's PHP after deriving the content checksum from the very content it was about to run, so the check was satisfied by definition. On any site that had turned PHP blocks on, that was the site-wide constant standing alone as the only gate. Running PHP in a preview now requires administrator access, and everyone else previews with the tags stripped and a note saying so rather than silently different output.
+* The update channel verifies certificates again. It was requesting with `sslverify` off, and the server's reply supplies the `package` URL WordPress downloads and installs a plugin from, so anything able to answer as the licence server could have installed arbitrary code. Certificates are now verified, the request goes through `wp_safe_remote_post()`, and any `package`, `url` or `homepage` pointing somewhere other than the licence server's own host is discarded rather than followed. A host with a genuinely broken CA bundle can opt out per-site with `GT_PB_LICENSE_INSECURE`.
+* The changelog the update screen renders is escaped before display.
+* The plugin declares what it needs: `Requires PHP: 8.1`, `Requires at least: 6.0`, a licence and a text-domain path. It previously declared none, so WordPress offered the update to sites that would fatal on it, and the update payload separately claimed PHP 7.4 while the code has needed 8.1 since 2.7. A site below 8.1 now gets an admin notice naming the versions instead of a white screen.
+* The preview endpoint checks the post type, matching the builder, instead of answering for post types the builder itself will not open.
 
 = 2.8.0 =
 * The library shows what each block looks like. Every thumbnail was an empty frame: the preview document was escaped into an HTML attribute by a helper that handles &, < and > but not quotes, so each one was cut off at the quote in its own charset tag. Blocks with no markup to render — CSS-only token blocks, PHP-only blocks — say so instead of showing an empty rectangle, and thumbnails render at a desktop width and scale down, so a section built for 1200px shows the layout it actually produces.

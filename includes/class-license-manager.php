@@ -246,12 +246,12 @@ class GT_PB_License_Manager {
 				'slug'          => 'page-blocks-builder',
 				'plugin'        => $this->plugin_basename,
 				'new_version'   => $update_info['new_version'],
-				'url'           => $update_info['url'] ?? 'https://gauravtiwari.org/plugins/page-blocks-builder',
-				'package'       => $update_info['package'] ?? '',
+				'url'           => $this->trusted_url( $update_info['url'] ?? '' ) ?: self::LICENSE_SERVER . 'product/gt-page-blocks-builder/',
+				'package'       => $this->trusted_url( $update_info['package'] ?? '' ),
 				'icons'         => $update_info['icons'] ?? array(),
 				'banners'       => $update_info['banners'] ?? array(),
 				'tested'        => $update_info['tested'] ?? '',
-				'requires_php'  => $update_info['requires_php'] ?? '7.4',
+				'requires_php'  => $update_info['requires_php'] ?? ( defined( 'GT_PB_MIN_PHP' ) ? GT_PB_MIN_PHP : '8.1' ),
 				'compatibility' => new stdClass(),
 			);
 
@@ -276,15 +276,15 @@ class GT_PB_License_Manager {
 			'slug'          => 'page-blocks-builder',
 			'version'       => $update_info['new_version'] ?? '',
 			'author'        => '<a href="https://gauravtiwari.org">Gaurav Tiwari</a>',
-			'homepage'      => $update_info['homepage'] ?? 'https://gauravtiwari.org/plugins/page-blocks-builder',
-			'download_link' => $update_info['package'] ?? '',
+			'homepage'      => $this->trusted_url( $update_info['homepage'] ?? '' ) ?: self::LICENSE_SERVER . 'product/gt-page-blocks-builder/',
+			'download_link' => $this->trusted_url( $update_info['package'] ?? '' ),
 			'trunk'         => $update_info['trunk'] ?? '',
 			'last_updated'  => $update_info['last_updated'] ?? '',
-			'sections'      => $update_info['sections'] ?? array(),
+			'sections'      => array_map( 'wp_kses_post', (array) ( $update_info['sections'] ?? array() ) ),
 			'banners'       => $update_info['banners'] ?? array(),
 			'icons'         => $update_info['icons'] ?? array(),
 			'requires'      => $update_info['requires'] ?? '6.0',
-			'requires_php'  => $update_info['requires_php'] ?? '7.4',
+			'requires_php'  => $update_info['requires_php'] ?? ( defined( 'GT_PB_MIN_PHP' ) ? GT_PB_MIN_PHP : '8.1' ),
 			'tested'        => $update_info['tested'] ?? '',
 		);
 	}
@@ -470,14 +470,47 @@ class GT_PB_License_Manager {
 		return 'valid' === ( $license['status'] ?? '' );
 	}
 
+	/**
+	 * Accept a URL from the licence server only if it points at the licence
+	 * server's own host.
+	 *
+	 * The update payload's `package` becomes the archive WordPress downloads
+	 * and installs. Taking that value on trust lets anything able to answer as
+	 * the licence server install arbitrary code, so an off-host URL is dropped
+	 * rather than followed.
+	 *
+	 * @param mixed $url Candidate URL from the API response.
+	 * @return string Empty string when the URL is missing or off-host.
+	 */
+	private function trusted_url( $url ): string {
+		if ( ! is_string( $url ) || '' === $url ) {
+			return '';
+		}
+
+		$host = wp_parse_url( $url, PHP_URL_HOST );
+
+		if ( ! $host || strtolower( $host ) !== strtolower( (string) wp_parse_url( self::LICENSE_SERVER, PHP_URL_HOST ) ) ) {
+			return '';
+		}
+
+		return $url;
+	}
+
 	private function api_request( $action, $params = array() ) {
 		$url = add_query_arg( 'fluent-cart', $action, self::LICENSE_SERVER );
 
 		$params['current_version'] = defined( 'GT_PB_BUILDER_VERSION' ) ? GT_PB_BUILDER_VERSION : '1.0.0';
 
-		$response = wp_remote_post( $url, array(
+		// Certificate verification stays on. A host with a genuinely broken CA
+		// bundle can opt out with GT_PB_LICENSE_INSECURE in wp-config.php, which
+		// is a deliberate, per-site decision rather than the default for everyone:
+		// this channel hands WordPress the URL it installs a plugin from, so an
+		// unverified connection here is a remote-code-execution path.
+		$insecure = defined( 'GT_PB_LICENSE_INSECURE' ) && GT_PB_LICENSE_INSECURE;
+
+		$response = wp_safe_remote_post( $url, array(
 			'timeout'   => 15,
-			'sslverify' => false,
+			'sslverify' => ! $insecure,
 			'body'      => $params,
 		) );
 
