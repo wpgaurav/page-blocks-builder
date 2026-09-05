@@ -96,8 +96,35 @@
 	// Helpers
 	// -------------------------------------------------------------------------
 
+	var uidCounter = 0;
+
+	/**
+	 * Stable client-side identity for a section.
+	 *
+	 * Deliberately not a block attribute: nothing about it belongs in
+	 * post_content. Undo, AI targeting and the preview all used the array
+	 * index, which changes under reorder and delete - that is how an AI reply
+	 * landed on the wrong section and how undo restored the wrong one.
+	 */
+	function mintUid() {
+		uidCounter += 1;
+		return 'pb-' + Date.now().toString(36) + uidCounter.toString(36) + Math.random().toString(36).slice(2, 6);
+	}
+
+	/**
+	 * Index of a section by uid, or -1.
+	 */
+	function indexOfUid(uid) {
+		if (typeof uid !== 'string' || !uid) return -1;
+		for (var i = 0; i < state.sections.length; i++) {
+			if (state.sections[i] && state.sections[i].uid === uid) return i;
+		}
+		return -1;
+	}
+
 	function createDefaultSection() {
 		return {
+			uid: mintUid(),
 			name: '',
 			// 'block'   — an editable Page Block.
 			// 'foreign' — anything else on the page (core or third-party). The
@@ -127,6 +154,9 @@
 		var section = createDefaultSection();
 		var source = input && typeof input === 'object' ? input : {};
 
+		// Keep an incoming uid so identity survives a save response or a
+		// restored draft; mint one for anything saved before 3.0.
+		section.uid = typeof source.uid === 'string' && /^pb-[a-z0-9]+$/.test(source.uid) ? source.uid : mintUid();
 		section.name = typeof source.name === 'string' ? source.name : '';
 		section.kind = source.kind === 'foreign' ? 'foreign' : 'block';
 		section.blockName = typeof source.blockName === 'string' ? source.blockName : '';
@@ -439,7 +469,10 @@
 	// Autosave
 	// -------------------------------------------------------------------------
 
-	var AUTOSAVE_KEY = 'md_pb_draft_' + (config.postId || 0);
+	// Versioned, and scoped per user as well as per post: a shared login on one
+	// machine otherwise offers one person another's unsaved work.
+	var DRAFT_VERSION = 3;
+	var AUTOSAVE_KEY = 'md_pb_draft_' + (config.postId || 0) + '_u' + (config.userId || 0);
 	var AUTOSAVE_INTERVAL = 5000;
 	var autosaveTimer = null;
 
@@ -450,6 +483,16 @@
 				return null;
 			}
 			var data = JSON.parse(raw);
+
+			// A draft written before 3.0 has no uid on any section and a
+			// foreign-row shape that is missing `rendered`. Half-restoring that
+			// produces a builder whose preview has lost every core block, so
+			// discard it rather than pretend it can be recovered.
+			if (data && data.version !== DRAFT_VERSION) {
+				window.localStorage.removeItem(AUTOSAVE_KEY);
+				return null;
+			}
+
 			if (data && Array.isArray(data.sections) && data.sections.length) {
 				return data;
 			}
@@ -459,10 +502,44 @@
 		return null;
 	}
 
+	/**
+	 * A crash draft is not a save payload.
+	 *
+	 * getApplyPayloadSections() deliberately strips a foreign row down to its
+	 * markup, because that is all the server needs. Restoring from that leaves
+	 * the builder with no `rendered` output for those rows, so the recovered
+	 * preview is missing every core block, and no `collapsed` state. The draft
+	 * keeps the whole client-side shape instead.
+	 */
+	function getAutosaveDraftSections() {
+		return state.sections.map(function(section) {
+			var n = normalizeSection(section);
+			return {
+				uid: n.uid,
+				kind: n.kind,
+				name: n.name,
+				blockName: n.blockName,
+				label: n.label,
+				serialized: n.serialized,
+				rendered: n.rendered,
+				blockId: n.blockId,
+				content: n.content,
+				css: n.css,
+				js: n.js,
+				jsLocation: n.jsLocation,
+				output: n.output,
+				format: n.format,
+				phpExec: n.phpExec,
+				collapsed: n.collapsed
+			};
+		});
+	}
+
 	function saveAutosaveDraft() {
 		try {
 			window.localStorage.setItem(AUTOSAVE_KEY, JSON.stringify({
-				sections: getApplyPayloadSections(),
+				version: DRAFT_VERSION,
+				sections: getAutosaveDraftSections(),
 				timestamp: Date.now()
 			}));
 		} catch (error) {
@@ -574,11 +651,11 @@
 			if (section.kind === 'foreign') {
 				// Rendered server-side and inert here. Included so the preview
 				// is the actual page, not just its editable parts.
-				html.push('<div data-pb-section="' + i + '" data-pb-foreign="1">' + (section.rendered || '') + '</div>');
+				html.push('<div data-pb-section="' + section.uid + '" data-pb-foreign="1">' + (section.rendered || '') + '</div>');
 				return;
 			}
 
-			html.push('<div data-pb-section="' + i + '">' + (section.content || '') + '</div>');
+			html.push('<div data-pb-section="' + section.uid + '">' + (section.content || '') + '</div>');
 
 			if (section.css) {
 				css.push(section.css);
@@ -671,8 +748,8 @@
 			'document.addEventListener("mousedown",function(e){' +
 			'var sec=e.target.closest?e.target.closest("[data-pb-section]"):null;' +
 			'if(!sec)return;' +
-			'var i=parseInt(sec.getAttribute("data-pb-section"),10);' +
-			'if(i>=0)window.parent.postMessage({type:"md_pb_section_focus",sectionIndex:i},"*");' +
+			'var u=sec.getAttribute("data-pb-section");' +
+			'if(u)window.parent.postMessage({type:"md_pb_section_focus",sectionUid:u},"*");' +
 			'},true);' +
 			'document.addEventListener("mouseover",function(e){var el=e.target.closest(SEL);if(el&&el!==editing)el.setAttribute("data-pb-editable-hover","");});' +
 			'document.addEventListener("mouseout",function(e){var el=e.target.closest(SEL);if(el)el.removeAttribute("data-pb-editable-hover");});' +
@@ -692,8 +769,8 @@
 			'var t=el.textContent;' +
 			'if(t!==origText){' +
 			'var sec=el.closest("[data-pb-section]");' +
-			'var idx=sec?parseInt(sec.getAttribute("data-pb-section"),10):-1;' +
-			'if(idx>=0)window.parent.postMessage({type:"md_pb_inline_edit",sectionIndex:idx,oldText:origText,newText:t},"*");' +
+			'var u=sec?sec.getAttribute("data-pb-section"):"";' +
+			'if(u)window.parent.postMessage({type:"md_pb_inline_edit",sectionUid:u,oldText:origText,newText:t},"*");' +
 			'}' +
 			'editing=null;origText="";' +
 			'});' +
@@ -721,12 +798,22 @@
 
 			// Update each section's HTML in place
 			var patched = true;
-			state.sections.forEach(function(section, i) {
-				var el = doc.querySelector('[data-pb-section="' + i + '"]');
+			state.sections.forEach(function(section) {
+				var el = doc.querySelector('[data-pb-section="' + section.uid + '"]');
 				if (!el) {
 					patched = false;
 					return;
 				}
+
+				// A foreign section's markup lives in `serialized`/`rendered`;
+				// its `content` is always ''. Writing content over it blanked
+				// every core and third-party block in the canvas on every
+				// keystroke. Only the visibility toggle applies here.
+				if (section.kind === 'foreign') {
+					el.style.display = section.collapsed ? 'none' : '';
+					return;
+				}
+
 				if (!section.collapsed) {
 					el.innerHTML = section.content || '';
 					el.style.display = '';
@@ -1119,13 +1206,17 @@
 			if (normalized.kind === 'foreign') {
 				return {
 					kind: 'foreign',
+					uid: normalized.uid,
 					blockName: normalized.blockName,
+					label: normalized.label,
 					serialized: normalized.serialized
 				};
 			}
 
 			return {
 				kind: 'block',
+				uid: normalized.uid,
+				name: normalized.name,
 				blockId: normalized.blockId,
 				content: normalized.content,
 				css: normalized.css,
@@ -1183,7 +1274,83 @@
 		queueAutosave();
 	}
 
+	// Document-level undo.
+	//
+	// CodeMirror gives each pane its own undo for typing, but everything
+	// structural - add, delete, duplicate, reorder, import-replace - was
+	// one-way. Deleting a section by mistake meant rebuilding it by hand.
+	//
+	// Snapshots rather than inverse operations: the section list is small,
+	// JSON-cloning it is cheap, and a snapshot cannot get out of step with the
+	// operation it is meant to reverse. Selection is remembered by uid, so an
+	// undo that changes the ordering still lands you on the section you were
+	// working on.
+	var history = { undo: [], redo: [], limitBytes: 4 * 1024 * 1024 };
+
+	function snapshotDocument() {
+		return {
+			sections: JSON.parse(JSON.stringify(state.sections)),
+			selectedUid: (state.sections[state.selectedIndex] || {}).uid || ''
+		};
+	}
+
+	function historyBytes(stack) {
+		var total = 0;
+		for (var i = 0; i < stack.length; i++) {
+			total += JSON.stringify(stack[i].sections).length;
+		}
+		return total;
+	}
+
+	/**
+	 * Record the document before a structural change.
+	 *
+	 * Field edits do not call this: CodeMirror already owns those, and pushing
+	 * a whole-document snapshot per keystroke would blow the budget.
+	 */
+	function pushHistory() {
+		history.undo.push(snapshotDocument());
+		history.redo.length = 0;
+
+		while (history.undo.length > 1 && historyBytes(history.undo) > history.limitBytes) {
+			history.undo.shift();
+		}
+		updateHistoryButtons();
+	}
+
+	function restoreSnapshot(snap) {
+		state.sections = snap.sections.map(normalizeSection);
+		var idx = indexOfUid(snap.selectedUid);
+		state.selectedIndex = idx >= 0 ? idx : Math.min(state.selectedIndex, state.sections.length - 1);
+		if (state.selectedIndex < 0) state.selectedIndex = 0;
+		renderAll();
+		queuePreviewRender(0, true);
+		queueAutosave();
+	}
+
+	function undoDocument() {
+		if (!history.undo.length) return false;
+		history.redo.push(snapshotDocument());
+		restoreSnapshot(history.undo.pop());
+		updateHistoryButtons();
+		return true;
+	}
+
+	function redoDocument() {
+		if (!history.redo.length) return false;
+		history.undo.push(snapshotDocument());
+		restoreSnapshot(history.redo.pop());
+		updateHistoryButtons();
+		return true;
+	}
+
+	function updateHistoryButtons() {
+		if (dom.undoButton) dom.undoButton.disabled = !history.undo.length;
+		if (dom.redoButton) dom.redoButton.disabled = !history.redo.length;
+	}
+
 	function addSection(afterIndex) {
+		pushHistory();
 		var insertAt = typeof afterIndex === 'number' ? afterIndex + 1 : state.sections.length;
 		state.sections.splice(insertAt, 0, createDefaultSection());
 		state.selectedIndex = insertAt;
@@ -1194,13 +1361,27 @@
 		if (index < 0 || index >= state.sections.length) {
 			return;
 		}
+		pushHistory();
 		var copy = normalizeSection(state.sections[index]);
+		copy.uid = mintUid();
 		if (copy.content) {
 			copy.content = copy.content.replace(/id=(["'])([^"']+)\1/i, function(match, quote, idValue) {
-				if (/-copy$/.test(idValue)) {
-					return 'id=' + quote + idValue + quote;
+				// A one-shot '-copy' suffix meant duplicating twice produced two
+				// elements sharing an id. Scan what is already on the page and
+				// take the next free suffix instead.
+				var base = idValue.replace(/-copy(-\d+)?$/, '');
+				var used = {};
+				state.sections.forEach(function(other) {
+					var m = /id=(["'])([^"']+)\1/i.exec(other.content || '');
+					if (m) used[m[2]] = true;
+				});
+				var candidate = base + '-copy';
+				var n = 2;
+				while (used[candidate]) {
+					candidate = base + '-copy-' + n;
+					n++;
 				}
-				return 'id=' + quote + idValue + '-copy' + quote;
+				return 'id=' + quote + candidate + quote;
 			});
 		}
 		state.sections.splice(index + 1, 0, copy);
@@ -1228,6 +1409,7 @@
 			state.removedForeign += 1;
 		}
 
+		pushHistory();
 		state.sections.splice(index, 1);
 
 		if (!state.sections.length) {
@@ -1259,6 +1441,7 @@
 			return;
 		}
 
+		pushHistory();
 		var moved = state.sections.splice(fromIndex, 1)[0];
 		state.sections.splice(toIndex, 0, moved);
 
@@ -1319,7 +1502,8 @@
 				return;
 			}
 
-			var marker = iframeDoc.querySelector('[data-pb-section="' + index + '"]');
+			var target = state.sections[index];
+			var marker = target ? iframeDoc.querySelector('[data-pb-section="' + target.uid + '"]') : null;
 			if (marker) {
 				marker.scrollIntoView({ behavior: 'smooth', block: 'start' });
 			}
@@ -1481,6 +1665,23 @@
 		renderActiveSectionMeta();
 	}
 
+	/**
+	 * Set a CodeMirror's contents and reset its undo stack.
+	 *
+	 * clearHistory appeared nowhere in this file while setValue was called from
+	 * three places, so CodeMirror's undo stack survived a section switch and the
+	 * first Cmd+Z after switching pasted the previous section's code into the
+	 * current one - an undo that silently corrupted the thing it was undoing.
+	 */
+	function setEditorValue(editor, value) {
+		if (!editor || !editor.codemirror) return false;
+		editor.codemirror.setValue(value || '');
+		if (typeof editor.codemirror.clearHistory === 'function') {
+			editor.codemirror.clearHistory();
+		}
+		return true;
+	}
+
 	function renderCurrentSectionToEditors() {
 		var section = getCurrentSection();
 		if (!section) {
@@ -1490,13 +1691,13 @@
 		state.syncingEditors = true;
 		if (state.hasCodeMirror) {
 			if (state.editors.html) {
-				state.editors.html.codemirror.setValue(section.content || '');
+				setEditorValue(state.editors.html, section.content || '');
 			}
 			if (state.editors.css) {
-				state.editors.css.codemirror.setValue(section.css || '');
+				setEditorValue(state.editors.css, section.css || '');
 			}
 			if (state.editors.js) {
-				state.editors.js.codemirror.setValue(section.js || '');
+				setEditorValue(state.editors.js, section.js || '');
 			}
 		} else {
 			dom.textareaHtml.value = section.content || '';
@@ -2456,13 +2657,28 @@
 	 * @return {?{index:number,fields:string[],before:Object}} What changed, so
 	 *         it can be put back, or null if there was nothing to apply.
 	 */
-	function applyAiCode(code) {
-		var section = getCurrentSection();
+	/**
+	 * Apply an AI reply.
+	 *
+	 * `reqUid` and `reqTab` are captured when the request is sent. Without them
+	 * this resolved getCurrentSection() and getActiveTab() *on return* - after
+	 * a wait that can run two minutes - so a reply landed on whatever section
+	 * and tab happened to be in front when it arrived.
+	 */
+	function applyAiCode(code, reqUid, reqTab) {
+		var idx = typeof reqUid === 'string' && reqUid ? indexOfUid(reqUid) : state.selectedIndex;
+		if (idx < 0) {
+			// The section was deleted while the request was in flight. Dropping
+			// the reply is correct; applying it somewhere else is not.
+			return null;
+		}
+
+		var section = state.sections[idx];
 		if (!section || isForeign(section) || isLinked(section)) {
 			return null;
 		}
 
-		var tab = getActiveTab();
+		var tab = reqTab || getActiveTab();
 		var fieldMap = { html: 'content', css: 'css', js: 'js' };
 
 		// Extract bundled CSS/JS from HTML
@@ -2477,7 +2693,9 @@
 		}
 
 		var undo = {
-			index: state.selectedIndex,
+			// uid, not index: a reorder between apply and undo used to make
+			// undo restore a different section's content over the wrong one.
+			uid: section.uid,
 			fields: [],
 			before: {
 				content: section.content || '',
@@ -2512,16 +2730,23 @@
 	}
 
 	function undoAiCode(undo) {
-		if (!undo || !state.sections[undo.index]) {
+		if (!undo) {
 			return false;
 		}
 
-		var section = state.sections[undo.index];
+		var idx = indexOfUid(undo.uid);
+		if (idx < 0 || !state.sections[idx]) {
+			// The section is gone. Return cleanly rather than restoring its
+			// content over whatever now occupies that index.
+			return false;
+		}
+
+		var section = state.sections[idx];
 		section.content = undo.before.content;
 		section.css = undo.before.css;
 		section.js = undo.before.js;
 
-		if (undo.index === state.selectedIndex) {
+		if (idx === state.selectedIndex) {
 			renderCurrentSectionToEditors();
 			refreshCodeEditors();
 		}
@@ -2639,6 +2864,11 @@
 		var editor = state.editors[editorKey];
 		var cm = editor && editor.codemirror ? editor.codemirror : null;
 		if (cm && typeof cm.setValue === 'function') {
+			// Deliberately not setEditorValue(): this replaces the current
+			// section's own content, so keeping the undo stack lets Cmd+Z revert
+			// an AI edit. The stack only has to be cleared when the editor
+			// switches to a *different* section, which is where undo would
+			// otherwise paste the previous section's code.
 			state.syncingEditors = true;
 			cm.setValue(value);
 			state.syncingEditors = false;
@@ -2708,6 +2938,11 @@
 		var tab = state.aiSelection ? 'html' : getActiveTab();
 		var fieldMap = { html: 'content', css: 'css', js: 'js' };
 		var section = getCurrentSection();
+		// Pinned now, used when the reply lands. A generation can run two
+		// minutes; whatever is selected then is not necessarily what was asked
+		// about.
+		var reqUid = section ? section.uid : '';
+		var reqTab = tab;
 		var existing = section ? (section[fieldMap[tab]] || '') : '';
 		var ctxHtml = section ? (section.content || '') : '';
 		var ctxCss = section ? (section.css || '') : '';
@@ -2792,7 +3027,7 @@
 			// and into the editor beside it was work the builder can do, and
 			// the preview updates on its own — which is the answer the author
 			// actually wanted to look at. Undo is one click away.
-			var undo = applyAiCode(code);
+			var undo = applyAiCode(code, reqUid, reqTab);
 
 			state.aiMessages.push({
 				role: 'assistant',
@@ -2969,7 +3204,7 @@
 					'<button type="button" class="md-pb-button md-pb-button-preview" data-role="preview-frontend">Preview</button>' +
 				'</div>' +
 				'<div class="md-pb-topbar-right">' +
-					(config.libraryEndpoint ? '<button type="button" class="md-pb-button" data-role="library" title="Section Library">\u2261 Library</button>' : '') +
+					(config.libraryEnabled && config.restUrl ? '<button type="button" class="md-pb-button" data-role="library" title="Section library">\u2261 Library</button>' : '') +
 					'<button type="button" class="md-pb-button" data-role="page-settings" title="Page settings, template, import and export">' + GEAR_ICON + 'Page Settings</button>' +
 					'<button type="button" class="md-pb-button" data-role="shortcuts" title="Keyboard shortcuts">?</button>' +
 					'<button type="button" class="md-pb-button" data-role="cancel">Close</button>' +
@@ -3611,7 +3846,11 @@
 				(
 					tagName === 'textarea' ||
 					tagName === 'select' ||
-					(tagName === 'input' && target.type !== 'checkbox')
+					(tagName === 'input' && target.type !== 'checkbox') ||
+					// A tagName test misses both a contenteditable host and
+					// CodeMirror, whose editing surface is a styled div.
+					target.isContentEditable === true ||
+					(target.closest && target.closest('.CodeMirror'))
 				)
 			);
 			var isMeta = !!(event.metaKey || event.ctrlKey);
@@ -3634,6 +3873,31 @@
 			if (isMeta && key === 's') {
 				event.preventDefault();
 				activateApply();
+				return;
+			}
+
+			// Everything below this line acts on the document rather than on
+			// what you are typing into. The bail used to sit at the very end of
+			// this handler, underneath the duplicate and delete branches, so
+			// Cmd+D and Cmd+Backspace inside a code pane duplicated or deleted
+			// the whole section - permanently, with no undo anywhere - while
+			// the guard that existed to prevent exactly that could never fire.
+			//
+			// Escape, Cmd+S and Cmd+K stay above: all three are non-destructive
+			// and meaningful while typing.
+			if (isInputTarget) {
+				return;
+			}
+
+			if (isMeta && key === 'z') {
+				// Below the isInputTarget bail on purpose: inside a code pane
+				// Cmd+Z belongs to CodeMirror. Out here it owns the document.
+				event.preventDefault();
+				if (event.shiftKey) {
+					redoDocument();
+				} else {
+					undoDocument();
+				}
 				return;
 			}
 
@@ -3695,9 +3959,6 @@
 				return;
 			}
 
-			if (isInputTarget) {
-				return;
-			}
 		});
 
 		// Section list click delegation
@@ -3908,29 +4169,36 @@
 			var title = window.prompt('Section name for the library:');
 			if (!title) return;
 
-			var form = new window.URLSearchParams();
-			form.set('action', config.librarySaveAction || 'md_pb_builder_library_save');
-			form.set('post_id', String(config.postId || 0));
-			form.set('pb_nonce', String(config.saveNonce || ''));
-			form.set('title', title);
-			form.set('content', section.content || '');
-			form.set('css', section.css || '');
-			form.set('js', section.js || '');
-
-			window.fetch(config.libraryEndpoint || config.saveEndpoint, {
+			// POST to pbb/v1 rather than an admin-ajax action that was never
+			// implemented. The route derives the checksum and the slug itself,
+			// so this is not a second write path with its own rules.
+			window.fetch(config.restUrl.replace(/\/$/, '') + '/blocks', {
 				method: 'POST',
 				credentials: 'same-origin',
-				headers: { 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8' },
-				body: form.toString()
+				headers: {
+					'Content-Type': 'application/json',
+					'X-WP-Nonce': config.restNonce || ''
+				},
+				body: JSON.stringify({
+					title: title,
+					status: 'publish',
+					content: section.content || '',
+					css: section.css || '',
+					js: section.js || '',
+					js_location: section.jsLocation || 'footer',
+					output: section.output || 'inline',
+					format: !!section.format,
+					php_exec: !!section.phpExec
+				})
 			}).then(function(r) { return r.json(); }).then(function(payload) {
-				if (payload && payload.success) {
-					window.alert('Saved to library: ' + title);
+				if (payload && payload.id) {
+					say('Saved "' + title + '" to the library.', false);
 					loadLibraryList();
 				} else {
-					window.alert('Error: ' + ((payload && payload.data && payload.data.message) || 'Unknown'));
+					say((payload && payload.message) || 'Could not save to the library.', true);
 				}
 			}).catch(function() {
-				window.alert('Failed to save to library.');
+				say('Could not save to the library.', true);
 			});
 		});
 
@@ -3941,21 +4209,27 @@
 		var listEl = document.getElementById('md-pb-library-list');
 		if (!listEl) return;
 
-		var url = (config.libraryEndpoint || config.saveEndpoint) +
-			'?action=' + (config.libraryListAction || 'md_pb_builder_library_list') +
-			'&pb_nonce=' + encodeURIComponent(config.saveNonce || '') +
-			'&post_id=' + encodeURIComponent(config.postId || 0);
+		if (!config.restUrl) {
+			listEl.innerHTML = '<p class="md-pb-field-help">The library is unavailable on this site.</p>';
+			return;
+		}
 
-		window.fetch(url, { credentials: 'same-origin' })
+		var url = config.restUrl.replace(/\/$/, '') + '/blocks?status=publish&context=summary&per_page=100';
+
+		window.fetch(url, {
+			credentials: 'same-origin',
+			headers: { 'X-WP-Nonce': config.restNonce || '' }
+		})
 			.then(function(r) { return r.json(); })
 			.then(function(payload) {
-				if (!payload || !payload.success || !Array.isArray(payload.data)) {
-					listEl.innerHTML = '<p class="md-pb-field-help">No library sections found.</p>';
+				var items = Array.isArray(payload) ? payload : (payload && payload.data);
+				if (!Array.isArray(items)) {
+					listEl.innerHTML = '<p class="md-pb-field-help">Could not load the library.</p>';
 					return;
 				}
 
 				listEl.innerHTML = '';
-				payload.data.forEach(function(item) {
+				items.forEach(function(item) {
 					var row = document.createElement('div');
 					row.style.cssText = 'display:flex;justify-content:space-between;align-items:center;padding:8px;border:1px solid var(--pb-border);border-radius:6px;margin-bottom:6px;';
 
@@ -3963,37 +4237,77 @@
 					nameSpan.style.cssText = 'font-size:13px;color:var(--pb-text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';
 					nameSpan.textContent = item.title + (item.slug ? ' (' + item.slug + ')' : '');
 
-					var insertBtn = document.createElement('button');
-					insertBtn.type = 'button';
-					insertBtn.className = 'md-pb-icon-btn';
-					insertBtn.textContent = 'Insert';
-					insertBtn.title = 'Insert as new section';
-					insertBtn.addEventListener('click', function() {
-						var newSection = {
-							content: item.content || '',
-							css: item.css || '',
-							js: item.js || '',
-							jsLocation: 'footer',
-							output: 'inline',
-							format: false,
-							phpExec: false,
-							collapsed: false
-						};
-						state.sections.splice(state.selectedIndex + 1, 0, newSection);
-						state.selectedIndex = state.selectedIndex + 1;
-						renderAll();
-
+					var closeDialog = function() {
 						var overlay = document.getElementById('md-pb-library-overlay');
 						if (overlay) overlay.remove();
+					};
+
+					var insertAt = function(section) {
+						pushHistory();
+						state.sections.splice(state.selectedIndex + 1, 0, normalizeSection(section));
+						state.selectedIndex = state.selectedIndex + 1;
+						renderAll();
+						queuePreviewRender(0, true);
+						queueAutosave();
+						closeDialog();
+					};
+
+					// Linked: one copy of the code, every placement follows it.
+					// Carries the slug as well as the id, so the page survives
+					// being moved to another site.
+					var linkBtn = document.createElement('button');
+					linkBtn.type = 'button';
+					linkBtn.className = 'md-pb-icon-btn';
+					linkBtn.textContent = 'Link';
+					linkBtn.title = 'Insert linked to the library: editing the library block updates every placement';
+					linkBtn.addEventListener('click', function() {
+						insertAt({ blockId: item.id, blockSlug: item.slug || '', name: item.title || '' });
 					});
 
+					// Copy: independent from here on. Needs the full row,
+					// because the list is fetched in the summary shape.
+					var copyBtn = document.createElement('button');
+					copyBtn.type = 'button';
+					copyBtn.className = 'md-pb-icon-btn';
+					copyBtn.textContent = 'Copy';
+					copyBtn.title = 'Insert a one-off copy of the code, independent from the library';
+					copyBtn.addEventListener('click', function() {
+						copyBtn.disabled = true;
+						window.fetch(config.restUrl.replace(/\/$/, '') + '/blocks/' + item.id, {
+							credentials: 'same-origin',
+							headers: { 'X-WP-Nonce': config.restNonce || '' }
+						})
+							.then(function(r) { return r.json(); })
+							.then(function(full) {
+								insertAt({
+									name: full.title || '',
+									content: full.content || '',
+									css: full.css || '',
+									js: full.js || '',
+									jsLocation: full.js_location || 'footer',
+									output: full.output || 'inline',
+									format: !!full.format,
+									phpExec: !!full.php_exec
+								});
+							})
+							.catch(function() {
+								copyBtn.disabled = false;
+								say('Could not load that block.', true);
+							});
+					});
+
+					var actions = document.createElement('span');
+					actions.style.cssText = 'display:flex;gap:6px;flex-shrink:0;';
+					actions.appendChild(linkBtn);
+					actions.appendChild(copyBtn);
+
 					row.appendChild(nameSpan);
-					row.appendChild(insertBtn);
+					row.appendChild(actions);
 					listEl.appendChild(row);
 				});
 
-				if (!payload.data.length) {
-					listEl.innerHTML = '<p class="md-pb-field-help">No library sections found. Save a section first.</p>';
+				if (!items.length) {
+					listEl.innerHTML = '<p class="md-pb-field-help">No library blocks yet. Save a section to the library first.</p>';
 				}
 			})
 			.catch(function() {
@@ -4298,10 +4612,12 @@
 						return;
 					}
 
+					pushHistory();
 					state.removedForeign += Math.max(0, droppedForeign - keptForeign);
 					state.sections = imported;
 					state.selectedIndex = 0;
 				} else {
+					pushHistory();
 					imported.forEach(function(section) {
 						state.sections.push(section);
 					});
@@ -4351,7 +4667,7 @@
 			var data = e.data;
 
 			if (data && 'md_pb_section_focus' === data.type) {
-				selectSectionFromPreview(data.sectionIndex);
+				selectSectionFromPreview(indexOfUid(data.sectionUid));
 				return;
 			}
 
@@ -4359,7 +4675,10 @@
 				return;
 			}
 
-			var idx = data.sectionIndex;
+			// Resolve by uid, not by the index the preview happened to hold: a
+			// reorder between render and edit would otherwise apply the edit to
+			// whichever section moved into that slot.
+			var idx = indexOfUid(data.sectionUid);
 			var oldText = data.oldText;
 			var newText = data.newText;
 
@@ -4383,7 +4702,7 @@
 				if (idx === state.selectedIndex) {
 					if (state.hasCodeMirror && state.editors.html) {
 						state.syncingEditors = true;
-						state.editors.html.codemirror.setValue(section.content);
+						setEditorValue(state.editors.html, section.content);
 						state.syncingEditors = false;
 					} else if (dom.textareaHtml) {
 						dom.textareaHtml.value = section.content;

@@ -517,7 +517,12 @@
 			jsLocation: { type: 'string', default: 'footer' },
 			format:     { type: 'boolean', default: false },
 			phpExec:    { type: 'boolean', default: false },
-			output:     { type: 'string', default: 'inline' }
+			output:     { type: 'string', default: 'inline' },
+			// Added in 3.0.0. These must mirror the PHP registration for the
+			// same reason the comment above gives.
+			name:              { type: 'string', default: '' },
+			blockSlug:         { type: 'string', default: '' },
+			respectConditions: { type: 'boolean', default: false }
 		},
 
 		edit: function( props ) {

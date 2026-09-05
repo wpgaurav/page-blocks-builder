@@ -26,24 +26,36 @@ $conditions = $raw_conds ? json_decode( $raw_conds, true ) : array();
 
 $positions = gt_pb_get_positions();
 $post_types = get_post_types( array( 'public' => true ), 'objects' );
+// Every key here must exist in gt_pb_theme_builder::matches_page_type(), and
+// every key there should appear here. Eight of the fourteen the engine already
+// implemented had no checkbox, so they could only be set over REST or WP-CLI -
+// and opening the block in wp-admin and pressing save then deleted them.
 $page_types = array(
-	'front_page' => __( 'Front Page', 'md' ),
-	'blog'       => __( 'Blog Page', 'md' ),
-	'singular'   => __( 'Single Posts/Pages', 'md' ),
-	'archive'    => __( 'Archives', 'md' ),
-	'search'     => __( 'Search Results', 'md' ),
-	'404'        => __( '404 Page', 'md' ),
+	'front_page' => __( 'Front Page', 'page-blocks-builder' ),
+	'blog'       => __( 'Blog Page', 'page-blocks-builder' ),
+	'singular'   => __( 'Any Single Post or Page', 'page-blocks-builder' ),
+	'single'     => __( 'Single Posts', 'page-blocks-builder' ),
+	'page'       => __( 'Pages', 'page-blocks-builder' ),
+	'attachment' => __( 'Attachment Pages', 'page-blocks-builder' ),
+	'archive'    => __( 'Any Archive', 'page-blocks-builder' ),
+	'category'   => __( 'Category Archives', 'page-blocks-builder' ),
+	'tag'        => __( 'Tag Archives', 'page-blocks-builder' ),
+	'tax'        => __( 'Custom Taxonomy Archives', 'page-blocks-builder' ),
+	'author'     => __( 'Author Archives', 'page-blocks-builder' ),
+	'date'       => __( 'Date Archives', 'page-blocks-builder' ),
+	'search'     => __( 'Search Results', 'page-blocks-builder' ),
+	'404'        => __( '404 Page', 'page-blocks-builder' ),
 );
 ?>
 <div class="wrap">
 	<h1>
-		<?php echo $is_new ? esc_html__( 'Add New Page Block', 'md' ) : esc_html__( 'Edit Page Block', 'md' ); ?>
-		<a href="<?php echo esc_url( admin_url( 'admin.php?page=gt_page_blocks' ) ); ?>" class="page-title-action"><?php esc_html_e( '← All Page Blocks', 'md' ); ?></a>
+		<?php echo $is_new ? esc_html__( 'Add New Page Block', 'page-blocks-builder' ) : esc_html__( 'Edit Page Block', 'page-blocks-builder' ); ?>
+		<a href="<?php echo esc_url( admin_url( 'admin.php?page=gt_page_blocks' ) ); ?>" class="page-title-action"><?php esc_html_e( '← All Page Blocks', 'page-blocks-builder' ); ?></a>
 	</h1>
 
 	<?php if ( isset( $_GET['updated'] ) ) : ?>
 		<div class="notice notice-success is-dismissible">
-			<p><?php esc_html_e( 'Page block saved.', 'md' ); ?></p>
+			<p><?php esc_html_e( 'Page block saved.', 'page-blocks-builder' ); ?></p>
 		</div>
 	<?php endif; ?>
 
@@ -63,30 +75,30 @@ $page_types = array(
 					<!-- Title -->
 					<div id="titlediv">
 						<div id="titlewrap">
-							<label class="screen-reader-text" for="block_title"><?php esc_html_e( 'Title', 'md' ); ?></label>
-							<input type="text" name="block_title" id="block_title" value="<?php echo esc_attr( $title ); ?>" placeholder="<?php esc_attr_e( 'Enter page block title', 'md' ); ?>" autocomplete="off" spellcheck="true" size="30">
+							<label class="screen-reader-text" for="block_title"><?php esc_html_e( 'Title', 'page-blocks-builder' ); ?></label>
+							<input type="text" name="block_title" id="block_title" value="<?php echo esc_attr( $title ); ?>" placeholder="<?php esc_attr_e( 'Enter page block title', 'page-blocks-builder' ); ?>" autocomplete="off" spellcheck="true" size="30">
 						</div>
 					</div>
 
 					<!-- Slug -->
 					<div class="md-pb-slug-wrap" style="margin: 8px 0 16px;">
-						<label for="block_slug"><strong><?php esc_html_e( 'Slug:', 'md' ); ?></strong></label>
-						<input type="text" name="block_slug" id="block_slug" value="<?php echo esc_attr( $slug ); ?>" class="regular-text code" placeholder="<?php esc_attr_e( 'auto-generated-from-title', 'md' ); ?>">
+						<label for="block_slug"><strong><?php esc_html_e( 'Slug:', 'page-blocks-builder' ); ?></strong></label>
+						<input type="text" name="block_slug" id="block_slug" value="<?php echo esc_attr( $slug ); ?>" class="regular-text code" placeholder="<?php esc_attr_e( 'auto-generated-from-title', 'page-blocks-builder' ); ?>">
 					</div>
 
 					<!-- Code Editor Tabs -->
 					<div class="md-pb-editors">
 						<div class="md-pb-editor-tabs">
 							<button type="button" class="md-pb-tab active" data-tab="html">
-								<?php esc_html_e( 'HTML', 'md' ); ?>
+								<?php esc_html_e( 'HTML', 'page-blocks-builder' ); ?>
 								<?php if ( ! empty( $content ) ) : ?><span class="md-pb-tab-dot"></span><?php endif; ?>
 							</button>
 							<button type="button" class="md-pb-tab" data-tab="css">
-								<?php esc_html_e( 'CSS', 'md' ); ?>
+								<?php esc_html_e( 'CSS', 'page-blocks-builder' ); ?>
 								<?php if ( ! empty( $css ) ) : ?><span class="md-pb-tab-dot"></span><?php endif; ?>
 							</button>
 							<button type="button" class="md-pb-tab" data-tab="js">
-								<?php esc_html_e( 'JavaScript', 'md' ); ?>
+								<?php esc_html_e( 'JavaScript', 'page-blocks-builder' ); ?>
 								<?php if ( ! empty( $js ) ) : ?><span class="md-pb-tab-dot"></span><?php endif; ?>
 							</button>
 						</div>
@@ -109,23 +121,23 @@ $page_types = array(
 						<div class="md-pb-preview-toolbar">
 							<button type="button" id="md-pb-preview-btn" class="button">
 								<span class="dashicons dashicons-visibility"></span>
-								<?php esc_html_e( 'Preview', 'md' ); ?>
+								<?php esc_html_e( 'Preview', 'page-blocks-builder' ); ?>
 							</button>
 							<span class="md-pb-preview-status" id="md-pb-preview-status"></span>
 							<div class="md-pb-preview-viewports">
-								<button type="button" class="md-pb-viewport active" data-width="100%" title="<?php esc_attr_e( 'Desktop', 'md' ); ?>">
+								<button type="button" class="md-pb-viewport active" data-width="100%" title="<?php esc_attr_e( 'Desktop', 'page-blocks-builder' ); ?>">
 									<span class="dashicons dashicons-desktop"></span>
 								</button>
-								<button type="button" class="md-pb-viewport" data-width="768px" title="<?php esc_attr_e( 'Tablet', 'md' ); ?>">
+								<button type="button" class="md-pb-viewport" data-width="768px" title="<?php esc_attr_e( 'Tablet', 'page-blocks-builder' ); ?>">
 									<span class="dashicons dashicons-tablet"></span>
 								</button>
-								<button type="button" class="md-pb-viewport" data-width="375px" title="<?php esc_attr_e( 'Mobile', 'md' ); ?>">
+								<button type="button" class="md-pb-viewport" data-width="375px" title="<?php esc_attr_e( 'Mobile', 'page-blocks-builder' ); ?>">
 									<span class="dashicons dashicons-smartphone"></span>
 								</button>
 							</div>
 						</div>
 						<div class="md-pb-preview-container" id="md-pb-preview-container" style="display: none;">
-							<iframe id="md-pb-preview-iframe" sandbox="allow-scripts allow-same-origin" title="<?php esc_attr_e( 'Page Block Preview', 'md' ); ?>"></iframe>
+							<iframe id="md-pb-preview-iframe" sandbox="allow-scripts allow-same-origin" title="<?php esc_attr_e( 'Page Block Preview', 'page-blocks-builder' ); ?>"></iframe>
 						</div>
 					</div>
 
@@ -137,14 +149,14 @@ $page_types = array(
 					<!-- Publish box -->
 					<div class="postbox">
 						<div class="postbox-header">
-							<h2><?php esc_html_e( 'Publish', 'md' ); ?></h2>
+							<h2><?php esc_html_e( 'Publish', 'page-blocks-builder' ); ?></h2>
 						</div>
 						<div class="inside">
 							<div class="misc-pub-section">
-								<label for="block_status"><strong><?php esc_html_e( 'Status:', 'md' ); ?></strong></label>
+								<label for="block_status"><strong><?php esc_html_e( 'Status:', 'page-blocks-builder' ); ?></strong></label>
 								<select name="block_status" id="block_status">
-									<option value="publish" <?php selected( $status, 'publish' ); ?>><?php esc_html_e( 'Published', 'md' ); ?></option>
-									<option value="draft" <?php selected( $status, 'draft' ); ?>><?php esc_html_e( 'Draft', 'md' ); ?></option>
+									<option value="publish" <?php selected( $status, 'publish' ); ?>><?php esc_html_e( 'Published', 'page-blocks-builder' ); ?></option>
+									<option value="draft" <?php selected( $status, 'draft' ); ?>><?php esc_html_e( 'Draft', 'page-blocks-builder' ); ?></option>
 								</select>
 							</div>
 
@@ -153,7 +165,8 @@ $page_types = array(
 									<span class="dashicons dashicons-calendar-alt"></span>
 									<?php
 									printf(
-										esc_html__( 'Created: %s', 'md' ),
+										/* translators: %s: creation date */
+										esc_html__( 'Created: %s', 'page-blocks-builder' ),
 										esc_html( date_i18n( get_option( 'date_format' ) . ' ' . get_option( 'time_format' ), strtotime( $block->created_at ) ) )
 									);
 									?>
@@ -169,11 +182,11 @@ $page_types = array(
 											'md_pb_trash_' . $block->id
 										);
 										?>
-										<a href="<?php echo esc_url( $trash_url ); ?>" class="submitdelete"><?php esc_html_e( 'Move to Trash', 'md' ); ?></a>
+										<a href="<?php echo esc_url( $trash_url ); ?>" class="submitdelete"><?php esc_html_e( 'Move to Trash', 'page-blocks-builder' ); ?></a>
 									</div>
 								<?php endif; ?>
 								<div id="publishing-action">
-									<input type="submit" class="button button-primary button-large" value="<?php echo $is_new ? esc_attr__( 'Create', 'md' ) : esc_attr__( 'Update', 'md' ); ?>">
+									<input type="submit" class="button button-primary button-large" value="<?php echo $is_new ? esc_attr__( 'Create', 'page-blocks-builder' ) : esc_attr__( 'Update', 'page-blocks-builder' ); ?>">
 								</div>
 								<div class="clear"></div>
 							</div>
@@ -184,25 +197,71 @@ $page_types = array(
 					<?php if ( ! $is_new ) : ?>
 						<div class="postbox">
 							<div class="postbox-header">
-								<h2><?php esc_html_e( 'Usage', 'md' ); ?></h2>
+								<h2><?php esc_html_e( 'Usage', 'page-blocks-builder' ); ?></h2>
 							</div>
 							<div class="inside md-pb-usage-box">
 								<div class="md-pb-usage-item">
-									<span class="md-pb-usage-label"><?php esc_html_e( 'Shortcode', 'md' ); ?></span>
+									<span class="md-pb-usage-label"><?php esc_html_e( 'Shortcode', 'page-blocks-builder' ); ?></span>
 									<code class="md-pb-usage-code">[page_block id="<?php echo (int) $block->id; ?>"]</code>
 								</div>
 								<div class="md-pb-usage-item">
-									<span class="md-pb-usage-label"><?php esc_html_e( 'By slug', 'md' ); ?></span>
+									<span class="md-pb-usage-label"><?php esc_html_e( 'By slug', 'page-blocks-builder' ); ?></span>
 									<code class="md-pb-usage-code">[page_block slug="<?php echo esc_attr( $slug ); ?>"]</code>
 								</div>
 								<div class="md-pb-usage-item">
-									<span class="md-pb-usage-label"><?php esc_html_e( 'PHP', 'md' ); ?></span>
+									<span class="md-pb-usage-label"><?php esc_html_e( 'PHP', 'page-blocks-builder' ); ?></span>
 									<code class="md-pb-usage-code md-pb-usage-code--small">do_shortcode('[page_block id="<?php echo (int) $block->id; ?>"]');</code>
 								</div>
 								<div class="md-pb-usage-item">
-									<span class="md-pb-usage-label"><?php esc_html_e( 'REST API', 'md' ); ?></span>
+									<span class="md-pb-usage-label"><?php esc_html_e( 'REST API', 'page-blocks-builder' ); ?></span>
 									<code class="md-pb-usage-code md-pb-usage-code--small">/wp-json/md/v1/page-blocks/<?php echo (int) $block->id; ?></code>
 								</div>
+							</div>
+						</div>
+					<?php endif; ?>
+
+					<!-- Revisions -->
+					<?php if ( ! $is_new ) : ?>
+						<?php $gt_pb_revisions = $this->db->get_revisions( (int) $block->id, 15 ); ?>
+						<div class="postbox">
+							<div class="postbox-header">
+								<h2><?php esc_html_e( 'Revisions', 'page-blocks-builder' ); ?></h2>
+							</div>
+							<div class="inside">
+								<?php if ( empty( $gt_pb_revisions ) ) : ?>
+									<p class="description">
+										<?php esc_html_e( 'No revisions yet. One is kept each time you save, so you can get back to a working version.', 'page-blocks-builder' ); ?>
+									</p>
+								<?php else : ?>
+									<ul class="gt-pb-revisions">
+										<?php foreach ( $gt_pb_revisions as $gt_pb_rev ) : ?>
+											<li class="gt-pb-revision">
+												<span class="gt-pb-revision-when">
+													<?php
+													echo esc_html(
+														sprintf(
+															/* translators: %s: human-readable time difference, e.g. "2 hours" */
+															__( '%s ago', 'page-blocks-builder' ),
+															human_time_diff( strtotime( $gt_pb_rev->created_at ), current_time( 'timestamp' ) )
+														)
+													);
+													?>
+												</span>
+												<?php
+												$gt_pb_rev_author = $gt_pb_rev->author ? get_userdata( (int) $gt_pb_rev->author ) : null;
+												if ( $gt_pb_rev_author ) :
+													?>
+													<span class="gt-pb-revision-who"><?php echo esc_html( $gt_pb_rev_author->display_name ); ?></span>
+												<?php endif; ?>
+												<a class="gt-pb-revision-restore"
+													href="<?php echo esc_url( wp_nonce_url( admin_url( 'admin.php?page=gt_pb_edit&id=' . (int) $block->id . '&gt_pb_restore=' . (int) $gt_pb_rev->id ), 'gt_pb_restore_' . (int) $gt_pb_rev->id ) ); ?>"
+													onclick="return confirm(<?php echo esc_js( wp_json_encode( __( 'Restore this version? The current content is kept as a revision, so this is reversible.', 'page-blocks-builder' ) ) ); ?>);">
+													<?php esc_html_e( 'Restore', 'page-blocks-builder' ); ?>
+												</a>
+											</li>
+										<?php endforeach; ?>
+									</ul>
+								<?php endif; ?>
 							</div>
 						</div>
 					<?php endif; ?>
@@ -210,31 +269,31 @@ $page_types = array(
 					<!-- Settings box -->
 					<div class="postbox">
 						<div class="postbox-header">
-							<h2><?php esc_html_e( 'Settings', 'md' ); ?></h2>
+							<h2><?php esc_html_e( 'Settings', 'page-blocks-builder' ); ?></h2>
 						</div>
 						<div class="inside md-pb-settings-box">
 							<div class="md-pb-setting-row">
-								<label for="block_output"><?php esc_html_e( 'CSS/JS Output', 'md' ); ?></label>
+								<label for="block_output"><?php esc_html_e( 'CSS/JS Output', 'page-blocks-builder' ); ?></label>
 								<select name="block_output" id="block_output">
-									<option value="inline" <?php selected( $output, 'inline' ); ?>><?php esc_html_e( 'Inline', 'md' ); ?></option>
-									<option value="file" <?php selected( $output, 'file' ); ?>><?php esc_html_e( 'External File', 'md' ); ?></option>
+									<option value="inline" <?php selected( $output, 'inline' ); ?>><?php esc_html_e( 'Inline', 'page-blocks-builder' ); ?></option>
+									<option value="file" <?php selected( $output, 'file' ); ?>><?php esc_html_e( 'External File', 'page-blocks-builder' ); ?></option>
 								</select>
 							</div>
 							<div class="md-pb-setting-row">
-								<label for="block_js_location"><?php esc_html_e( 'JS Location', 'md' ); ?></label>
+								<label for="block_js_location"><?php esc_html_e( 'JS Location', 'page-blocks-builder' ); ?></label>
 								<select name="block_js_location" id="block_js_location">
-									<option value="footer" <?php selected( $js_loc, 'footer' ); ?>><?php esc_html_e( 'Footer', 'md' ); ?></option>
-									<option value="inline" <?php selected( $js_loc, 'inline' ); ?>><?php esc_html_e( 'Inline', 'md' ); ?></option>
+									<option value="footer" <?php selected( $js_loc, 'footer' ); ?>><?php esc_html_e( 'Footer', 'page-blocks-builder' ); ?></option>
+									<option value="inline" <?php selected( $js_loc, 'inline' ); ?>><?php esc_html_e( 'Inline', 'page-blocks-builder' ); ?></option>
 								</select>
 							</div>
 							<div class="md-pb-setting-row md-pb-setting-row--checks">
 								<label>
 									<input type="checkbox" name="block_php_exec" value="1" <?php checked( $php_exec, 1 ); ?>>
-									<?php esc_html_e( 'Execute PHP', 'md' ); ?>
+									<?php esc_html_e( 'Execute PHP', 'page-blocks-builder' ); ?>
 								</label>
 								<label>
 									<input type="checkbox" name="block_format" value="1" <?php checked( $format, 1 ); ?>>
-									<?php esc_html_e( 'Auto-format (wpautop)', 'md' ); ?>
+									<?php esc_html_e( 'Auto-format (wpautop)', 'page-blocks-builder' ); ?>
 								</label>
 							</div>
 						</div>
@@ -243,11 +302,11 @@ $page_types = array(
 					<!-- Position box -->
 					<div class="postbox">
 						<div class="postbox-header">
-							<h2><?php esc_html_e( 'Hook Position', 'md' ); ?></h2>
+							<h2><?php esc_html_e( 'Hook Position', 'page-blocks-builder' ); ?></h2>
 						</div>
 						<div class="inside">
 							<p>
-								<label for="block_position"><strong><?php esc_html_e( 'Position:', 'md' ); ?></strong></label><br>
+								<label for="block_position"><strong><?php esc_html_e( 'Position:', 'page-blocks-builder' ); ?></strong></label><br>
 								<select name="block_position" id="block_position" style="width: 100%;">
 									<?php foreach ( $positions as $hook => $label ) : ?>
 										<option value="<?php echo esc_attr( $hook ); ?>" <?php selected( $position, $hook ); ?>>
@@ -258,18 +317,18 @@ $page_types = array(
 							</p>
 
 							<p>
-								<label for="block_priority"><strong><?php esc_html_e( 'Priority:', 'md' ); ?></strong></label><br>
+								<label for="block_priority"><strong><?php esc_html_e( 'Priority:', 'page-blocks-builder' ); ?></strong></label><br>
 								<input type="number" name="block_priority" id="block_priority" value="<?php echo (int) $priority; ?>" min="0" max="999" step="1" class="small-text">
-								<span class="description"><?php esc_html_e( 'Lower = earlier', 'md' ); ?></span>
+								<span class="description"><?php esc_html_e( 'Lower = earlier', 'page-blocks-builder' ); ?></span>
 							</p>
 
 							<!-- Conditions (shown when position is set) -->
 							<div id="md-pb-conditions" style="<?php echo empty( $position ) ? 'display: none;' : ''; ?>">
 								<hr>
-								<p><strong><?php esc_html_e( 'Display Conditions', 'md' ); ?></strong></p>
-								<p class="description"><?php esc_html_e( 'Leave empty to display everywhere.', 'md' ); ?></p>
+								<p><strong><?php esc_html_e( 'Display Conditions', 'page-blocks-builder' ); ?></strong></p>
+								<p class="description"><?php esc_html_e( 'Leave empty to display everywhere.', 'page-blocks-builder' ); ?></p>
 
-								<p><strong><?php esc_html_e( 'Post Types:', 'md' ); ?></strong></p>
+								<p><strong><?php esc_html_e( 'Post Types:', 'page-blocks-builder' ); ?></strong></p>
 								<?php foreach ( $post_types as $pt ) : ?>
 									<label style="display: block; margin-bottom: 4px;">
 										<input type="checkbox" name="block_condition_post_types[]" value="<?php echo esc_attr( $pt->name ); ?>"
@@ -278,7 +337,7 @@ $page_types = array(
 									</label>
 								<?php endforeach; ?>
 
-								<p style="margin-top: 12px;"><strong><?php esc_html_e( 'Page Types:', 'md' ); ?></strong></p>
+								<p style="margin-top: 12px;"><strong><?php esc_html_e( 'Page Types:', 'page-blocks-builder' ); ?></strong></p>
 								<?php foreach ( $page_types as $key => $label ) : ?>
 									<label style="display: block; margin-bottom: 4px;">
 										<input type="checkbox" name="block_condition_page_types[]" value="<?php echo esc_attr( $key ); ?>"
@@ -288,10 +347,10 @@ $page_types = array(
 								<?php endforeach; ?>
 
 								<p style="margin-top: 12px;">
-									<label for="block_condition_post_ids"><strong><?php esc_html_e( 'Specific Post IDs:', 'md' ); ?></strong></label><br>
+									<label for="block_condition_post_ids"><strong><?php esc_html_e( 'Specific Post IDs:', 'page-blocks-builder' ); ?></strong></label><br>
 									<input type="text" name="block_condition_post_ids" id="block_condition_post_ids"
 										value="<?php echo esc_attr( implode( ', ', $conditions['post_ids'] ?? array() ) ); ?>"
-										class="regular-text" placeholder="<?php esc_attr_e( '123, 456, 789', 'md' ); ?>">
+										class="regular-text" placeholder="<?php esc_attr_e( '123, 456, 789', 'page-blocks-builder' ); ?>">
 								</p>
 							</div>
 						</div>

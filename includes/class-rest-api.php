@@ -286,6 +286,11 @@ class gt_pb_rest_api {
 			'title', 'slug', 'status', 'content', 'css', 'js',
 			'js_location', 'output', 'php_exec', 'format',
 			'position', 'priority',
+			// conditions was the only meaningful column excluded from both this
+			// list and the read shape, so every programmatic workflow silently
+			// dropped display conditions: read a block over REST, write it
+			// back, and its conditions were gone.
+			'conditions', 'tags', 'description',
 		);
 
 		$data = array();
@@ -347,6 +352,9 @@ class gt_pb_rest_api {
 			'format'      => ! empty( $block->format ),
 			'position'    => (string) ( $block->position ?? '' ),
 			'priority'    => (int) ( $block->priority ?? 10 ),
+			'conditions'  => $block->conditions,
+			'tags'        => $block->tags ?? '',
+			'description' => $block->description ?? '',
 			'created_at'  => (string) ( $block->created_at ?? '' ),
 			'updated_at'  => (string) ( $block->updated_at ?? '' ),
 		);

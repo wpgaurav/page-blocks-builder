@@ -4,7 +4,7 @@ Tags: page builder, html blocks, css sections, gutenberg, visual builder
 Requires at least: 6.0
 Tested up to: 6.9.1
 Requires PHP: 8.1
-Stable tag: 2.8.1
+Stable tag: 3.0.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -65,10 +65,78 @@ When set to "file", CSS and JS for that block are written to external files in `
 
 == Upgrade Notice ==
 
+= 3.0.0 =
+Major release. Back up your database first: the schema change is one-way. Requires PHP 8.1. Flush your page cache and CDN after updating - generated CSS and JS filenames change. Read the BREAKING list in the changelog before updating a live site.
+
 = 2.8.1 =
 Security release. Fixes privilege escalation in the block preview (any Author could execute PHP on sites with PHP blocks enabled) and restores certificate verification on the update channel. If you have PHP blocks turned on, update now. Requires PHP 8.1.
 
 == Changelog ==
+
+= 3.0.0 =
+
+**BREAKING - read before updating a live site**
+
+* **PHP 8.1 is now the minimum.** WordPress will not offer this update to a site below it, and activation stops with a notice instead of a white screen. The plugin has actually needed 8.1 since 2.7; the header said nothing and the update payload claimed 7.4.
+* **The CSS minifier no longer collapses whitespace around `:`.** `.menu :hover` stays a descendant selector instead of silently becoming `.menu:hover`. This is a correctness fix in a shared path and there is no opt-out. If a stylesheet unknowingly depended on the collapsed form, that rule changes what it matches.
+* **Minified JavaScript changes shape.** A line comment no longer swallows the rest of the file, and newlines survive so semicolon-free code is not concatenated into one statement. Blocks whose JS silently did nothing will start working, which is a change in behaviour even though it is the intended one.
+* **Generated asset filenames now carry a content hash.** Every page cache and CDN misses once after updating. The old unhashed filename is still written as a copy for this major version, so a hand-written CDN rule keeps resolving, but it will be removed in 4.0.
+* **Utility-class output is switched off once during the upgrade,** with an admin notice. The scanner never emitted anything for page blocks, so this is a zero-visual-change upgrade; turning it back on is your decision, and layouts on a site that looked correct without it will change when you do.
+* **PHP execution in the block preview now requires administrator access.** It previously ran for anyone who could edit the post.
+* **The AI panel now requires `manage_options`.** Restore the old behaviour with `add_filter( 'gt_pb_ai_capability', fn() => 'edit_posts' );`.
+* **The undocumented terminal endpoint and its setting are removed.**
+* **The first save of an existing builder page rewrites its block delimiters** as sections gain their new attributes. Benign, but visible if you keep post_content in version control.
+* **Display conditions:** eight page types that were implemented but had no checkbox are now selectable, and the edit form no longer deletes conditions it cannot render. Conditions can now also apply to shortcode and block placements, off by default.
+* **Uninstalling now deletes the plugin's options, transients and stored AI keys.** The block library is only dropped if you tick the new setting.
+* **Library usage counts change, sometimes sharply, on block themes,** where the invalidation hooks were never registered. Blocks that read "Unused" while rendering site-wide now read correctly.
+* **The database schema moves to 1.2 and the migration is one-way.** Reinstalling 2.8 files does not revert it.
+
+**Privacy and outbound requests**
+
+Every install, licensed or not, now checks a small static file at
+gauravtiwari.org twice a day to learn whether a security release exists. The
+request sends the plugin version and nothing else - no site URL, no licence
+key, no content. It exists because updates are otherwise gated behind a
+licence, which would mean an unlicensed site never receiving a security fix.
+Disable it with `define( 'GT_PB_DISABLE_SECURITY_CHANNEL', true );` in
+wp-config.php; every security release is also published as a public download,
+so a manual path always exists.
+
+**Licensing**
+
+GT Page Blocks Builder is free to use. Every feature works without a license key; nothing is gated. A license buys automatic updates and support. An unlicensed site now says so on the Plugins screen instead of simply never being offered an update.
+
+**Correctness**
+
+* Editing a library block reaches the visitor. In file-output mode the generated file was only ever written once, so an edit was never served.
+* The visual builder stops blanking core and third-party blocks. Every keystroke used to overwrite them in the preview.
+* Renaming a section persists. The name was never sent, stored or returned.
+* A failed save says so. A slug colliding with another block discarded the whole editing session behind a green "saved" notice.
+* Utility classes are found inside page blocks, which are JSON-escaped in post_content and could never match the old scanner.
+* Inline SVG backgrounds survive the CSS sanitiser, which used to empty them to `url(data:image/svg+xml;utf8,)`.
+* Linked blocks reference the library by slug as well as id, so a block copied between sites still resolves.
+
+**Recovery**
+
+* Library blocks keep a revision history with one-click restore.
+* Document-level undo in the builder covers add, delete, duplicate, reorder and import - not just typing.
+* Cmd+Backspace and Cmd+D inside a code pane stop acting on the whole section.
+* Undo after switching sections no longer pastes the previous section's code.
+* AI replies land on the section they were requested from, and AI undo restores the right one after a reorder.
+
+**Security**
+
+* The PHP-execution checksum is keyed with the site salt, so it can no longer be recomputed by whoever wrote the row. Existing blocks keep working: the old value is still accepted for this major version and rewritten in the background.
+* The licence and update channel verifies TLS certificates, and package URLs are rejected unless they are on the licence host.
+
+**Engineering**
+
+* Test suites, static analysis and a package check run on every push.
+* An upgrade router with a lock, batching and a resume cursor, driven by `wp gt-pb upgrade [--dry-run]`.
+* `wp gt-pb block list|get|create|delete|render`.
+* First action hooks: `gt_pb_block_saved`, `gt_pb_block_deleted`.
+* Display conditions are readable and writable over REST, which silently dropped them before.
+* 388 strings can be translated for the first time; 82 carried a text domain retired two versions ago.
 
 = 2.8.1 =
 Security release. Update before anything else.

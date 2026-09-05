@@ -1,0 +1,124 @@
+name: CI
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    name: PHP ${{ matrix.php }} lint
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # 8.1 is the floor the plugin header declares.
+        php: ['8.1', '8.2', '8.3', '8.4']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php }}
+          coverage: none
+      - name: Lint
+        run: |
+          find . -name '*.php' \
+            -not -path './vendor/*' -not -path './__release-*/*' \
+            -print0 | xargs -0 -n1 -P4 php -l
+
+  analyse:
+    name: PHPStan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.4'
+          coverage: none
+          # The stub files are large; the 128M default OOMs on this tree and
+          # so does 1G. Analysis needs an unbounded limit here.
+          ini-values: memory_limit=-1
+      - uses: ramsey/composer-install@v3
+      - run: vendor/bin/phpstan analyse --no-progress --memory-limit=-1
+
+  standards:
+    name: PHPCS
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.4'
+          coverage: none
+      - uses: ramsey/composer-install@v3
+      # Non-blocking while the pre-existing baseline is worked down. A red
+      # badge over hundreds of inherited style errors gets ignored within a
+      # week, and then it is not a gate at all.
+      - run: vendor/bin/phpcs || true
+
+  unit:
+    name: Unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.1'
+          coverage: none
+      - uses: ramsey/composer-install@v3
+      # No WordPress bootstrap - these are pure string transforms and the suite
+      # runs in milliseconds, so it can gate every push.
+      - run: vendor/bin/phpunit --testsuite unit
+
+  integration:
+    name: Integration (real WordPress)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          coverage: none
+      - uses: ramsey/composer-install@v3
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Boot WordPress
+        run: |
+          npx --yes @wordpress/env start
+      - name: Run the integration suite
+        run: |
+          # wp-env mounts the repo as a plugin; the suite talks to that install
+          # directly rather than through the container, so it needs the path
+          # wp-env exposes over its mapped wordpress directory.
+          WP_ROOT="$HOME/wp-env/$(ls "$HOME/wp-env" | head -1)/WordPress"
+          test -f "$WP_ROOT/wp-load.php" || { echo "wp-load.php not found under $WP_ROOT"; ls -R "$HOME/wp-env" | head -40; exit 1; }
+          GT_PB_WP_ROOT="$WP_ROOT" vendor/bin/phpunit -c phpunit-integration.xml
+      - name: Stop WordPress
+        if: always()
+        run: npx --yes @wordpress/env stop || true
+
+  package:
+    name: Package parity
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build with the release rules and check nothing forbidden ships
+        run: |
+          SLUG=page-blocks-builder
+          mkdir -p "$SLUG"
+          rsync -a --exclude-from=.distignore \
+            --exclude="/$SLUG/" --exclude="*.zip" ./ "$SLUG/"
+          zip -qr "$SLUG.zip" "$SLUG"
+          unzip -tq "$SLUG.zip"
+          for required in "$SLUG/$SLUG.php" "$SLUG/readme.txt" "$SLUG/includes" "$SLUG/assets" "$SLUG/templates"; do
+            unzip -Z1 "$SLUG.zip" | grep -q "^${required}" || { echo "missing: $required"; exit 1; }
+          done
+          if unzip -Z1 "$SLUG.zip" | grep -E '(^|/)(\.git|\.github|vendor|node_modules|tests?)/|composer\.(json|lock)|phpstan|\.DS_Store|__release-'; then
+            echo "package contains files that must not ship"; exit 1
+          fi
+          echo "package parity ok"

@@ -1,0 +1,8 @@
+{
+  "core": null,
+  "plugins": [ "." ],
+  "config": {
+    "GT_PB_ALLOW_PHP": true,
+    "WP_DEBUG": true
+  }
+}

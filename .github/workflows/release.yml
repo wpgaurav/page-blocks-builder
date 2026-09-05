@@ -25,30 +25,13 @@ jobs:
           BUILD_DIR="${PLUGIN_SLUG}"
           mkdir -p "$BUILD_DIR"
 
-          cp page-blocks-builder.php "$BUILD_DIR/"
-          cp -r assets "$BUILD_DIR/"
-          cp -r includes "$BUILD_DIR/"
-          cp -r templates "$BUILD_DIR/"
-
-          # readme.txt is not optional packaging: FluentCart's license
-          # settings point wp.readme_url at it, and WordPress renders the
-          # "View details" modal from it. Leaving it out gives customers an
-          # update with no changelog and no description.
-          cp readme.txt "$BUILD_DIR/"
-
-          # index.php keeps the plugin directory unlistable on hosts that
-          # serve directory indexes.
-          if [ -f index.php ]; then
-            cp index.php "$BUILD_DIR/"
-          fi
-
-          if [ -f README.md ]; then
-            cp README.md "$BUILD_DIR/"
-          fi
-
-          if [ -f LICENSE ]; then
-            cp LICENSE "$BUILD_DIR/"
-          fi
+          # Ship everything except what .distignore excludes. The previous
+          # allowlist meant a new file had to be remembered in two places, and
+          # the verify step below only checked the version header - so a
+          # forgotten entry shipped a ZIP missing the feature, silently.
+          rsync -a --exclude-from=.distignore \
+            --exclude="/${BUILD_DIR}/" --exclude="*.zip" \
+            ./ "$BUILD_DIR/"
 
           zip -r "${PLUGIN_SLUG}-${{ steps.version.outputs.tag }}.zip" "$BUILD_DIR/"
 
@@ -69,11 +52,41 @@ jobs:
           # the release instead of shipping a mislabelled ZIP.
           header=$(unzip -p "$ZIP" "$PLUGIN_SLUG/$PLUGIN_SLUG.php" | grep -m1 -E '^ \* Version:' | sed -E 's/.*Version:[[:space:]]*//')
           [ "$header" = "$VERSION" ] || { echo "header version '$header' != tag version '$VERSION'"; exit 1; }
+          echo "header version $header matches tag"
 
           # readme.txt must be present and agree on the stable tag.
+          #
+          # A prerelease tag (v3.0.0-rc.1) is exempt: readme.txt's Stable tag is
+          # what update servers treat as the current stable release, so it must
+          # keep naming the last stable version during a beta. Without this
+          # exemption an RC could not be tagged at all.
           unzip -l "$ZIP" | grep -q "$PLUGIN_SLUG/readme.txt" || { echo "readme.txt missing from package"; exit 1; }
           stable=$(unzip -p "$ZIP" "$PLUGIN_SLUG/readme.txt" | grep -m1 -E '^Stable tag:' | sed -E 's/.*Stable tag:[[:space:]]*//')
-          [ "$stable" = "$VERSION" ] || { echo "readme Stable tag '$stable' != '$VERSION'"; exit 1; }
+          case "$VERSION" in
+            *-*)
+              echo "prerelease $VERSION: Stable tag stays at '$stable'"
+              ;;
+            *)
+              [ "$stable" = "$VERSION" ] || { echo "readme Stable tag '$stable' != '$VERSION'"; exit 1; }
+              ;;
+          esac
+
+          # Files that must never be missing again. The allowlist used to drop
+          # these without failing anything.
+          for required in "$PLUGIN_SLUG/$PLUGIN_SLUG.php" "$PLUGIN_SLUG/readme.txt" "$PLUGIN_SLUG/includes" "$PLUGIN_SLUG/assets" "$PLUGIN_SLUG/templates"; do
+            unzip -Z1 "$ZIP" | grep -q "^${required}" || { echo "missing from package: $required"; exit 1; }
+          done
+
+          # Anything present in the repo root that .distignore does not exclude
+          # must appear in the ZIP, so adding a file is enough to ship it.
+          for f in uninstall.php block.json; do
+            if [ -f "$f" ]; then
+              unzip -Z1 "$ZIP" | grep -q "^$PLUGIN_SLUG/$f$" || { echo "$f exists in repo but is missing from package"; exit 1; }
+            fi
+          done
+          if [ -d languages ]; then
+            unzip -Z1 "$ZIP" | grep -q "^$PLUGIN_SLUG/languages/" || { echo "languages/ exists but is missing from package"; exit 1; }
+          fi
 
           # Nothing that should never ship.
           if unzip -Z1 "$ZIP" | grep -E '(^|/)(\.git|\.github|vendor|node_modules|tests?)/|composer\.(json|lock)|phpstan|\.DS_Store|__release-'; then
