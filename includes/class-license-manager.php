@@ -11,6 +11,7 @@ class GT_PB_License_Manager {
 	const OPTION_KEY     = 'gt_pb_builder_license';
 	const LAST_CHECK_KEY = 'gt_pb_builder_license_last_check';
 	const UPDATE_TRANSIENT = 'gt_pb_builder_update_info';
+	const PAGE_SLUG        = 'gt-pb-builder-license';
 
 	/**
 	 * @var string
@@ -57,13 +58,27 @@ class GT_PB_License_Manager {
 		return $schedules;
 	}
 
+	/**
+	 * URL of the licence screen.
+	 *
+	 * It is registered with add_submenu_page() under the 'gt_page_blocks'
+	 * parent, so it resolves under admin.php. One accessor, because the two
+	 * callers that link to it had drifted to options-general.php and pointed
+	 * at a screen that does not exist.
+	 *
+	 * @return string
+	 */
+	public static function license_page_url(): string {
+		return admin_url( 'admin.php?page=' . self::PAGE_SLUG );
+	}
+
 	public function add_submenu_page() {
 		add_submenu_page(
 			'gt_page_blocks',
 			__( 'License', 'page-blocks-builder' ),
 			__( 'License', 'page-blocks-builder' ),
 			'manage_options',
-			'gt-pb-builder-license',
+			self::PAGE_SLUG,
 			array( $this, 'render_license_page' )
 		);
 	}
@@ -302,7 +317,7 @@ class GT_PB_License_Manager {
 	public function plugin_action_links( $links ) {
 		$license_link = sprintf(
 			'<a href="%s">%s</a>',
-			admin_url( 'options-general.php?page=gt-pb-builder-license' ),
+			self::license_page_url(),
 			__( 'License', 'page-blocks-builder' )
 		);
 		array_unshift( $links, $license_link );
@@ -333,7 +348,7 @@ class GT_PB_License_Manager {
 			return;
 		}
 
-		$license_url = admin_url( 'options-general.php?page=gt-pb-builder-license' );
+		$license_url = self::license_page_url();
 
 		if ( 'expired' === $status ) {
 			printf(

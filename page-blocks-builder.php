@@ -2,6 +2,7 @@
 /**
  * Plugin Name: GT Page Blocks Builder
  * Plugin URI: https://gauravtiwari.org/product/gt-page-blocks-builder/
+ * Update URI: https://gauravtiwari.org/product/gt-page-blocks-builder/
  * Description: Standalone visual Page Blocks builder with HTML/CSS/JS sections synced to Gutenberg block content.
  * Version: 2.8.1
  * Author: Gaurav Tiwari
