@@ -432,7 +432,7 @@ class GT_PB_License_Manager {
 		// page-slug test named 'gt-page-blocks-builder', which the plugin has
 		// never registered - so it never fired where it was actually useful.
 		$page        = isset( $_GET['page'] ) ? sanitize_key( wp_unslash( $_GET['page'] ) ) : '';
-		$is_relevant = in_array( $page, array( 'gt_page_blocks', 'gt_pb_edit', self::PAGE_SLUG, 'gt_page_blocks_settings' ), true )
+		$is_relevant = in_array( $page, array( 'gt_page_blocks', 'gt_pb_edit', self::PAGE_SLUG, 'gt_pb_settings' ), true )
 			|| 'plugins' === $screen->base;
 
 		if ( ! $is_relevant ) {
@@ -648,6 +648,13 @@ class GT_PB_License_Manager {
 	 */
 	private function trusted_url( $url ): string {
 		if ( ! is_string( $url ) || '' === $url ) {
+			return '';
+		}
+
+		// https only. Pinning the host while accepting http:// leaves the
+		// download open to exactly the machine-in-the-middle the sslverify fix
+		// closed, on the one URL WordPress installs a plugin from.
+		if ( 'https' !== strtolower( (string) wp_parse_url( $url, PHP_URL_SCHEME ) ) ) {
 			return '';
 		}
 

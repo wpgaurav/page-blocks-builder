@@ -57,6 +57,19 @@ $load_utilities      = (bool) get_option( 'gt_pb_load_utilities', false );
 					<p class="description"><?php esc_html_e( 'Modern reset: box-sizing, list/heading defaults, accessible images, prefers-reduced-motion. ~1KB inlined when enabled.', 'page-blocks-builder' ); ?></p>
 				</td>
 			</tr>
+
+					<tr>
+						<th scope="row"><?php esc_html_e( 'Delete data on uninstall', 'page-blocks-builder' ); ?></th>
+						<td>
+							<label>
+								<input type="checkbox" name="gt_pb_delete_data_on_uninstall" value="1" <?php checked( get_option( 'gt_pb_delete_data_on_uninstall' ) ); ?>>
+								<?php esc_html_e( 'Also drop the block library table when the plugin is deleted', 'page-blocks-builder' ); ?>
+							</label>
+							<p class="description">
+								<?php esc_html_e( 'Options, transients and stored AI keys are always removed on uninstall. Your blocks are your content, so the library table is kept unless you tick this. There is no undo.', 'page-blocks-builder' ); ?>
+							</p>
+						</td>
+					</tr>
 			<tr>
 				<th scope="row"><?php esc_html_e( 'Typography', 'page-blocks-builder' ); ?></th>
 				<td>

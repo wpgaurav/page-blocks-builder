@@ -4,7 +4,7 @@
  * Plugin URI: https://gauravtiwari.org/product/gt-page-blocks-builder/
  * Update URI: https://gauravtiwari.org/product/gt-page-blocks-builder/
  * Description: Standalone visual Page Blocks builder with HTML/CSS/JS sections synced to Gutenberg block content.
- * Version: 3.0.0
+ * Version: 3.0.0-rc.2
  * Author: Gaurav Tiwari
  * Author URI: https://gauravtiwari.org
  * Text Domain: page-blocks-builder
@@ -20,7 +20,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 if ( ! defined( 'GT_PB_BUILDER_VERSION' ) ) {
-	define( 'GT_PB_BUILDER_VERSION', '3.0.0' );
+	define( 'GT_PB_BUILDER_VERSION', '3.0.0-rc.2' );
 }
 
 if ( ! defined( 'GT_PB_BUILDER_FILE' ) ) {
@@ -2234,8 +2234,16 @@ class GT_Page_Blocks_Builder {
 		) );
 
 		register_setting( 'gt_page_blocks_builder_settings', 'gt_pb_load_utilities', array(
+			// Turning utilities back on is the user doing what the upgrade
+			// notice asked, so it retires the notice. Otherwise it reappears on
+			// every admin page forever - is-dismissible only lasts a page load.
 			'type'              => 'boolean',
-			'sanitize_callback' => 'rest_sanitize_boolean',
+			'sanitize_callback' => static function ( $value ) {
+				if ( $value ) {
+					delete_option( 'gt_pb_utilities_auto_disabled' );
+				}
+				return rest_sanitize_boolean( $value );
+			},
 			'default'           => false,
 		) );
 	}
@@ -2403,7 +2411,7 @@ class GT_Page_Blocks_Builder {
 		printf(
 			'<div class="notice notice-info is-dismissible"><p>%s</p><p><a href="%s" class="button">%s</a></p></div>',
 			esc_html__( 'GT Page Blocks Builder: utility classes were switched off during the upgrade to 3.0. The feature never emitted anything for page blocks before now, so this keeps your pages rendering exactly as they did. Turn it back on when you are ready to check your layouts.', 'page-blocks-builder' ),
-			esc_url( admin_url( 'admin.php?page=gt_page_blocks_settings' ) ),
+			esc_url( admin_url( 'admin.php?page=gt_pb_settings' ) ),
 			esc_html__( 'Open settings', 'page-blocks-builder' )
 		);
 	}
@@ -2633,6 +2641,10 @@ class GT_Page_Blocks_Builder {
 				wp_die( esc_html__( 'Page block not found.', 'page-blocks-builder' ) );
 			}
 		}
+
+		// Without this the edit screen shows no result at all: a rejected save
+		// redirects back here with msg=slug_taken and the tester sees nothing.
+		$this->render_admin_notices();
 
 		include GT_PB_BUILDER_DIR . 'templates/admin-edit.php';
 	}
@@ -3669,10 +3681,19 @@ class GT_Page_Blocks_Builder {
 	 */
 	private function delete_asset_file( $post_id, $prefix = '', $extension = 'css' ) {
 		$info = $this->get_asset_file_info( $post_id, $prefix, $extension );
-		if ( file_exists( $info['path'] ) ) {
-			return @unlink( $info['path'] );
+
+		// Both shapes. Removing only the legacy unhashed name left every
+		// content-hashed file in place, and enqueue_asset_file() prefers those
+		// - so clearing a block's CSS or JS kept serving the old code.
+		foreach ( (array) glob( $info['glob'] ) as $hashed ) {
+			wp_delete_file( $hashed );
 		}
-		return false;
+
+		if ( file_exists( $info['legacy'] ) ) {
+			wp_delete_file( $info['legacy'] );
+		}
+
+		return true;
 	}
 
 	/**

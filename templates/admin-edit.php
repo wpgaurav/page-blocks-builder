@@ -214,7 +214,7 @@ $page_types = array(
 								</div>
 								<div class="md-pb-usage-item">
 									<span class="md-pb-usage-label"><?php esc_html_e( 'REST API', 'page-blocks-builder' ); ?></span>
-									<code class="md-pb-usage-code md-pb-usage-code--small">/wp-json/md/v1/page-blocks/<?php echo (int) $block->id; ?></code>
+									<code class="md-pb-usage-code md-pb-usage-code--small">/wp-json/<?php echo esc_html( gt_pb_rest_api::REST_NAMESPACE ); ?>/blocks/<?php echo (int) $block->id; ?></code>
 								</div>
 							</div>
 						</div>

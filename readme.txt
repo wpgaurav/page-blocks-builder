@@ -4,7 +4,7 @@ Tags: page builder, html blocks, css sections, gutenberg, visual builder
 Requires at least: 6.0
 Tested up to: 6.9.1
 Requires PHP: 8.1
-Stable tag: 3.0.0
+Stable tag: 2.8.1
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -72,6 +72,12 @@ Major release. Back up your database first: the schema change is one-way. Requir
 Security release. Fixes privilege escalation in the block preview (any Author could execute PHP on sites with PHP blocks enabled) and restores certificate verification on the update channel. If you have PHP blocks turned on, update now. Requires PHP 8.1.
 
 == Changelog ==
+
+= 3.0.0-rc.2 =
+Fixes two migration blockers found auditing rc.1: the schema step stamped the version the upgrade router gates on, so a batched upgrade that yielded on a large library could never resume; and multisite network activation stamped every subsite as migrated while creating the table only for the activating site. Also: the utilities notice's button pointed at a page that does not exist and the notice could never be retired, the edit screen showed no result after a failed save, clearing a block's CSS or JS kept serving the old file, revisions were recorded for writes that failed, and the update channel accepted a plaintext http package URL.
+
+= 3.0.0-rc.1 =
+Release candidate for 3.0.0. Not for production. Everything below applies; please read the BREAKING list before installing anywhere that matters, and take a database backup first - the schema change is one-way.
 
 = 3.0.0 =
 
