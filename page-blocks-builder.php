@@ -501,6 +501,7 @@ class GT_Page_Blocks_Builder {
 	public function __construct() {
 		// Load includes
 		require_once GT_PB_BUILDER_DIR . 'includes/class-gt-pb-text.php';
+		require_once GT_PB_BUILDER_DIR . 'includes/class-upgrader.php';
 		require_once GT_PB_BUILDER_DIR . 'includes/class-db.php';
 		require_once GT_PB_BUILDER_DIR . 'includes/class-shortcode.php';
 		require_once GT_PB_BUILDER_DIR . 'includes/class-list-table.php';
@@ -511,6 +512,11 @@ class GT_Page_Blocks_Builder {
 
 		$this->db = new gt_pb_db();
 		gt_pb_css_loader::init();
+
+		// plugins_loaded, not admin_init: WP-CLI, cron and the REST API never
+		// touch wp-admin, and every one of them needs the table to exist.
+		add_action( 'plugins_loaded', array( $this, 'run_pending_upgrades' ), 5 );
+		add_action( gt_pb_upgrader::CRON_HOOK, array( $this, 'run_pending_upgrades' ) );
 
 		add_action( 'init', array( $this, 'register_block' ) );
 		add_filter( 'block_categories_all', array( $this, 'register_block_category' ), 10, 1 );
@@ -538,7 +544,6 @@ class GT_Page_Blocks_Builder {
 		add_action( 'delete_post', array( $this, 'on_post_delete' ) );
 
 		add_action( 'admin_init', array( $this, 'register_settings' ) );
-		add_action( 'admin_init', array( $this->db, 'maybe_create_table' ) );
 		add_action( 'admin_init', array( $this, 'handle_admin_form_submission' ) );
 		add_action( 'admin_menu', array( $this, 'register_admin_menu' ) );
 		add_action( 'admin_enqueue_scripts', array( $this, 'enqueue_admin_assets' ) );
@@ -572,6 +577,47 @@ class GT_Page_Blocks_Builder {
 	 * @param array $categories Existing categories.
 	 * @return array
 	 */
+	/**
+	 * Run pending upgrade steps.
+	 *
+	 * @return array<string,mixed>
+	 */
+	public function maybe_upgrade( bool $dry_run = false ): array {
+		return ( new gt_pb_upgrader( $this->db ) )->maybe_upgrade( $dry_run );
+	}
+
+	/**
+	 * Hook wrapper. Actions must not return.
+	 */
+	public function run_pending_upgrades(): void {
+		// Stand aside for `wp gt-pb upgrade`. Otherwise this fires during that
+		// command's own bootstrap and the upgrade is already done by the time
+		// the command runs, so --dry-run can never report anything pending -
+		// which is exactly the case a migration rehearsal needs to see. Every
+		// other CLI and cron entry point still converges here, which is what
+		// gives a headless container its table.
+		if ( defined( 'WP_CLI' ) && WP_CLI && self::is_cli_upgrade_command() ) {
+			return;
+		}
+
+		$this->maybe_upgrade();
+	}
+
+	/**
+	 * Whether this process is the `wp gt-pb upgrade` command.
+	 */
+	private static function is_cli_upgrade_command(): bool {
+		$argv = isset( $GLOBALS['argv'] ) && is_array( $GLOBALS['argv'] ) ? $GLOBALS['argv'] : array();
+
+		foreach ( $argv as $i => $arg ) {
+			if ( 'gt-pb' === $arg && isset( $argv[ $i + 1 ] ) && 'upgrade' === $argv[ $i + 1 ] ) {
+				return true;
+			}
+		}
+
+		return false;
+	}
+
 	public function register_block_category( $categories ) {
 		if ( ! is_array( $categories ) ) {
 			$categories = array();
@@ -4154,6 +4200,40 @@ class GT_Page_Blocks_Builder {
 }
 
 $GLOBALS['gt_page_blocks_builder'] = new GT_Page_Blocks_Builder();
+
+/**
+ * On activation, upgrade immediately rather than waiting for a request that
+ * happens to reach admin_init. Multisite network activation loops per site.
+ */
+register_activation_hook(
+	GT_PB_BUILDER_FILE,
+	static function ( $network_wide = false ) {
+		$run = static function () {
+			$plugin = $GLOBALS['gt_page_blocks_builder'] ?? null;
+			if ( $plugin instanceof GT_Page_Blocks_Builder ) {
+				$plugin->maybe_upgrade();
+			}
+		};
+
+		if ( $network_wide && is_multisite() ) {
+			foreach ( get_sites( array( 'fields' => 'ids', 'number' => 0 ) ) as $site_id ) {
+				switch_to_blog( (int) $site_id );
+				$run();
+				restore_current_blog();
+			}
+			return;
+		}
+
+		$run();
+	}
+);
+
+register_deactivation_hook(
+	GT_PB_BUILDER_FILE,
+	static function () {
+		wp_clear_scheduled_hook( gt_pb_upgrader::CRON_HOOK );
+	}
+);
 
 require_once GT_PB_BUILDER_DIR . 'includes/class-license-manager.php';
 $gt_pb_license_manager = new GT_PB_License_Manager( GT_PB_BUILDER_FILE );

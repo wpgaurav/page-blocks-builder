@@ -11,7 +11,7 @@ if ( ! defined( 'ABSPATH' ) ) exit;
 
 class gt_pb_db {
 
-	const TABLE_VERSION = '1.1';
+	const TABLE_VERSION = '1.2';
 	const VERSION_OPTION = 'gt_pb_table_version';
 	const ASSET_VERSION_OPTION = 'gt_pb_asset_version';
 
@@ -34,8 +34,12 @@ class gt_pb_db {
 	/**
 	 * Create table if needed.
 	 */
+	/**
+	 * @deprecated 3.0.0 gt_pb_upgrader::maybe_upgrade() owns this now. Kept
+	 *             because it was hooked to admin_init and may be referenced.
+	 */
 	public function maybe_create_table(): void {
-		if ( get_option( self::VERSION_OPTION ) === self::TABLE_VERSION ) {
+		if ( version_compare( (string) get_option( self::VERSION_OPTION, '0' ), self::TABLE_VERSION, '>=' ) ) {
 			return;
 		}
 		$this->create_table();
@@ -44,7 +48,13 @@ class gt_pb_db {
 	/**
 	 * Create the page blocks table.
 	 */
-	private function create_table(): void {
+	/**
+	 * Create or update the table.
+	 *
+	 * Public since 3.0.0 so gt_pb_upgrader owns when this runs. dbDelta is a
+	 * no-op when the schema already matches, so calling it is cheap.
+	 */
+	public function create_table(): void {
 		global $wpdb;
 		$charset_collate = $wpdb->get_charset_collate();
 

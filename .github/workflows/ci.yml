@@ -74,6 +74,34 @@ jobs:
       # runs in milliseconds, so it can gate every push.
       - run: vendor/bin/phpunit --testsuite unit
 
+  integration:
+    name: Integration (real WordPress)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          coverage: none
+      - uses: ramsey/composer-install@v3
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Boot WordPress
+        run: |
+          npx --yes @wordpress/env start
+      - name: Run the integration suite
+        run: |
+          # wp-env mounts the repo as a plugin; the suite talks to that install
+          # directly rather than through the container, so it needs the path
+          # wp-env exposes over its mapped wordpress directory.
+          WP_ROOT="$HOME/wp-env/$(ls "$HOME/wp-env" | head -1)/WordPress"
+          test -f "$WP_ROOT/wp-load.php" || { echo "wp-load.php not found under $WP_ROOT"; ls -R "$HOME/wp-env" | head -40; exit 1; }
+          GT_PB_WP_ROOT="$WP_ROOT" vendor/bin/phpunit -c phpunit-integration.xml
+      - name: Stop WordPress
+        if: always()
+        run: npx --yes @wordpress/env stop || true
+
   package:
     name: Package parity
     runs-on: ubuntu-latest

@@ -8,6 +8,7 @@ parameters:
     paths:
         - includes/class-css-loader.php
         - includes/class-gt-pb-text.php
+        - includes/class-upgrader.php
         # ~
         - page-blocks-builder.php
         - includes/class-db.php

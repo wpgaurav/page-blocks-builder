@@ -32,3 +32,4 @@ __release-*
 .claude
 .vscode
 .idea
+phpunit-integration.xml

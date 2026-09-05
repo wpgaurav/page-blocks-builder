@@ -34,6 +34,10 @@ if ( ! defined( 'ABSPATH' ) ) {
 
 class gt_pb_migration {
 
+	/** Seconds a single migration batch may run before yielding. */
+	const BUDGET = 8;
+
+
 	const OLD_NAME    = 'marketers-delight/page-block';
 	const OLD_INLINE  = 'marketers-delight/inline-page-block';
 	const NEW_NAME    = 'gt-page-block/page-block';
@@ -82,6 +86,7 @@ class gt_pb_migration {
 		if ( defined( 'WP_CLI' ) && WP_CLI ) {
 			\WP_CLI::add_command( 'gt-pb migrate-blocks', array( $this, 'cli_migrate' ) );
 			\WP_CLI::add_command( 'gt-pb migrate-library', array( $this, 'cli_migrate_library' ) );
+			\WP_CLI::add_command( 'gt-pb upgrade', array( $this, 'cli_upgrade' ) );
 		}
 	}
 
@@ -121,6 +126,69 @@ class gt_pb_migration {
 	}
 
 	/**
+	 * Run pending schema and data upgrades.
+	 *
+	 * The same router the plugin runs on plugins_loaded and on activation, so a
+	 * rehearsal against a copy of production exercises the identical code path
+	 * rather than an approximation of it.
+	 *
+	 * ## OPTIONS
+	 *
+	 * [--dry-run]
+	 * : Report the steps that would run without writing anything.
+	 *
+	 * [--batch=<n>]
+	 * : Rows per batch in batched steps. Default 200.
+	 *
+	 * ## EXAMPLES
+	 *
+	 *     wp gt-pb upgrade --dry-run
+	 *     wp gt-pb upgrade --batch=50
+	 *
+	 * @param array $args       Positional args.
+	 * @param array $assoc_args Flags.
+	 */
+	public function cli_upgrade( $args, $assoc_args ): void {
+		$dry_run = ! empty( $assoc_args['dry-run'] );
+		$plugin  = $GLOBALS['gt_page_blocks_builder'] ?? null;
+
+		if ( ! $plugin instanceof GT_Page_Blocks_Builder ) {
+			\WP_CLI::error( 'Plugin not loaded.' );
+			return;
+		}
+
+		// Loop to completion. A batched step yields on its wall-clock budget
+		// and schedules itself; on the command line there is no request to
+		// protect, so drive it to the end and report once.
+		$passes = 0;
+		do {
+			$report = $plugin->maybe_upgrade( $dry_run );
+			++$passes;
+
+			foreach ( (array) ( $report['steps'] ?? array() ) as $step ) {
+				if ( is_array( $step ) ) {
+					\WP_CLI::log( sprintf( '  %s: %s', $step['step'], $step['complete'] ? 'done' : 'partial' ) );
+				} else {
+					\WP_CLI::log( sprintf( '  %s: pending', (string) $step ) );
+				}
+			}
+
+			if ( $dry_run || 'partial' !== ( $report['reason'] ?? '' ) ) {
+				break;
+			}
+		} while ( $passes < 1000 );
+
+		\WP_CLI::success( sprintf(
+			'%s (%s -> %s) after %d pass%s',
+			$report['reason'] ?? 'unknown',
+			$report['from'] ?? '?',
+			$report['to'] ?? '?',
+			$passes,
+			1 === $passes ? '' : 'es'
+		) );
+	}
+
+	/**
 	 * Run the migration.
 	 *
 	 * Uses direct DB updates (not wp_update_post) so post_modified dates
@@ -129,21 +197,41 @@ class gt_pb_migration {
 	 * @param bool $dry_run Report without writing.
 	 * @return array{scanned:int, migrated:int, ids:array<int,int>}
 	 */
-	public function migrate( bool $dry_run = false ): array {
+	public function migrate( bool $dry_run = false, int $limit = 0, int $after = 0 ): array {
 		global $wpdb;
+
+		// Batched deliberately. This used to select every matching post id and
+		// then run get_post_field plus an update for each one inside a single
+		// request, with no budget and nothing to resume from. Survivable while
+		// it was an occasional opt-in tool; a support problem the moment a
+		// major release points every site at it at once.
+		$limit_sql = $limit > 0 ? $wpdb->prepare( ' LIMIT %d', $limit ) : '';
 
 		$ids = $wpdb->get_col( $wpdb->prepare(
 			"SELECT ID FROM {$wpdb->posts}
 			 WHERE post_type NOT IN ( 'revision', 'auto-draft' )
-			   AND ( post_content LIKE %s OR post_content LIKE %s )",
+			   AND ID > %d
+			   AND ( post_content LIKE %s OR post_content LIKE %s )
+			 ORDER BY ID ASC" . $limit_sql,
+			$after,
 			'%' . $wpdb->esc_like( 'wp:' . self::OLD_NAME ) . '%',
 			'%' . $wpdb->esc_like( 'wp:' . self::OLD_INLINE ) . '%'
 		) );
 
 		$migrated = array();
+		$cursor   = $after;
+		$deadline = time() + self::BUDGET;
+		$budget_hit = false;
 
 		foreach ( $ids as $id ) {
-			$id = (int) $id;
+			$id     = (int) $id;
+			$cursor = $id;
+
+			if ( time() > $deadline ) {
+				$budget_hit = true;
+				break;
+			}
+
 			$content = (string) get_post_field( 'post_content', $id, 'raw' );
 			$updated = $this->migrate_content( $content );
 
@@ -166,9 +254,11 @@ class gt_pb_migration {
 		}
 
 		return array(
-			'scanned'  => count( $ids ),
-			'migrated' => count( $migrated ),
-			'ids'      => $migrated,
+			'scanned'   => count( $ids ),
+			'migrated'  => count( $migrated ),
+			'ids'       => $migrated,
+			'cursor'    => $cursor,
+			'complete'  => ! $budget_hit && ( 0 === $limit || count( $ids ) < $limit ),
 		);
 	}
 
@@ -300,7 +390,7 @@ class gt_pb_migration {
 	 * @param bool $overwrite Replace rows that already exist by ID.
 	 * @return array{ok:bool, message:string, legacy:int, imported:int, skipped:int, overwritten:int, remapped:array<int,string>, cleared:array<int,string>}
 	 */
-	public function migrate_library( bool $dry_run = false, bool $overwrite = false ): array {
+	public function migrate_library( bool $dry_run = false, bool $overwrite = false, int $limit = 0, int $after = 0 ): array {
 		global $wpdb;
 
 		$result = array(
@@ -309,6 +399,7 @@ class gt_pb_migration {
 			'legacy'      => 0,
 			'imported'    => 0,
 			'skipped'     => 0,
+			'failed'      => 0,
 			'overwritten' => 0,
 			'remapped'    => array(),
 			'cleared'     => array(),
@@ -332,7 +423,16 @@ class gt_pb_migration {
 		$legacy = $this->legacy_table();
 		$target = $wpdb->prefix . 'gt_page_blocks';
 
-		$rows = $wpdb->get_results( "SELECT * FROM `{$legacy}` ORDER BY id ASC" );
+		// Batched: three of these columns are longtext, so a few hundred
+		// substantial blocks in one SELECT * is plausible memory exhaustion.
+		$limit_sql = $limit > 0 ? $wpdb->prepare( ' LIMIT %d', $limit ) : '';
+		$rows      = $wpdb->get_results(
+			$wpdb->prepare(
+				// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- table name.
+				"SELECT * FROM `{$legacy}` WHERE id > %d ORDER BY id ASC" . $limit_sql,
+				$after
+			)
+		);
 		$result['legacy'] = count( (array) $rows );
 
 		if ( ! $rows ) {
@@ -428,8 +528,13 @@ class gt_pb_migration {
 				$wpdb->update( $target, $data, array( 'id' => $id ), $formats, array( '%d' ) );
 				++$result['overwritten'];
 			} else {
-				$wpdb->insert( $target, $data, $formats );
-				++$result['imported'];
+				// The return was discarded, so a rejected insert was reported to
+				// the user as an import that worked.
+				if ( false === $wpdb->insert( $target, $data, $formats ) ) {
+					++$result['failed'];
+				} else {
+					++$result['imported'];
+				}
 			}
 		}
 
@@ -448,12 +553,13 @@ class gt_pb_migration {
 
 		$result['ok'] = true;
 		$result['message'] = sprintf(
-			/* translators: 1: imported count, 2: overwritten count, 3: skipped count, 4: total rows */
-			__( 'Imported %1$d, replaced %2$d, skipped %3$d of %4$d dropin block(s).', 'page-blocks-builder' ),
+			/* translators: 1: imported count, 2: overwritten count, 3: skipped count, 4: total rows, 5: failed count */
+			__( 'Imported %1$d, replaced %2$d, skipped %3$d of %4$d dropin block(s). Failed: %5$d.', 'page-blocks-builder' ),
 			$result['imported'],
 			$result['overwritten'],
 			$result['skipped'],
-			$result['legacy']
+			$result['legacy'],
+			$result['failed']
 		);
 
 		return $result;
