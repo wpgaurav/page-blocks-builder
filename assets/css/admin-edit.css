@@ -344,3 +344,36 @@
 	padding: 0 !important;
 	border: 0 !important;
 }
+
+/* ---------------------------------------------------------------------------
+ * Keyboard focus.
+ *
+ * Several rules above set outline:none, some of them on :focus, leaving hover
+ * as the only cue that anything is selected - which makes these screens
+ * unusable by keyboard. :focus-visible restores a ring for keyboard users
+ * without putting one back on mouse clicks, so it costs the visual design
+ * nothing. High contrast against both the light admin and the builder's dark
+ * chrome.
+ * ------------------------------------------------------------------------ */
+:focus-visible,
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+[tabindex]:focus-visible {
+	outline: 2px solid #2271b1;
+	outline-offset: 2px;
+	box-shadow: 0 0 0 1px #fff;
+}
+
+@media (prefers-reduced-motion: reduce) {
+	*,
+	*::before,
+	*::after {
+		animation-duration: 0.01ms !important;
+		animation-iteration-count: 1 !important;
+		transition-duration: 0.01ms !important;
+		scroll-behavior: auto !important;
+	}
+}

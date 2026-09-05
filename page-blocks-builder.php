@@ -550,6 +550,8 @@ class GT_Page_Blocks_Builder {
 
 		add_action( 'admin_init', array( $this, 'register_settings' ) );
 		add_action( 'admin_init', array( $this, 'handle_admin_form_submission' ) );
+		add_action( 'admin_init', array( $this, 'handle_revision_restore' ) );
+		add_filter( 'debug_information', array( $this, 'site_health_info' ) );
 		add_action( 'admin_menu', array( $this, 'register_admin_menu' ) );
 		add_action( 'admin_enqueue_scripts', array( $this, 'enqueue_admin_assets' ) );
 
@@ -2644,6 +2646,7 @@ class GT_Page_Blocks_Builder {
 			'updated' => __( 'Page block updated.', 'page-blocks-builder' ),
 			'trashed' => __( 'Page block moved to trash.', 'page-blocks-builder' ),
 			'restored' => __( 'Page block restored.', 'page-blocks-builder' ),
+			'restored_revision' => __( 'Revision restored. The version you replaced is kept as a revision.', 'page-blocks-builder' ),
 			'deleted' => __( 'Page block permanently deleted.', 'page-blocks-builder' ),
 		);
 		$errors = array(
@@ -2698,6 +2701,70 @@ class GT_Page_Blocks_Builder {
 	/**
 	 * Save handler for the edit form.
 	 */
+	/**
+	 * Handle a revision restore from the edit screen.
+	 */
+	/**
+	 * Report this plugin's state in Site Health.
+	 *
+	 * Every one of these is something a support conversation otherwise has to
+	 * ask for one question at a time, and the answers determine what a symptom
+	 * even means: whether PHP execution is enabled, which storage mode blocks
+	 * use, whether the schema finished migrating.
+	 *
+	 * @param array $info Debug information.
+	 * @return array
+	 */
+	public function site_health_info( $info ): array {
+		global $wpdb;
+
+		$table   = $this->db->get_table_name();
+		$rows    = (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$table}" );
+		$php_rows = (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$table} WHERE php_exec = 1" );
+		$file_rows = (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$table} WHERE output = 'file'" );
+
+		$info['gt-page-blocks-builder'] = array(
+			'label'  => __( 'GT Page Blocks Builder', 'page-blocks-builder' ),
+			'fields' => array(
+				'version'          => array( 'label' => __( 'Version', 'page-blocks-builder' ), 'value' => GT_PB_BUILDER_VERSION ),
+				'schema'           => array( 'label' => __( 'Schema version', 'page-blocks-builder' ), 'value' => (string) get_option( gt_pb_upgrader::VERSION_OPTION, 'not set' ) ),
+				'upgrade_pending'  => array( 'label' => __( 'Upgrade pending', 'page-blocks-builder' ), 'value' => get_option( gt_pb_upgrader::CURSOR_OPTION ) ? __( 'yes, resuming in batches', 'page-blocks-builder' ) : __( 'no', 'page-blocks-builder' ) ),
+				'library_blocks'   => array( 'label' => __( 'Library blocks', 'page-blocks-builder' ), 'value' => (string) $rows ),
+				'php_blocks'       => array( 'label' => __( 'Blocks with PHP enabled', 'page-blocks-builder' ), 'value' => (string) $php_rows ),
+				'file_blocks'      => array( 'label' => __( 'Blocks using file output', 'page-blocks-builder' ), 'value' => (string) $file_rows ),
+				'php_allowed'      => array( 'label' => __( 'PHP execution allowed', 'page-blocks-builder' ), 'value' => gt_pb_php_enabled() ? __( 'yes (GT_PB_ALLOW_PHP)', 'page-blocks-builder' ) : __( 'no', 'page-blocks-builder' ) ),
+				'inline_php'       => array( 'label' => __( 'Inline PHP allowed', 'page-blocks-builder' ), 'value' => gt_pb_inline_php_enabled() ? __( 'yes', 'page-blocks-builder' ) : __( 'no', 'page-blocks-builder' ) ),
+				'utilities'        => array( 'label' => __( 'Utility classes', 'page-blocks-builder' ), 'value' => get_option( 'gt_pb_load_utilities' ) ? __( 'on', 'page-blocks-builder' ) : __( 'off', 'page-blocks-builder' ) ),
+				'uploads_writable' => array( 'label' => __( 'Asset directory writable', 'page-blocks-builder' ), 'value' => is_writable( (string) ( $this->get_upload_dir()['path'] ?? '' ) ) ? __( 'yes', 'page-blocks-builder' ) : __( 'no - file output will silently fall back to inline', 'page-blocks-builder' ) ),
+				'post_types'       => array( 'label' => __( 'Builder post types', 'page-blocks-builder' ), 'value' => implode( ', ', gt_page_blocks_builder_post_types() ) ),
+			),
+		);
+
+		return $info;
+	}
+
+	public function handle_revision_restore(): void {
+		$this->maybe_restore_revision();
+	}
+
+	private function maybe_restore_revision(): void {
+		if ( empty( $_GET['gt_pb_restore'] ) || empty( $_GET['page'] ) || 'gt_pb_edit' !== $_GET['page'] ) {
+			return;
+		}
+
+		$revision_id = (int) $_GET['gt_pb_restore'];
+		$block_id    = isset( $_GET['id'] ) ? (int) $_GET['id'] : 0;
+
+		if ( ! current_user_can( 'manage_options' ) || ! check_admin_referer( 'gt_pb_restore_' . $revision_id ) ) {
+			return;
+		}
+
+		$msg = $this->db->restore_revision( $block_id, $revision_id ) ? 'restored_revision' : 'save_failed';
+
+		wp_safe_redirect( admin_url( "admin.php?page=gt_pb_edit&id={$block_id}&msg={$msg}" ) );
+		exit;
+	}
+
 	private function handle_block_save() {
 		if ( ! current_user_can( 'manage_options' ) ) {
 			wp_die( esc_html__( 'Permission denied.', 'page-blocks-builder' ) );

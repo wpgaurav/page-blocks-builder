@@ -220,6 +220,52 @@ $page_types = array(
 						</div>
 					<?php endif; ?>
 
+					<!-- Revisions -->
+					<?php if ( ! $is_new ) : ?>
+						<?php $gt_pb_revisions = $this->db->get_revisions( (int) $block->id, 15 ); ?>
+						<div class="postbox">
+							<div class="postbox-header">
+								<h2><?php esc_html_e( 'Revisions', 'page-blocks-builder' ); ?></h2>
+							</div>
+							<div class="inside">
+								<?php if ( empty( $gt_pb_revisions ) ) : ?>
+									<p class="description">
+										<?php esc_html_e( 'No revisions yet. One is kept each time you save, so you can get back to a working version.', 'page-blocks-builder' ); ?>
+									</p>
+								<?php else : ?>
+									<ul class="gt-pb-revisions">
+										<?php foreach ( $gt_pb_revisions as $gt_pb_rev ) : ?>
+											<li class="gt-pb-revision">
+												<span class="gt-pb-revision-when">
+													<?php
+													echo esc_html(
+														sprintf(
+															/* translators: %s: human-readable time difference, e.g. "2 hours" */
+															__( '%s ago', 'page-blocks-builder' ),
+															human_time_diff( strtotime( $gt_pb_rev->created_at ), current_time( 'timestamp' ) )
+														)
+													);
+													?>
+												</span>
+												<?php
+												$gt_pb_rev_author = $gt_pb_rev->author ? get_userdata( (int) $gt_pb_rev->author ) : null;
+												if ( $gt_pb_rev_author ) :
+													?>
+													<span class="gt-pb-revision-who"><?php echo esc_html( $gt_pb_rev_author->display_name ); ?></span>
+												<?php endif; ?>
+												<a class="gt-pb-revision-restore"
+													href="<?php echo esc_url( wp_nonce_url( admin_url( 'admin.php?page=gt_pb_edit&id=' . (int) $block->id . '&gt_pb_restore=' . (int) $gt_pb_rev->id ), 'gt_pb_restore_' . (int) $gt_pb_rev->id ) ); ?>"
+													onclick="return confirm(<?php echo esc_js( wp_json_encode( __( 'Restore this version? The current content is kept as a revision, so this is reversible.', 'page-blocks-builder' ) ) ); ?>);">
+													<?php esc_html_e( 'Restore', 'page-blocks-builder' ); ?>
+												</a>
+											</li>
+										<?php endforeach; ?>
+									</ul>
+								<?php endif; ?>
+							</div>
+						</div>
+					<?php endif; ?>
+
 					<!-- Settings box -->
 					<div class="postbox">
 						<div class="postbox-header">
