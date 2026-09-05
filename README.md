@@ -281,3 +281,30 @@ See [readme.txt](readme.txt) for the full changelog, and [Releases](https://gith
 ## License
 
 GPL-2.0-or-later. Portions © Kolakube (Marketers Delight Page Blocks dropin, 2018–2026).
+
+## Going back from 3.0.0
+
+A file rollback restores 2.8.x behaviour. It does **not** revert the database:
+the schema change to 1.2 is one-way, and the plugin's own update channel cannot
+serve a downgrade.
+
+1. Download `page-blocks-builder-v2.8.1.zip` from its GitHub release, which
+   stays attached permanently for exactly this reason.
+2. Replace the plugin directory with it.
+
+What survives the rollback, and what to expect:
+
+- **Your blocks are fine.** Every column 3.0.0 added is nullable or defaulted,
+  so a 2.8.x write path that does not know about them still inserts.
+- **PHP blocks keep working.** 3.0.0 rewrites their checksums to a keyed value;
+  2.8.x computes an unkeyed md5 and will not match, so those blocks fall back
+  to stripping PHP tags until an administrator re-saves them. Nothing is lost,
+  but PHP output stops until you do.
+- **The revisions table is left in place.** 2.8.x ignores it. Re-upgrading
+  picks it back up.
+- **Generated asset filenames revert to the unhashed name,** which 3.0.0 keeps
+  writing as a copy precisely so this works.
+
+If you are rolling back because something broke, please open an issue or email
+the address in `SECURITY.md` before or after - a rollback that nobody hears
+about is a bug that ships again.
