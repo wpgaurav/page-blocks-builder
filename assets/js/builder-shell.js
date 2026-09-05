@@ -3204,7 +3204,7 @@
 					'<button type="button" class="md-pb-button md-pb-button-preview" data-role="preview-frontend">Preview</button>' +
 				'</div>' +
 				'<div class="md-pb-topbar-right">' +
-					(config.libraryEndpoint ? '<button type="button" class="md-pb-button" data-role="library" title="Section Library">\u2261 Library</button>' : '') +
+					(config.libraryEnabled && config.restUrl ? '<button type="button" class="md-pb-button" data-role="library" title="Section library">\u2261 Library</button>' : '') +
 					'<button type="button" class="md-pb-button" data-role="page-settings" title="Page settings, template, import and export">' + GEAR_ICON + 'Page Settings</button>' +
 					'<button type="button" class="md-pb-button" data-role="shortcuts" title="Keyboard shortcuts">?</button>' +
 					'<button type="button" class="md-pb-button" data-role="cancel">Close</button>' +
@@ -4169,29 +4169,36 @@
 			var title = window.prompt('Section name for the library:');
 			if (!title) return;
 
-			var form = new window.URLSearchParams();
-			form.set('action', config.librarySaveAction || 'md_pb_builder_library_save');
-			form.set('post_id', String(config.postId || 0));
-			form.set('pb_nonce', String(config.saveNonce || ''));
-			form.set('title', title);
-			form.set('content', section.content || '');
-			form.set('css', section.css || '');
-			form.set('js', section.js || '');
-
-			window.fetch(config.libraryEndpoint || config.saveEndpoint, {
+			// POST to pbb/v1 rather than an admin-ajax action that was never
+			// implemented. The route derives the checksum and the slug itself,
+			// so this is not a second write path with its own rules.
+			window.fetch(config.restUrl.replace(/\/$/, '') + '/blocks', {
 				method: 'POST',
 				credentials: 'same-origin',
-				headers: { 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8' },
-				body: form.toString()
+				headers: {
+					'Content-Type': 'application/json',
+					'X-WP-Nonce': config.restNonce || ''
+				},
+				body: JSON.stringify({
+					title: title,
+					status: 'publish',
+					content: section.content || '',
+					css: section.css || '',
+					js: section.js || '',
+					js_location: section.jsLocation || 'footer',
+					output: section.output || 'inline',
+					format: !!section.format,
+					php_exec: !!section.phpExec
+				})
 			}).then(function(r) { return r.json(); }).then(function(payload) {
-				if (payload && payload.success) {
-					window.alert('Saved to library: ' + title);
+				if (payload && payload.id) {
+					say('Saved "' + title + '" to the library.', false);
 					loadLibraryList();
 				} else {
-					window.alert('Error: ' + ((payload && payload.data && payload.data.message) || 'Unknown'));
+					say((payload && payload.message) || 'Could not save to the library.', true);
 				}
 			}).catch(function() {
-				window.alert('Failed to save to library.');
+				say('Could not save to the library.', true);
 			});
 		});
 
@@ -4202,21 +4209,27 @@
 		var listEl = document.getElementById('md-pb-library-list');
 		if (!listEl) return;
 
-		var url = (config.libraryEndpoint || config.saveEndpoint) +
-			'?action=' + (config.libraryListAction || 'md_pb_builder_library_list') +
-			'&pb_nonce=' + encodeURIComponent(config.saveNonce || '') +
-			'&post_id=' + encodeURIComponent(config.postId || 0);
+		if (!config.restUrl) {
+			listEl.innerHTML = '<p class="md-pb-field-help">The library is unavailable on this site.</p>';
+			return;
+		}
 
-		window.fetch(url, { credentials: 'same-origin' })
+		var url = config.restUrl.replace(/\/$/, '') + '/blocks?status=publish&context=summary&per_page=100';
+
+		window.fetch(url, {
+			credentials: 'same-origin',
+			headers: { 'X-WP-Nonce': config.restNonce || '' }
+		})
 			.then(function(r) { return r.json(); })
 			.then(function(payload) {
-				if (!payload || !payload.success || !Array.isArray(payload.data)) {
-					listEl.innerHTML = '<p class="md-pb-field-help">No library sections found.</p>';
+				var items = Array.isArray(payload) ? payload : (payload && payload.data);
+				if (!Array.isArray(items)) {
+					listEl.innerHTML = '<p class="md-pb-field-help">Could not load the library.</p>';
 					return;
 				}
 
 				listEl.innerHTML = '';
-				payload.data.forEach(function(item) {
+				items.forEach(function(item) {
 					var row = document.createElement('div');
 					row.style.cssText = 'display:flex;justify-content:space-between;align-items:center;padding:8px;border:1px solid var(--pb-border);border-radius:6px;margin-bottom:6px;';
 
@@ -4224,37 +4237,77 @@
 					nameSpan.style.cssText = 'font-size:13px;color:var(--pb-text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';
 					nameSpan.textContent = item.title + (item.slug ? ' (' + item.slug + ')' : '');
 
-					var insertBtn = document.createElement('button');
-					insertBtn.type = 'button';
-					insertBtn.className = 'md-pb-icon-btn';
-					insertBtn.textContent = 'Insert';
-					insertBtn.title = 'Insert as new section';
-					insertBtn.addEventListener('click', function() {
-						var newSection = {
-							content: item.content || '',
-							css: item.css || '',
-							js: item.js || '',
-							jsLocation: 'footer',
-							output: 'inline',
-							format: false,
-							phpExec: false,
-							collapsed: false
-						};
-						state.sections.splice(state.selectedIndex + 1, 0, newSection);
-						state.selectedIndex = state.selectedIndex + 1;
-						renderAll();
-
+					var closeDialog = function() {
 						var overlay = document.getElementById('md-pb-library-overlay');
 						if (overlay) overlay.remove();
+					};
+
+					var insertAt = function(section) {
+						pushHistory();
+						state.sections.splice(state.selectedIndex + 1, 0, normalizeSection(section));
+						state.selectedIndex = state.selectedIndex + 1;
+						renderAll();
+						queuePreviewRender(0, true);
+						queueAutosave();
+						closeDialog();
+					};
+
+					// Linked: one copy of the code, every placement follows it.
+					// Carries the slug as well as the id, so the page survives
+					// being moved to another site.
+					var linkBtn = document.createElement('button');
+					linkBtn.type = 'button';
+					linkBtn.className = 'md-pb-icon-btn';
+					linkBtn.textContent = 'Link';
+					linkBtn.title = 'Insert linked to the library: editing the library block updates every placement';
+					linkBtn.addEventListener('click', function() {
+						insertAt({ blockId: item.id, blockSlug: item.slug || '', name: item.title || '' });
 					});
 
+					// Copy: independent from here on. Needs the full row,
+					// because the list is fetched in the summary shape.
+					var copyBtn = document.createElement('button');
+					copyBtn.type = 'button';
+					copyBtn.className = 'md-pb-icon-btn';
+					copyBtn.textContent = 'Copy';
+					copyBtn.title = 'Insert a one-off copy of the code, independent from the library';
+					copyBtn.addEventListener('click', function() {
+						copyBtn.disabled = true;
+						window.fetch(config.restUrl.replace(/\/$/, '') + '/blocks/' + item.id, {
+							credentials: 'same-origin',
+							headers: { 'X-WP-Nonce': config.restNonce || '' }
+						})
+							.then(function(r) { return r.json(); })
+							.then(function(full) {
+								insertAt({
+									name: full.title || '',
+									content: full.content || '',
+									css: full.css || '',
+									js: full.js || '',
+									jsLocation: full.js_location || 'footer',
+									output: full.output || 'inline',
+									format: !!full.format,
+									phpExec: !!full.php_exec
+								});
+							})
+							.catch(function() {
+								copyBtn.disabled = false;
+								say('Could not load that block.', true);
+							});
+					});
+
+					var actions = document.createElement('span');
+					actions.style.cssText = 'display:flex;gap:6px;flex-shrink:0;';
+					actions.appendChild(linkBtn);
+					actions.appendChild(copyBtn);
+
 					row.appendChild(nameSpan);
-					row.appendChild(insertBtn);
+					row.appendChild(actions);
 					listEl.appendChild(row);
 				});
 
-				if (!payload.data.length) {
-					listEl.innerHTML = '<p class="md-pb-field-help">No library sections found. Save a section first.</p>';
+				if (!items.length) {
+					listEl.innerHTML = '<p class="md-pb-field-help">No library blocks yet. Save a section to the library first.</p>';
 				}
 			})
 			.catch(function() {

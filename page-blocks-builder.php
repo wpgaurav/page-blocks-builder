@@ -1159,12 +1159,13 @@ class GT_Page_Blocks_Builder {
 				'aiHasGemini'        => ! empty( get_option( 'gt_pb_ai_gemini_key', '' ) ),
 				'aiCssContext'       => $this->get_ai_css_context(),
 				'aiModels'           => self::ai_models(),
-				// Library/export/import stubs (plugin uses post_content only, no DB library)
-				'libraryEndpoint'    => '',
-				'librarySaveAction'  => '',
-				'libraryListAction'  => '',
-				'exportAction'       => '',
-				'importAction'       => '',
+				// These were five empty strings under a comment claiming the
+				// plugin has no database library, which has not been true since
+				// 2.1. The dialog behind them was complete and simply never
+				// reachable. It runs on pbb/v1, which is paginated,
+				// permission-checked, and already used by the detach path -
+				// restUrl and restNonce are localized ten lines above.
+				'libraryEnabled'     => true,
 			)
 		);
 	}
