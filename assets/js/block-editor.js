@@ -942,6 +942,7 @@
 				// Printed after the theme links, which is the order WordPress
 				// itself uses.
 				var globalCss = typeof config.previewGlobalCss === 'string' ? config.previewGlobalCss : '';
+				var revealJs  = typeof config.previewRevealJs === 'string' ? config.previewRevealJs : '';
 
 				return '<!DOCTYPE html><html' + ( dark ? ' data-theme="dark"' : '' ) + '><head><meta charset="utf-8">' +
 					'<meta name="viewport" content="width=device-width, initial-scale=1">' +
@@ -952,6 +953,11 @@
 					'</head><body>' + html +
 					( inlineJs ? '<script>' + inlineJs + '<\/script>' : '' ) +
 					( footerJs ? '<script>' + footerJs + '<\/script>' : '' ) +
+					// Last, so it runs after the block's own scripts. Content
+					// that waits for a theme's scroll observer to reveal it
+					// would otherwise render as an empty box here, because a
+					// preview loads the theme's styles but not its scripts.
+					( revealJs ? '<script>' + revealJs + '<\/script>' : '' ) +
 					'</body></html>';
 			}
 

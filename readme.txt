@@ -73,6 +73,9 @@ Security release. Fixes privilege escalation in the block preview (any Author co
 
 == Changelog ==
 
+= 3.0.0-rc.4 =
+Fixes blocks rendering as an empty box in the editor and builder previews. Content built on the common "start hidden, reveal on scroll" pattern stayed hidden, because a preview loads the theme's stylesheets but not the script that reveals it. Previews now add the usual reveal trigger classes and let the theme's own CSS produce the end state, so genuine animations keep running. Filterable with gt_pb_preview_reveal_enabled, gt_pb_preview_reveal_classes and gt_pb_preview_reveal_selector.
+
 = 3.0.0-rc.3 =
 Closes two bugs 3.0.0 introduced, and makes three already-shipped things reachable. A block detached from the library in the block editor kept rendering the library version, because the editor never cleared the slug that 3.0 made take precedence - your edits were invisible to visitors and nothing reported it. Writing tags or a description over REST returned success and dropped the data. Blocks now take tags and a description on the edit screen; display conditions are always visible rather than only with a hook position set; a linked block can opt in to the library block's conditions; and a `gt_pb_block_rendered` filter joins the two action hooks, all four documented in README.md. CI now syntax-checks the JavaScript, which nothing had ever done.
 
