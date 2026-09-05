@@ -73,6 +73,9 @@ Security release. Fixes privilege escalation in the block preview (any Author co
 
 == Changelog ==
 
+= 3.0.0-rc.2 =
+Fixes two migration blockers found auditing rc.1: the schema step stamped the version the upgrade router gates on, so a batched upgrade that yielded on a large library could never resume; and multisite network activation stamped every subsite as migrated while creating the table only for the activating site. Also: the utilities notice's button pointed at a page that does not exist and the notice could never be retired, the edit screen showed no result after a failed save, clearing a block's CSS or JS kept serving the old file, revisions were recorded for writes that failed, and the update channel accepted a plaintext http package URL.
+
 = 3.0.0-rc.1 =
 Release candidate for 3.0.0. Not for production. Everything below applies; please read the BREAKING list before installing anywhere that matters, and take a database backup first - the schema change is one-way.
 

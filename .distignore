@@ -36,3 +36,4 @@ SECURITY.md
 .vscode
 .idea
 phpunit-integration.xml
+.phpunit.result.cache

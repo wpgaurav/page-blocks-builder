@@ -15,20 +15,22 @@ class gt_pb_db {
 	const VERSION_OPTION = 'gt_pb_table_version';
 	const ASSET_VERSION_OPTION = 'gt_pb_asset_version';
 
-	private string $table_name;
-
-	public function __construct() {
-		global $wpdb;
-		$this->table_name = $wpdb->prefix . 'gt_page_blocks';
-	}
-
 	/**
-	 * Get the table name.
+	 * Table name, derived per call.
+	 *
+	 * Deliberately not cached in the constructor. One gt_pb_db instance is
+	 * built at plugin load and reused, including inside the multisite
+	 * activation loop's switch_to_blog() - so a cached prefix meant dbDelta ran
+	 * against the main site's table while the switched site's options were
+	 * stamped as migrated. The subsite then had no table and could not
+	 * self-heal, because both the router and create_table() short-circuit on
+	 * that stamp.
 	 *
 	 * @return string
 	 */
 	public function get_table_name(): string {
-		return $this->table_name;
+		global $wpdb;
+		return $wpdb->prefix . 'gt_page_blocks';
 	}
 
 	/**
@@ -37,7 +39,7 @@ class gt_pb_db {
 	 * @since 3.0.0
 	 */
 	public function revisions_table_name(): string {
-		return $this->table_name . '_revisions';
+		return $this->get_table_name() . '_revisions';
 	}
 
 	/**
@@ -67,7 +69,7 @@ class gt_pb_db {
 		global $wpdb;
 		$charset_collate = $wpdb->get_charset_collate();
 
-		$sql = "CREATE TABLE {$this->table_name} (
+		$sql = "CREATE TABLE {$this->get_table_name()} (
 			id bigint(20) unsigned NOT NULL AUTO_INCREMENT,
 			title varchar(255) NOT NULL DEFAULT '',
 			slug varchar(200) NOT NULL DEFAULT '',
@@ -129,7 +131,12 @@ class gt_pb_db {
 		// checksum fails closed and an administrator re-saving it mints a real
 		// one, which is the correct direction.
 
-		update_option( self::VERSION_OPTION, self::TABLE_VERSION );
+		// Deliberately does NOT stamp the version option. gt_pb_upgrader owns
+		// that, and only after every step reports complete. Stamping it here
+		// meant the schema step - which runs first - marked the whole upgrade
+		// done, so a later batched step that yielded on its budget could never
+		// resume: the next call, and the cron callback, both short-circuited on
+		// a version that was already 1.2.
 	}
 
 	/**
@@ -142,7 +149,7 @@ class gt_pb_db {
 		global $wpdb;
 
 		$row = $wpdb->get_row(
-			$wpdb->prepare( "SELECT * FROM {$this->table_name} WHERE id = %d", $id )
+			$wpdb->prepare( "SELECT * FROM {$this->get_table_name()} WHERE id = %d", $id )
 		);
 
 		return $row ?: null;
@@ -158,7 +165,7 @@ class gt_pb_db {
 		global $wpdb;
 
 		$row = $wpdb->get_row(
-			$wpdb->prepare( "SELECT * FROM {$this->table_name} WHERE slug = %s", $slug )
+			$wpdb->prepare( "SELECT * FROM {$this->get_table_name()} WHERE slug = %s", $slug )
 		);
 
 		return $row ?: null;
@@ -222,7 +229,7 @@ class gt_pb_db {
 		$per_page = max( 1, min( 500, (int) $args['per_page'] ) );
 		$offset = max( 0, ( (int) $args['page'] - 1 ) * $per_page );
 
-		$sql = "SELECT * FROM {$this->table_name} {$where_sql} ORDER BY {$orderby} {$order} LIMIT %d OFFSET %d";
+		$sql = "SELECT * FROM {$this->get_table_name()} {$where_sql} ORDER BY {$orderby} {$order} LIMIT %d OFFSET %d";
 		$values[] = $per_page;
 		$values[] = $offset;
 
@@ -260,7 +267,7 @@ class gt_pb_db {
 
 		$where_sql = $where ? 'WHERE ' . implode( ' AND ', $where ) : '';
 
-		$sql = "SELECT COUNT(*) FROM {$this->table_name} {$where_sql}";
+		$sql = "SELECT COUNT(*) FROM {$this->get_table_name()} {$where_sql}";
 
 		if ( $values ) {
 			$sql = $wpdb->prepare( $sql, $values );
@@ -287,7 +294,7 @@ class gt_pb_db {
 			$data['slug'] = $this->generate_unique_slug( $data['title'] );
 		}
 
-		$result = $wpdb->insert( $this->table_name, $data, $this->get_formats( $data ) );
+		$result = $wpdb->insert( $this->get_table_name(), $data, $this->get_formats( $data ) );
 
 		if ( $result === false ) {
 			return false;
@@ -328,16 +335,8 @@ class gt_pb_db {
 		$data['updated_at'] = current_time( 'mysql' );
 		$data['php_checksum'] = $this->derive_checksum( $data, $existing );
 
-		// Every write path funnels through here - the admin form, AJAX, REST,
-		// and any future CLI or import - so recording the pre-image at this one
-		// point gives all of them history for free. Capture before the write,
-		// not after.
-		if ( $existing ) {
-			$this->record_revision( $existing );
-		}
-
 		$result = $wpdb->update(
-			$this->table_name,
+			$this->get_table_name(),
 			$data,
 			array( 'id' => $id ),
 			$this->get_formats( $data ),
@@ -345,6 +344,16 @@ class gt_pb_db {
 		);
 
 		if ( $result !== false ) {
+			// Recorded only for a write that happened, and from the pre-image
+			// read before it. Running this unconditionally meant a repeated
+			// duplicate-slug save wrote a junk revision per attempt, and the
+			// prune then pushed real history out of the window - the one write
+			// path this release added last_error_is_duplicate_slug() for
+			// because it fails in practice.
+			if ( $existing ) {
+				$this->record_revision( $existing );
+			}
+
 			$this->bump_asset_version();
 			do_action( 'gt_pb_block_saved', $id, $data, false );
 		}
@@ -535,7 +544,7 @@ class gt_pb_db {
 	public function delete( int $id ): bool {
 		global $wpdb;
 
-		$result = $wpdb->delete( $this->table_name, array( 'id' => $id ), array( '%d' ) );
+		$result = $wpdb->delete( $this->get_table_name(), array( 'id' => $id ), array( '%d' ) );
 
 		if ( $result ) {
 			// The revisions go with it; nothing else references them.
@@ -618,7 +627,7 @@ class gt_pb_db {
 
 		while ( true ) {
 			$sql = $wpdb->prepare(
-				"SELECT COUNT(*) FROM {$this->table_name} WHERE slug = %s AND id != %d",
+				"SELECT COUNT(*) FROM {$this->get_table_name()} WHERE slug = %s AND id != %d",
 				$slug,
 				$exclude_id
 			);
@@ -644,7 +653,7 @@ class gt_pb_db {
 
 		return $wpdb->get_results(
 			$wpdb->prepare(
-				"SELECT * FROM {$this->table_name} WHERE status = %s AND position != %s ORDER BY priority ASC, id ASC",
+				"SELECT * FROM {$this->get_table_name()} WHERE status = %s AND position != %s ORDER BY priority ASC, id ASC",
 				'publish',
 				''
 			)

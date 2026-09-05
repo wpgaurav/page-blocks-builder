@@ -12,3 +12,4 @@ vendor/
 # working files rather than source. Write them here if you like; git will not
 # carry them.
 __release-*/
+.phpunit.result.cache

@@ -29,6 +29,17 @@ class gt_pb_upgrader {
 	/** Seconds a single batch may spend before yielding. */
 	const BUDGET = 8;
 
+	/**
+	 * Budget override, for exercising the yield-and-resume path.
+	 *
+	 * The bug this guards against only appears when a step yields, which no
+	 * test reached because every fixture finished inside the budget - so the
+	 * batching that exists for large sites was the one path never exercised.
+	 *
+	 * @var int|null
+	 */
+	public static $budget_override = null;
+
 	/** Rows per query in a batched step. */
 	const BATCH = 200;
 
@@ -151,7 +162,7 @@ class gt_pb_upgrader {
 
 		$table  = $this->db->get_table_name();
 		$cursor = (int) get_option( self::CURSOR_OPTION, 0 );
-		$until  = time() + self::BUDGET;
+		$until  = time() + ( null === self::$budget_override ? self::BUDGET : (int) self::$budget_override );
 
 		do {
 			$rows = $wpdb->get_results(
