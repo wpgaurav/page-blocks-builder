@@ -87,6 +87,14 @@ class gt_pb_migration {
 			\WP_CLI::add_command( 'gt-pb migrate-blocks', array( $this, 'cli_migrate' ) );
 			\WP_CLI::add_command( 'gt-pb migrate-library', array( $this, 'cli_migrate_library' ) );
 			\WP_CLI::add_command( 'gt-pb upgrade', array( $this, 'cli_upgrade' ) );
+
+			require_once __DIR__ . '/class-cli.php';
+			$cli = new gt_pb_cli( new gt_pb_db() );
+			\WP_CLI::add_command( 'gt-pb block list', array( $cli, 'list_blocks' ) );
+			\WP_CLI::add_command( 'gt-pb block get', array( $cli, 'get_block' ) );
+			\WP_CLI::add_command( 'gt-pb block create', array( $cli, 'create_block' ) );
+			\WP_CLI::add_command( 'gt-pb block delete', array( $cli, 'delete_block' ) );
+			\WP_CLI::add_command( 'gt-pb block render', array( $cli, 'render_block' ) );
 		}
 	}
 

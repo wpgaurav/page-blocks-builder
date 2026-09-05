@@ -9,6 +9,7 @@ parameters:
         - includes/class-css-loader.php
         - includes/class-gt-pb-text.php
         - includes/class-upgrader.php
+        - includes/class-cli.php
         # ~
         - page-blocks-builder.php
         - includes/class-db.php

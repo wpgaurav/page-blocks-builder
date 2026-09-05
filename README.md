@@ -4,7 +4,7 @@ Build, reuse, and place custom HTML/CSS/JS sections anywhere in WordPress — th
 
 Originally part of Marketers Delight's Page Blocks dropin (2018–2026, © Kolakube), now a standalone plugin.
 
-**Requires:** WordPress 6.0+, PHP 8.1+ · **Current version:** 2.8.1
+**Requires:** WordPress 6.0+, PHP 8.1+ · **Current version:** 3.0.0
 
 ---
 
