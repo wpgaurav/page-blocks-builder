@@ -60,6 +60,20 @@ jobs:
       # week, and then it is not a gate at all.
       - run: vendor/bin/phpcs || true
 
+  unit:
+    name: Unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.1'
+          coverage: none
+      - uses: ramsey/composer-install@v3
+      # No WordPress bootstrap - these are pure string transforms and the suite
+      # runs in milliseconds, so it can gate every push.
+      - run: vendor/bin/phpunit --testsuite unit
+
   package:
     name: Package parity
     runs-on: ubuntu-latest

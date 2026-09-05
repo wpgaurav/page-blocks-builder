@@ -25,11 +25,28 @@ class gt_pb_text {
 	public static function sanitize_css( $css ) {
 		$css = (string) $css;
 		$css = preg_replace( '@<(script|style)[^>]*?>.*?</\\1>@si', '', $css );
+
+		// Stash url(data:...) payloads before the tag strip below. An inline
+		// SVG background is markup by nature, and the generic strip emptied it
+		// to url(data:image/svg+xml;utf8,) - a valid-looking rule that renders
+		// nothing. text/html payloads are excluded and stay blockable.
+		$stash = array();
+		$css   = preg_replace_callback(
+			'/url\s*\(\s*(["\']?)\s*data\s*:(?!\s*text\/html)[^)]*\1\s*\)/i',
+			function ( $matches ) use ( &$stash ) {
+				$token           = '___GTPBDATA' . count( $stash ) . '___';
+				$stash[ $token ] = $matches[0];
+				return $token;
+			},
+			$css
+		);
+
 		$css = preg_replace( '/<[a-z\/!][^>]*>/i', '', $css );
 		$css = str_replace( array( 'javascript:', 'expression(', '-moz-binding:', 'behavior:' ), '', $css );
 		$css = preg_replace( '/@import\s+url\s*\(\s*["\']?\s*(?:javascript|data)\s*:/i', '@import url(blocked:', $css );
 		$css = preg_replace( '/url\s*\(\s*["\']?\s*data\s*:\s*text\/html/i', 'url(blocked:', $css );
-		return $css;
+
+		return $stash ? strtr( $css, $stash ) : $css;
 	}
 
 	/**
@@ -82,7 +99,12 @@ class gt_pb_text {
 
 		$css = str_replace( array( "\r\n", "\r", "\n", "\t" ), '', $css );
 		$css = preg_replace( '/\s+/', ' ', $css );
-		$css = preg_replace( '/\s*([\{\};:,~+])\s*/', '$1', $css );
+		$css = preg_replace( '/\s*([\{\};,~+])\s*/', '$1', $css );
+		// ':' is deliberately not in that class. A space before a colon is
+		// meaningful in a selector - '.menu :hover' matches a descendant,
+		// '.menu:hover' matches the element itself - so only trailing space is
+		// removed, which is what 'color: red' needs.
+		$css = preg_replace( '/:[ ]+/', ':', $css );
 		$css = preg_replace( '/\s*>(?!=)\s*/', '>', $css );
 		$css = preg_replace( '/;}/', '}', $css );
 		$css = trim( (string) $css );
@@ -111,10 +133,18 @@ class gt_pb_text {
 		);
 
 		$js = preg_replace( '#/\*(?!!).*?\*/#s', '', $js );
-		$js = preg_replace( '#(?<=[\s;{}(,=])//(?!/)[^\n]*#', '', $js );
-		$js = str_replace( array( "\r\n", "\r", "\n", "\t" ), ' ', $js );
-		$js = preg_replace( '/\s+/', ' ', $js );
-		$js = preg_replace( '/\s*([{};,])\s*/', '$1', $js );
+		// (^|...) rather than a lookbehind: a lookbehind cannot match at offset
+		// 0, so a comment on the first line survived the strip.
+		$js = preg_replace( '#(^|[\s;{}(,=])//(?!/)[^\n]*#m', '$1', $js );
+
+		// Collapse horizontal whitespace only, and keep one newline. Newlines
+		// are statement terminators in semicolon-free JavaScript: turning them
+		// into spaces silently concatenated every statement in the file.
+		$js = str_replace( array( "\r\n", "\r" ), "\n", $js );
+		$js = str_replace( "\t", ' ', $js );
+		$js = preg_replace( '/[ ]+/', ' ', $js );
+		$js = preg_replace( '/ *\n[ \n]*/', "\n", $js );
+		$js = preg_replace( '/[ \n]*([{};,])[ \n]*/', '$1', $js );
 
 		$js = str_replace( array_keys( $preserved ), array_values( $preserved ), $js );
 
