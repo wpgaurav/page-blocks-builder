@@ -26,13 +26,25 @@ $conditions = $raw_conds ? json_decode( $raw_conds, true ) : array();
 
 $positions = gt_pb_get_positions();
 $post_types = get_post_types( array( 'public' => true ), 'objects' );
+// Every key here must exist in gt_pb_theme_builder::matches_page_type(), and
+// every key there should appear here. Eight of the fourteen the engine already
+// implemented had no checkbox, so they could only be set over REST or WP-CLI -
+// and opening the block in wp-admin and pressing save then deleted them.
 $page_types = array(
-	'front_page' => __( 'Front Page', 'md' ),
-	'blog'       => __( 'Blog Page', 'md' ),
-	'singular'   => __( 'Single Posts/Pages', 'md' ),
-	'archive'    => __( 'Archives', 'md' ),
-	'search'     => __( 'Search Results', 'md' ),
-	'404'        => __( '404 Page', 'md' ),
+	'front_page' => __( 'Front Page', 'page-blocks-builder' ),
+	'blog'       => __( 'Blog Page', 'page-blocks-builder' ),
+	'singular'   => __( 'Any Single Post or Page', 'page-blocks-builder' ),
+	'single'     => __( 'Single Posts', 'page-blocks-builder' ),
+	'page'       => __( 'Pages', 'page-blocks-builder' ),
+	'attachment' => __( 'Attachment Pages', 'page-blocks-builder' ),
+	'archive'    => __( 'Any Archive', 'page-blocks-builder' ),
+	'category'   => __( 'Category Archives', 'page-blocks-builder' ),
+	'tag'        => __( 'Tag Archives', 'page-blocks-builder' ),
+	'tax'        => __( 'Custom Taxonomy Archives', 'page-blocks-builder' ),
+	'author'     => __( 'Author Archives', 'page-blocks-builder' ),
+	'date'       => __( 'Date Archives', 'page-blocks-builder' ),
+	'search'     => __( 'Search Results', 'page-blocks-builder' ),
+	'404'        => __( '404 Page', 'page-blocks-builder' ),
 );
 ?>
 <div class="wrap">

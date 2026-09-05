@@ -813,12 +813,29 @@ class GT_Page_Blocks_Builder {
 		// Reference mode: the block points at a library row, so render that
 		// row instead of the (empty) inline attributes. Blocks migrated from
 		// the Marketers Delight dropin arrive in this shape.
-		$block_id = isset( $attributes['blockId'] ) ? (int) $attributes['blockId'] : 0;
-		if ( $block_id > 0 ) {
-			$row = $this->db->get( $block_id );
+		$block_id   = isset( $attributes['blockId'] ) ? (int) $attributes['blockId'] : 0;
+		$block_slug = isset( $attributes['blockSlug'] ) ? (string) $attributes['blockSlug'] : '';
+
+		if ( $block_id > 0 || '' !== $block_slug ) {
+			// Prefer the slug. blockId is a site-local auto-increment, so a
+			// linked block copied to another site pointed at whatever row
+			// happened to hold that number - usually nothing, rendering blank.
+			// The id remains the fallback for every block saved before 3.0.
+			$row = '' !== $block_slug ? $this->db->get_by_slug( $block_slug ) : null;
+
+			if ( ! $row && $block_id > 0 ) {
+				$row = $this->db->get( $block_id );
+			}
 
 			if ( ! $row || 'publish' !== $row->status ) {
 				return '';
+			}
+
+			if ( ! empty( $attributes['respectConditions'] ) ) {
+				$theme_builder = function_exists( 'gt_pb_theme_builder' ) ? gt_pb_theme_builder() : null;
+				if ( $theme_builder && ! $theme_builder->matches_conditions( $row ) ) {
+					return '';
+				}
 			}
 
 			return $this->render_library_block( $row );
@@ -2541,7 +2558,9 @@ class GT_Page_Blocks_Builder {
 			'format'      => isset( $_POST['block_format'] ) ? 1 : 0,
 			'position'    => sanitize_text_field( wp_unslash( $_POST['block_position'] ?? '' ) ),
 			'priority'    => isset( $_POST['block_priority'] ) ? (int) $_POST['block_priority'] : 10,
-			'conditions'  => $this->parse_conditions_from_post(),
+			'conditions'  => $this->parse_conditions_from_post(
+				$id > 0 ? (string) ( $this->db->get( $id )->conditions ?? '' ) : ''
+			),
 			'author'      => get_current_user_id(),
 		);
 		// phpcs:enable
@@ -2568,7 +2587,19 @@ class GT_Page_Blocks_Builder {
 	 *
 	 * @return string JSON, or '' when no condition was set.
 	 */
-	private function parse_conditions_from_post(): string {
+	private function parse_conditions_from_post( string $existing_json = '' ): string {
+		// Anything already stored that this form has no control for is carried
+		// through untouched. Opening a block whose conditions were set over
+		// REST or WP-CLI and pressing Save used to delete them silently,
+		// because the parser rebuilt the whole object from the posted fields.
+		$existing = array();
+		if ( '' !== $existing_json ) {
+			$decoded = json_decode( $existing_json, true );
+			if ( is_array( $decoded ) ) {
+				$existing = $decoded;
+			}
+		}
+
 		$post_types = isset( $_POST['block_condition_post_types'] ) && is_array( $_POST['block_condition_post_types'] )
 			? array_values( array_filter( array_map( 'sanitize_key', wp_unslash( $_POST['block_condition_post_types'] ) ) ) )
 			: array();
@@ -2582,14 +2613,20 @@ class GT_Page_Blocks_Builder {
 			: '';
 		$post_ids = array_values( array_filter( array_map( 'absint', preg_split( '/[\s,]+/', $raw_ids ) ?: array() ) ) );
 
-		if ( ! $post_types && ! $page_types && ! $post_ids ) {
+		$preserved = $existing;
+		unset( $preserved['post_types'], $preserved['page_types'], $preserved['post_ids'] );
+
+		if ( ! $post_types && ! $page_types && ! $post_ids && ! $preserved ) {
 			return '';
 		}
 
-		return (string) wp_json_encode( array(
-			'post_types' => $post_types,
-			'page_types' => $page_types,
-			'post_ids'   => $post_ids,
+		return (string) wp_json_encode( array_merge(
+			$preserved,
+			array(
+				'post_types' => $post_types,
+				'page_types' => $page_types,
+				'post_ids'   => $post_ids,
+			)
 		) );
 	}
 
@@ -3576,6 +3613,23 @@ class GT_Page_Blocks_Builder {
 			wp_send_json_error( array( 'message' => __( 'Permission denied.', 'page-blocks-builder' ) ), 403 );
 		}
 
+		/**
+		 * Capability required to spend the site's AI credit.
+		 *
+		 * The endpoint used to answer anyone who could edit the post, which on
+		 * a multi-author site means every one of them spending the owner's API
+		 * key with no ceiling. Filter it back to 'edit_posts' to restore the
+		 * previous behaviour.
+		 *
+		 * @since 3.0.0
+		 * @param string $capability Capability name.
+		 */
+		$ai_capability = (string) apply_filters( 'gt_pb_ai_capability', 'manage_options' );
+
+		if ( ! current_user_can( $ai_capability ) ) {
+			wp_send_json_error( array( 'message' => __( 'You do not have permission to use AI generation on this site.', 'page-blocks-builder' ) ), 403 );
+		}
+
 		$prompt      = isset( $_POST['prompt'] ) ? sanitize_textarea_field( wp_unslash( $_POST['prompt'] ) ) : '';
 		$tab         = isset( $_POST['tab'] ) ? sanitize_key( $_POST['tab'] ) : 'html';
 		$model       = isset( $_POST['model'] ) ? sanitize_text_field( wp_unslash( $_POST['model'] ) ) : '';
@@ -3598,11 +3652,18 @@ class GT_Page_Blocks_Builder {
 
 		// Parse conversation history
 		$history = array();
+		$trimmed = false;
 		if ( ! empty( $history_raw ) ) {
 			$decoded = json_decode( (string) $history_raw, true );
 			if ( is_array( $decoded ) ) {
 				$history = $decoded;
 			}
+		}
+
+		if ( $history ) {
+			$capped  = self::cap_ai_history( $history );
+			$trimmed = count( $capped ) !== count( $history );
+			$history = $capped;
 		}
 
 		$result = $this->call_ai_api( $model, $tab, $prompt, $existing, $selection, $ctx_html, $ctx_css, $page_url, $css_ctx, $history, $ctx_page );
@@ -3611,7 +3672,47 @@ class GT_Page_Blocks_Builder {
 			wp_send_json_error( array( 'message' => $result->get_error_message() ), 500 );
 		}
 
-		wp_send_json_success( array( 'code' => $result ) );
+		wp_send_json_success( array(
+			'code'    => $result,
+			// Silent trimming is worse than none: the assistant appears to
+			// forget for no reason. Say so, so the UI can show it.
+			'trimmed' => $trimmed,
+		) );
+	}
+
+	/**
+	 * Bound the conversation history sent to a provider.
+	 *
+	 * Every turn resent every previous full code block, so a long session's
+	 * cost grew quadratically against a transcript the model mostly ignored.
+	 * Oldest turns go first, and a byte ceiling catches the case where six
+	 * turns are themselves enormous.
+	 *
+	 * @since 3.0.0
+	 * @param array $history Raw history.
+	 * @return array
+	 */
+	public static function cap_ai_history( array $history ): array {
+		$max_turns = (int) apply_filters( 'gt_pb_ai_history_turns', 6 );
+		$max_bytes = (int) apply_filters( 'gt_pb_ai_history_bytes', 60000 );
+
+		$history = array_values( array_filter( $history, 'is_array' ) );
+
+		if ( count( $history ) > $max_turns ) {
+			$history = array_slice( $history, -$max_turns );
+		}
+
+		$bytes = 0;
+		$kept  = array();
+		foreach ( array_reverse( $history ) as $turn ) {
+			$bytes += strlen( (string) wp_json_encode( $turn ) );
+			if ( $bytes > $max_bytes && $kept ) {
+				break;
+			}
+			array_unshift( $kept, $turn );
+		}
+
+		return $kept;
 	}
 
 	private function call_ai_api( $model, $tab, $prompt, $existing, $selection, $ctx_html, $ctx_css, $page_url, $css_context = '', $history = array(), $ctx_page = '' ) {
@@ -3648,8 +3749,30 @@ class GT_Page_Blocks_Builder {
 
 		$user_message = $this->build_ai_user_message( $prompt, $tab, $existing, $selection, $ctx_html, $ctx_css, $ctx_page );
 
-		$result = $this->execute_ai_provider_call( $provider, $api_key, $model, $system_prompt, $user_message, $history );
+		$started = microtime( true );
+		$result  = $this->execute_ai_provider_call( $provider, $api_key, $model, $system_prompt, $user_message, $history );
+
 		if ( ! $this->should_retry_ai_compact( $result ) ) {
+			return $result;
+		}
+
+		// The retry is a second complete generation. The browser gives up at a
+		// fixed 120s, so once the first call has already spent that long the
+		// customer pays for output nobody will ever receive. Return what the
+		// first call produced instead.
+		$elapsed   = microtime( true ) - $started;
+		$remaining = (float) $this->get_ai_http_timeout( $provider ) - $elapsed;
+
+		if ( $remaining <= 5.0 ) {
+			$this->maybe_log_ai_debug(
+				$provider,
+				'auto_retry_skipped',
+				array(
+					'reason'  => 'insufficient time budget',
+					'elapsed' => round( $elapsed, 1 ),
+				)
+			);
+
 			return $result;
 		}
 

@@ -1274,7 +1274,83 @@
 		queueAutosave();
 	}
 
+	// Document-level undo.
+	//
+	// CodeMirror gives each pane its own undo for typing, but everything
+	// structural - add, delete, duplicate, reorder, import-replace - was
+	// one-way. Deleting a section by mistake meant rebuilding it by hand.
+	//
+	// Snapshots rather than inverse operations: the section list is small,
+	// JSON-cloning it is cheap, and a snapshot cannot get out of step with the
+	// operation it is meant to reverse. Selection is remembered by uid, so an
+	// undo that changes the ordering still lands you on the section you were
+	// working on.
+	var history = { undo: [], redo: [], limitBytes: 4 * 1024 * 1024 };
+
+	function snapshotDocument() {
+		return {
+			sections: JSON.parse(JSON.stringify(state.sections)),
+			selectedUid: (state.sections[state.selectedIndex] || {}).uid || ''
+		};
+	}
+
+	function historyBytes(stack) {
+		var total = 0;
+		for (var i = 0; i < stack.length; i++) {
+			total += JSON.stringify(stack[i].sections).length;
+		}
+		return total;
+	}
+
+	/**
+	 * Record the document before a structural change.
+	 *
+	 * Field edits do not call this: CodeMirror already owns those, and pushing
+	 * a whole-document snapshot per keystroke would blow the budget.
+	 */
+	function pushHistory() {
+		history.undo.push(snapshotDocument());
+		history.redo.length = 0;
+
+		while (history.undo.length > 1 && historyBytes(history.undo) > history.limitBytes) {
+			history.undo.shift();
+		}
+		updateHistoryButtons();
+	}
+
+	function restoreSnapshot(snap) {
+		state.sections = snap.sections.map(normalizeSection);
+		var idx = indexOfUid(snap.selectedUid);
+		state.selectedIndex = idx >= 0 ? idx : Math.min(state.selectedIndex, state.sections.length - 1);
+		if (state.selectedIndex < 0) state.selectedIndex = 0;
+		renderAll();
+		queuePreviewRender(0, true);
+		queueAutosave();
+	}
+
+	function undoDocument() {
+		if (!history.undo.length) return false;
+		history.redo.push(snapshotDocument());
+		restoreSnapshot(history.undo.pop());
+		updateHistoryButtons();
+		return true;
+	}
+
+	function redoDocument() {
+		if (!history.redo.length) return false;
+		history.undo.push(snapshotDocument());
+		restoreSnapshot(history.redo.pop());
+		updateHistoryButtons();
+		return true;
+	}
+
+	function updateHistoryButtons() {
+		if (dom.undoButton) dom.undoButton.disabled = !history.undo.length;
+		if (dom.redoButton) dom.redoButton.disabled = !history.redo.length;
+	}
+
 	function addSection(afterIndex) {
+		pushHistory();
 		var insertAt = typeof afterIndex === 'number' ? afterIndex + 1 : state.sections.length;
 		state.sections.splice(insertAt, 0, createDefaultSection());
 		state.selectedIndex = insertAt;
@@ -1285,6 +1361,7 @@
 		if (index < 0 || index >= state.sections.length) {
 			return;
 		}
+		pushHistory();
 		var copy = normalizeSection(state.sections[index]);
 		copy.uid = mintUid();
 		if (copy.content) {
@@ -1332,6 +1409,7 @@
 			state.removedForeign += 1;
 		}
 
+		pushHistory();
 		state.sections.splice(index, 1);
 
 		if (!state.sections.length) {
@@ -1363,6 +1441,7 @@
 			return;
 		}
 
+		pushHistory();
 		var moved = state.sections.splice(fromIndex, 1)[0];
 		state.sections.splice(toIndex, 0, moved);
 
@@ -2578,13 +2657,28 @@
 	 * @return {?{index:number,fields:string[],before:Object}} What changed, so
 	 *         it can be put back, or null if there was nothing to apply.
 	 */
-	function applyAiCode(code) {
-		var section = getCurrentSection();
+	/**
+	 * Apply an AI reply.
+	 *
+	 * `reqUid` and `reqTab` are captured when the request is sent. Without them
+	 * this resolved getCurrentSection() and getActiveTab() *on return* - after
+	 * a wait that can run two minutes - so a reply landed on whatever section
+	 * and tab happened to be in front when it arrived.
+	 */
+	function applyAiCode(code, reqUid, reqTab) {
+		var idx = typeof reqUid === 'string' && reqUid ? indexOfUid(reqUid) : state.selectedIndex;
+		if (idx < 0) {
+			// The section was deleted while the request was in flight. Dropping
+			// the reply is correct; applying it somewhere else is not.
+			return null;
+		}
+
+		var section = state.sections[idx];
 		if (!section || isForeign(section) || isLinked(section)) {
 			return null;
 		}
 
-		var tab = getActiveTab();
+		var tab = reqTab || getActiveTab();
 		var fieldMap = { html: 'content', css: 'css', js: 'js' };
 
 		// Extract bundled CSS/JS from HTML
@@ -2599,7 +2693,9 @@
 		}
 
 		var undo = {
-			index: state.selectedIndex,
+			// uid, not index: a reorder between apply and undo used to make
+			// undo restore a different section's content over the wrong one.
+			uid: section.uid,
 			fields: [],
 			before: {
 				content: section.content || '',
@@ -2634,16 +2730,23 @@
 	}
 
 	function undoAiCode(undo) {
-		if (!undo || !state.sections[undo.index]) {
+		if (!undo) {
 			return false;
 		}
 
-		var section = state.sections[undo.index];
+		var idx = indexOfUid(undo.uid);
+		if (idx < 0 || !state.sections[idx]) {
+			// The section is gone. Return cleanly rather than restoring its
+			// content over whatever now occupies that index.
+			return false;
+		}
+
+		var section = state.sections[idx];
 		section.content = undo.before.content;
 		section.css = undo.before.css;
 		section.js = undo.before.js;
 
-		if (undo.index === state.selectedIndex) {
+		if (idx === state.selectedIndex) {
 			renderCurrentSectionToEditors();
 			refreshCodeEditors();
 		}
@@ -2835,6 +2938,11 @@
 		var tab = state.aiSelection ? 'html' : getActiveTab();
 		var fieldMap = { html: 'content', css: 'css', js: 'js' };
 		var section = getCurrentSection();
+		// Pinned now, used when the reply lands. A generation can run two
+		// minutes; whatever is selected then is not necessarily what was asked
+		// about.
+		var reqUid = section ? section.uid : '';
+		var reqTab = tab;
 		var existing = section ? (section[fieldMap[tab]] || '') : '';
 		var ctxHtml = section ? (section.content || '') : '';
 		var ctxCss = section ? (section.css || '') : '';
@@ -2919,7 +3027,7 @@
 			// and into the editor beside it was work the builder can do, and
 			// the preview updates on its own — which is the answer the author
 			// actually wanted to look at. Undo is one click away.
-			var undo = applyAiCode(code);
+			var undo = applyAiCode(code, reqUid, reqTab);
 
 			state.aiMessages.push({
 				role: 'assistant',
@@ -3781,6 +3889,18 @@
 				return;
 			}
 
+			if (isMeta && key === 'z') {
+				// Below the isInputTarget bail on purpose: inside a code pane
+				// Cmd+Z belongs to CodeMirror. Out here it owns the document.
+				event.preventDefault();
+				if (event.shiftKey) {
+					redoDocument();
+				} else {
+					undoDocument();
+				}
+				return;
+			}
+
 			if (isMeta && key === 'b') {
 				event.preventDefault();
 				var viewports = ['desktop', '992', '768', '480', '360'];
@@ -4439,10 +4559,12 @@
 						return;
 					}
 
+					pushHistory();
 					state.removedForeign += Math.max(0, droppedForeign - keptForeign);
 					state.sections = imported;
 					state.selectedIndex = 0;
 				} else {
+					pushHistory();
 					imported.forEach(function(section) {
 						state.sections.push(section);
 					});
