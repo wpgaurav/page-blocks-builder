@@ -735,6 +735,11 @@
 		if (inlineJsOutput) scripts.push(inlineJsOutput);
 		if (footerJsOutput) scripts.push(footerJsOutput);
 		if (injection.jsFooter) scripts.push(injection.jsFooter);
+		// Reveal content that waits for a theme's scroll observer. The builder
+		// preview loads the theme's stylesheets but not its scripts, so a
+		// section built on the .reveal / .visible idiom renders as an empty
+		// box and looks like the builder lost it.
+		if (config.previewRevealJs) scripts.push(config.previewRevealJs);
 
 		// Inline text editing script
 		scripts.push(

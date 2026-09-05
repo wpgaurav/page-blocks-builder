@@ -259,6 +259,33 @@ gain.
 
 ---
 
+## Hooks
+
+Four extension points. Actions cover the write and read paths; the filters let a
+theme or plugin override a decision.
+
+| Hook | Type | Fires | Signature |
+|---|---|---|---|
+| `gt_pb_block_saved` | action | A library block is created or updated | `( int $id, array $data, bool $is_new )` |
+| `gt_pb_block_deleted` | action | A library block is permanently deleted | `( int $id )` |
+| `gt_pb_block_rendered` | filter | A library block's HTML, before output | `( string $html, object $block )` |
+| `gt_pb_block_conditions_match` | filter | A positioned block's display conditions are evaluated | `( bool $matches, object $block, array $rules )` |
+
+Purging a page cache when a shared block changes is the common case:
+
+```php
+add_action( 'gt_pb_block_saved', function ( $id ) {
+	if ( function_exists( 'rocket_clean_domain' ) ) {
+		rocket_clean_domain();
+	}
+} );
+```
+
+Also available: `gt_pb_positions` (add theme regions), `gt_pb_can_execute_php`,
+`gt_pb_ai_capability`, `gt_pb_ai_history_turns`, `gt_pb_ai_history_bytes`,
+`gt_pb_revision_limit`, `gt_pb_usage_scan_limit`, `gt_pb_minify_js` and
+`gt_pb_minify_css`.
+
 ## Security notes
 
 - **PHP execution** is opt-in per block (*Execute PHP code*). At render time it is gated by the `gt_pb_can_execute_php` filter; when execution is not allowed, PHP tags are stripped rather than printed. Only grant block-editing access to users you'd trust with code execution, and consider tightening the filter for your environment.

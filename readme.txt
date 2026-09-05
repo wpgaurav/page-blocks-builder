@@ -4,7 +4,7 @@ Tags: page builder, html blocks, css sections, gutenberg, visual builder
 Requires at least: 6.0
 Tested up to: 6.9.1
 Requires PHP: 8.1
-Stable tag: 2.8.1
+Stable tag: 3.0.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -73,12 +73,6 @@ Security release. Fixes privilege escalation in the block preview (any Author co
 
 == Changelog ==
 
-= 3.0.0-rc.2 =
-Fixes two migration blockers found auditing rc.1: the schema step stamped the version the upgrade router gates on, so a batched upgrade that yielded on a large library could never resume; and multisite network activation stamped every subsite as migrated while creating the table only for the activating site. Also: the utilities notice's button pointed at a page that does not exist and the notice could never be retired, the edit screen showed no result after a failed save, clearing a block's CSS or JS kept serving the old file, revisions were recorded for writes that failed, and the update channel accepted a plaintext http package URL.
-
-= 3.0.0-rc.1 =
-Release candidate for 3.0.0. Not for production. Everything below applies; please read the BREAKING list before installing anywhere that matters, and take a database backup first - the schema change is one-way.
-
 = 3.0.0 =
 
 **BREAKING - read before updating a live site**
@@ -96,6 +90,18 @@ Release candidate for 3.0.0. Not for production. Everything below applies; pleas
 * **Uninstalling now deletes the plugin's options, transients and stored AI keys.** The block library is only dropped if you tick the new setting.
 * **Library usage counts change, sometimes sharply, on block themes,** where the invalidation hooks were never registered. Blocks that read "Unused" while rendering site-wide now read correctly.
 * **The database schema moves to 1.2 and the migration is one-way.** Reinstalling 2.8 files does not revert it.
+
+**Fixed during the release candidates**
+
+* Blocks previewed as an empty box in the editor and the builder when their content used the common "start hidden, reveal on scroll" pattern. A preview loads the theme's stylesheets but not the script that reveals it, so nothing ever flipped it. Previews now add the usual reveal trigger classes and let the theme's own CSS produce the end state, which leaves genuine animations running. Filterable with `gt_pb_preview_reveal_enabled`, `gt_pb_preview_reveal_classes` and `gt_pb_preview_reveal_selector`.
+* A block detached from the library in the block editor kept rendering the library version, because the editor never cleared the slug this release made take precedence. Your edits were invisible to visitors and nothing reported it. Fixed in the editor and on the server, so content already saved in that state is corrected too.
+* Writing tags or a description over the REST API returned success and dropped the data.
+* Display Conditions were hidden unless a hook position was set, which since this release left the REST API as the only way to reach them.
+* A batched upgrade on a large library could not resume if it ran out of time mid-run, because the schema step stamped the version the upgrade router checks. On a site with hundreds of blocks the checksum re-key and the utility-class switch-off would silently never finish.
+* Multisite network activation marked every subsite as migrated while creating the table only for the site being activated.
+* Clearing a block's CSS or JavaScript kept serving the old file.
+* Revisions were recorded for writes that failed, pushing real history out of the retention window.
+* The update channel accepted a plaintext http package URL; it requires HTTPS on the licence host now.
 
 **Privacy and outbound requests**
 
@@ -140,7 +146,7 @@ GT Page Blocks Builder is free to use. Every feature works without a license key
 * Test suites, static analysis and a package check run on every push.
 * An upgrade router with a lock, batching and a resume cursor, driven by `wp gt-pb upgrade [--dry-run]`.
 * `wp gt-pb block list|get|create|delete|render`.
-* First action hooks: `gt_pb_block_saved`, `gt_pb_block_deleted`.
+* First extension points: actions `gt_pb_block_saved` and `gt_pb_block_deleted`, and a `gt_pb_block_rendered` filter on a library block's output. Documented with a worked cache-purge example in README.md.
 * Display conditions are readable and writable over REST, which silently dropped them before.
 * 388 strings can be translated for the first time; 82 carried a text domain retired two versions ago.
 

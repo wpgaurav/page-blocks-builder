@@ -531,8 +531,12 @@
 
 			// Reference mode: render_block() resolves this to a library row and
 			// ignores the inline content/css/js attributes entirely.
-			var linkedId = Math.max( 0, parseInt( attributes.blockId, 10 ) || 0 );
-			var isLinked = linkedId > 0;
+			var linkedId   = Math.max( 0, parseInt( attributes.blockId, 10 ) || 0 );
+			var linkedSlug = String( attributes.blockSlug || '' );
+			// A block copied from another site carries a slug whose id means
+			// nothing here, so an id-only test showed it as unlinked and
+			// offered to edit code that render_block() would ignore.
+			var isLinked   = linkedId > 0 || '' !== linkedSlug;
 
 			var activeTabState = useState( 'html' );
 			var activeTab = activeTabState[0];
@@ -938,6 +942,7 @@
 				// Printed after the theme links, which is the order WordPress
 				// itself uses.
 				var globalCss = typeof config.previewGlobalCss === 'string' ? config.previewGlobalCss : '';
+				var revealJs  = typeof config.previewRevealJs === 'string' ? config.previewRevealJs : '';
 
 				return '<!DOCTYPE html><html' + ( dark ? ' data-theme="dark"' : '' ) + '><head><meta charset="utf-8">' +
 					'<meta name="viewport" content="width=device-width, initial-scale=1">' +
@@ -948,6 +953,11 @@
 					'</head><body>' + html +
 					( inlineJs ? '<script>' + inlineJs + '<\/script>' : '' ) +
 					( footerJs ? '<script>' + footerJs + '<\/script>' : '' ) +
+					// Last, so it runs after the block's own scripts. Content
+					// that waits for a theme's scroll observer to reveal it
+					// would otherwise render as an empty box here, because a
+					// preview loads the theme's styles but not its scripts.
+					( revealJs ? '<script>' + revealJs + '<\/script>' : '' ) +
 					'</body></html>';
 			}
 
@@ -1161,6 +1171,11 @@
 			function linkToLibrary( item ) {
 				props.setAttributes( {
 					blockId: item.id,
+					// The slug travels; blockId is a site-local auto-increment.
+					// The builder already writes both, and render_block()
+					// prefers the slug, so the editor has to agree or the two
+					// surfaces produce different references for the same act.
+					blockSlug: item.slug || '',
 					content: '',
 					css: '',
 					js: ''
@@ -1187,6 +1202,10 @@
 					var copy = libraryRowAsSource( row );
 					props.setAttributes( {
 						blockId:    0,
+						// Must be cleared. Leaving it set means render_block()
+						// resolves the library row over the copy the user just
+						// took ownership of, and nothing reports it.
+						blockSlug:  '',
 						content:    copy.content,
 						css:        copy.css,
 						js:         copy.js,
@@ -1228,7 +1247,7 @@
 
 			// Drop a link with no code to copy (the target is gone).
 			function clearLink() {
-				props.setAttributes( { blockId: 0 } );
+				props.setAttributes( { blockId: 0, blockSlug: '' } );
 				setMode( 'editor' );
 			}
 
@@ -1460,6 +1479,18 @@
 						help: settingsHelp,
 						onChange: function( val ) {
 							props.setAttributes( { phpExec: val } );
+						}
+					}),
+					// Only meaningful on a linked block: display conditions live
+					// on the library row. Off by default, and deliberately so -
+					// turning it on for existing placements would make pages
+					// that render today go blank with nothing in any log.
+					isLinked && el( ToggleControl, {
+						label: __( 'Respect the library block\'s display conditions' ),
+						checked: !! attributes.respectConditions,
+						help: __( 'Off by default. When on, this placement is hidden wherever the library block\'s conditions do not match.' ),
+						onChange: function( val ) {
+							props.setAttributes( { respectConditions: val } );
 						}
 					})
 				)

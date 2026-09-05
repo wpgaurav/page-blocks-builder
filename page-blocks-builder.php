@@ -4,7 +4,7 @@
  * Plugin URI: https://gauravtiwari.org/product/gt-page-blocks-builder/
  * Update URI: https://gauravtiwari.org/product/gt-page-blocks-builder/
  * Description: Standalone visual Page Blocks builder with HTML/CSS/JS sections synced to Gutenberg block content.
- * Version: 3.0.0-rc.2
+ * Version: 3.0.0
  * Author: Gaurav Tiwari
  * Author URI: https://gauravtiwari.org
  * Text Domain: page-blocks-builder
@@ -20,7 +20,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 if ( ! defined( 'GT_PB_BUILDER_VERSION' ) ) {
-	define( 'GT_PB_BUILDER_VERSION', '3.0.0-rc.2' );
+	define( 'GT_PB_BUILDER_VERSION', '3.0.0' );
 }
 
 if ( ! defined( 'GT_PB_BUILDER_FILE' ) ) {
@@ -802,6 +802,7 @@ class GT_Page_Blocks_Builder {
 					// so the preview resolves var() the way the front end does
 					// and the editor can suggest what actually exists here.
 					'previewGlobalCss'   => $this->get_preview_global_css(),
+					'previewRevealJs'    => $this->get_preview_reveal_script(),
 					'cssVariables'       => $this->get_theme_css_variables(),
 					'postId'             => $post_id,
 					'previewEndpoint'    => admin_url( 'admin-ajax.php' ),
@@ -857,7 +858,20 @@ class GT_Page_Blocks_Builder {
 		$block_id   = isset( $attributes['blockId'] ) ? (int) $attributes['blockId'] : 0;
 		$block_slug = isset( $attributes['blockSlug'] ) ? (string) $attributes['blockSlug'] : '';
 
-		if ( $block_id > 0 || '' !== $block_slug ) {
+		// blockId 0 with content of its own means the user detached this block
+		// and owns the code now. A blockSlug left behind by the link that
+		// created it must not out-vote that: the front end would keep serving
+		// the library row while the author edits a copy nobody sees.
+		//
+		// This is narrower than it looks. It only changes blocks in exactly the
+		// broken state, and it leaves the slug-over-id precedence below intact,
+		// which is what makes a linked block survive being copied between
+		// sites. A slug-only reference with no content of its own still
+		// resolves through the library, as portability needs.
+		$own_content = isset( $attributes['content'] ) ? (string) $attributes['content'] : '';
+		$is_detached = 0 === $block_id && '' !== trim( $own_content );
+
+		if ( ! $is_detached && ( $block_id > 0 || '' !== $block_slug ) ) {
 			// Prefer the slug. blockId is a site-local auto-increment, so a
 			// linked block copied to another site pointed at whatever row
 			// happened to hold that number - usually nothing, rendering blank.
@@ -1158,6 +1172,7 @@ class GT_Page_Blocks_Builder {
 				'aiHasAnthropic'     => ! empty( get_option( 'gt_pb_ai_anthropic_key', '' ) ),
 				'aiHasGemini'        => ! empty( get_option( 'gt_pb_ai_gemini_key', '' ) ),
 				'aiCssContext'       => $this->get_ai_css_context(),
+				'previewRevealJs'    => $this->get_preview_reveal_script(),
 				'aiModels'           => self::ai_models(),
 				// These were five empty strings under a comment claiming the
 				// plugin has no database library, which has not been true since
@@ -2804,6 +2819,8 @@ class GT_Page_Blocks_Builder {
 				$id > 0 ? (string) ( $this->db->get( $id )->conditions ?? '' ) : ''
 			),
 			'author'      => get_current_user_id(),
+			'tags'        => sanitize_text_field( wp_unslash( $_POST['block_tags'] ?? '' ) ),
+			'description' => sanitize_textarea_field( wp_unslash( $_POST['block_description'] ?? '' ) ),
 		);
 		// phpcs:enable
 		// php_checksum is derived in gt_pb_db, so every write path — admin
@@ -3030,6 +3047,7 @@ class GT_Page_Blocks_Builder {
 			'cssClasses'    => $this->get_theme_class_suggestions(),
 			'cssVariables'  => $this->get_theme_css_variables(),
 			'previewGlobalCss' => $this->get_preview_global_css(),
+			'previewRevealJs'  => $this->get_preview_reveal_script(),
 		) );
 	}
 
@@ -3152,7 +3170,19 @@ class GT_Page_Blocks_Builder {
 			}
 		}
 
-		return $out;
+		/**
+		 * A library block's rendered output, before it reaches the page.
+		 *
+		 * The last seam this plugin was missing: gt_pb_block_saved and
+		 * gt_pb_block_deleted cover the write side, and this covers the read
+		 * side. Returning $out unchanged is the contract - the default must be
+		 * byte-identical to no filter at all, or every existing page shifts.
+		 *
+		 * @since 3.0.0
+		 * @param string $out   Rendered HTML.
+		 * @param object $block The library row.
+		 */
+		return (string) apply_filters( 'gt_pb_block_rendered', $out, $block );
 	}
 
 	/**
@@ -3237,6 +3267,82 @@ class GT_Page_Blocks_Builder {
 	 * @since 2.7.1
 	 * @return string CSS, or '' when the install has no global styles.
 	 */
+	/**
+	 * Script that reveals content a preview would otherwise render blank.
+	 *
+	 * A very common pattern is markup that starts hidden and is revealed by
+	 * JavaScript once it scrolls into view:
+	 *
+	 *     .reveal          { opacity: 0; transform: translateY(40px); }
+	 *     .reveal.visible  { opacity: 1; transform: none; }
+	 *
+	 * The observer that adds `.visible` almost always lives in the theme, and a
+	 * preview loads the theme's stylesheets but not its scripts. So the resting
+	 * state applies, nothing ever flips it, and the author sees an empty box
+	 * with no indication why.
+	 *
+	 * Forcing `opacity: 1 !important` would be the obvious fix and is the wrong
+	 * one: an `!important` declaration outranks a CSS animation, so it breaks
+	 * every genuine animation on the page to fix the ones that never started.
+	 *
+	 * This adds the trigger classes instead and lets the theme's own CSS produce
+	 * the end state, which is both accurate and self-limiting - a theme using a
+	 * convention not listed here is unaffected rather than mangled.
+	 *
+	 * @since 3.0.0
+	 * @return string Inline JavaScript, or '' when disabled.
+	 */
+	public function get_preview_reveal_script(): string {
+		/**
+		 * Whether previews should reveal scroll-animated content.
+		 *
+		 * @since 3.0.0
+		 * @param bool $enabled Default true.
+		 */
+		if ( ! apply_filters( 'gt_pb_preview_reveal_enabled', true ) ) {
+			return '';
+		}
+
+		/**
+		 * Class names a theme adds to reveal an element.
+		 *
+		 * @since 3.0.0
+		 * @param string[] $classes Trigger class names.
+		 */
+		$classes = (array) apply_filters( 'gt_pb_preview_reveal_classes', array(
+			'visible', 'is-visible', 'in-view', 'is-inview', 'revealed',
+			'is-revealed', 'animated', 'aos-animate', 'active', 'is-active',
+		) );
+
+		/**
+		 * Selector matching elements that wait to be revealed.
+		 *
+		 * @since 3.0.0
+		 * @param string $selector CSS selector.
+		 */
+		$selector = (string) apply_filters(
+			'gt_pb_preview_reveal_selector',
+			'[class*="reveal"],[class*="fade"],[class*="slide"],[data-aos],[data-animate],[data-reveal],[class*="animate-"]'
+		);
+
+		return sprintf(
+			'(function(){try{var C=%s,S=%s;'
+			// Run once now and once more after a frame, because a stylesheet
+			// arriving late can re-apply the resting state.
+			. 'var go=function(){var n=document.querySelectorAll(S);for(var i=0;i<n.length;i++){for(var j=0;j<C.length;j++){n[i].classList.add(C[j]);}}};'
+			. 'go();requestAnimationFrame(go);setTimeout(go,120);'
+			// Last resort for markup that names its classes some other way:
+			// anything still fully transparent after the classes are added is
+			// un-hidden, but only that element and only opacity.
+			. 'setTimeout(function(){var a=document.body?document.body.querySelectorAll("*"):[];for(var i=0;i<a.length;i++){var e=a[i];'
+			. 'if(!e.firstChild&&!e.textContent)continue;'
+			. 'var cs=getComputedStyle(e);if(parseFloat(cs.opacity)===0&&cs.animationName==="none"){e.style.setProperty("opacity","1");}}},240);'
+			. '}catch(e){}})();',
+			(string) wp_json_encode( array_values( array_map( 'strval', $classes ) ) ),
+			(string) wp_json_encode( $selector )
+		);
+	}
+
 	public function get_preview_global_css() {
 		if ( ! function_exists( 'wp_get_global_stylesheet' ) ) {
 			return '';
