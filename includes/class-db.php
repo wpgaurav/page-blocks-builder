@@ -76,19 +76,14 @@ class gt_pb_db {
 		require_once ABSPATH . 'wp-admin/includes/upgrade.php';
 		dbDelta( $sql );
 
-		// Back-fill checksums for php_exec rows that predate the column.
-		// Without this, existing PHP blocks would silently fall back to
-		// tag-stripping once the checksum gate is enforced.
-		$rows = $wpdb->get_results( "SELECT id, content FROM {$this->table_name} WHERE php_exec = 1 AND php_checksum = ''" );
-		foreach ( (array) $rows as $row ) {
-			$wpdb->update(
-				$this->table_name,
-				array( 'php_checksum' => md5( (string) $row->content ) ),
-				array( 'id' => (int) $row->id ),
-				array( '%s' ),
-				array( '%d' )
-			);
-		}
+		// No checksum back-fill here.
+		//
+		// Table version 1.1 stamped md5 onto every php_exec row that predated
+		// the column, which meant the rows whose provenance was least known
+		// were the ones handed a valid checksum. Under a keyed checksum that
+		// would be worse than useless: it would bless them. A row with an empty
+		// checksum fails closed and an administrator re-saving it mints a real
+		// one, which is the correct direction.
 
 		update_option( self::VERSION_OPTION, self::TABLE_VERSION );
 	}
@@ -299,7 +294,8 @@ class gt_pb_db {
 	 *
 	 * @param array       $data     Sanitized write payload.
 	 * @param object|null $existing Current row, for partial updates.
-	 * @return string md5 of the content, or '' when PHP execution is off.
+	 * @return string Keyed checksum of the content, or '' when PHP execution
+	 *                is off.
 	 * @since 2.7.0
 	 */
 	private function derive_checksum( array $data, ?object $existing ): string {
@@ -315,7 +311,7 @@ class gt_pb_db {
 			? (string) $data['content']
 			: (string) ( $existing->content ?? '' );
 
-		return md5( $content );
+		return gt_pb_php_checksum( $content );
 	}
 
 	/**
