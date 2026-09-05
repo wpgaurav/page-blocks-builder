@@ -1,0 +1,82 @@
+name: CI
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    name: PHP ${{ matrix.php }} lint
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # 8.1 is the floor the plugin header declares.
+        php: ['8.1', '8.2', '8.3', '8.4']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php }}
+          coverage: none
+      - name: Lint
+        run: |
+          find . -name '*.php' \
+            -not -path './vendor/*' -not -path './__release-*/*' \
+            -print0 | xargs -0 -n1 -P4 php -l
+
+  analyse:
+    name: PHPStan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.4'
+          coverage: none
+          # The stub files are large; the 128M default OOMs on this tree and
+          # so does 1G. Analysis needs an unbounded limit here.
+          ini-values: memory_limit=-1
+      - uses: ramsey/composer-install@v3
+      - run: vendor/bin/phpstan analyse --no-progress --memory-limit=-1
+
+  standards:
+    name: PHPCS
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.4'
+          coverage: none
+      - uses: ramsey/composer-install@v3
+      # Non-blocking while the pre-existing baseline is worked down. A red
+      # badge over hundreds of inherited style errors gets ignored within a
+      # week, and then it is not a gate at all.
+      - run: vendor/bin/phpcs || true
+
+  package:
+    name: Package parity
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build with the release rules and check nothing forbidden ships
+        run: |
+          SLUG=page-blocks-builder
+          mkdir -p "$SLUG"
+          rsync -a --exclude-from=.distignore \
+            --exclude="/$SLUG/" --exclude="*.zip" ./ "$SLUG/"
+          zip -qr "$SLUG.zip" "$SLUG"
+          unzip -tq "$SLUG.zip"
+          for required in "$SLUG/$SLUG.php" "$SLUG/readme.txt" "$SLUG/includes" "$SLUG/assets" "$SLUG/templates"; do
+            unzip -Z1 "$SLUG.zip" | grep -q "^${required}" || { echo "missing: $required"; exit 1; }
+          done
+          if unzip -Z1 "$SLUG.zip" | grep -E '(^|/)(\.git|\.github|vendor|node_modules|tests?)/|composer\.(json|lock)|phpstan|\.DS_Store|__release-'; then
+            echo "package contains files that must not ship"; exit 1
+          fi
+          echo "package parity ok"

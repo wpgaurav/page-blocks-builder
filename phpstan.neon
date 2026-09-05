@@ -1,0 +1,31 @@
+includes:
+    - vendor/szepeviktor/phpstan-wordpress/extension.neon
+
+parameters:
+    level: 5
+    parallel:
+        maximumNumberOfProcesses: 1
+    paths:
+        - includes/class-css-loader.php
+        # ~
+        - page-blocks-builder.php
+        - includes/class-db.php
+        - includes/class-shortcode.php
+        - includes/class-list-table.php
+        - includes/class-rest-api.php
+        - includes/class-theme-builder.php
+        - includes/class-migration.php
+    scanFiles:
+        - includes/class-license-manager.php
+    excludePaths:
+        - templates/*
+    bootstrapFiles:
+        - vendor/php-stubs/wordpress-stubs/wordpress-stubs.php
+        - vendor/php-stubs/wp-cli-stubs/wp-cli-stubs.php
+    treatPhpDocTypesAsCertain: false
+    ignoreErrors:
+        - '#Constant GT_PB_BUILDER_VERSION not found#'
+        - '#Constant GT_PB_BUILDER_DIR not found#'
+        - '#Constant GT_PB_BUILDER_URL not found#'
+        - '#Constant GT_PB_BUILDER_FILE not found#'
+        - '#Constant GT_PB_BUILDER_OPTION_POST_TYPES not found#'

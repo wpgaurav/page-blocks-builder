@@ -3,12 +3,9 @@ assets/.DS_Store
 *.DS_Store*
 assets/.DS_Store
 
-# Composer / dev tooling
+# Composer artifacts. The tooling *config* is tracked, so a fresh clone can
+# run the same analysis CI does; only the installed tree is ignored.
 vendor/
-composer.json
-composer.lock
-phpstan.neon
-phpcs.xml
 
 # Per-release operational scripts. They are run once against the live store
 # and never packaged (the release workflow copies an allowlist), so they are

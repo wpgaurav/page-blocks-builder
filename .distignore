@@ -1,0 +1,34 @@
+# Everything not listed here ships. That is the point: the previous workflow
+# copied a hand-written allowlist, so any new file (uninstall.php, block.json,
+# languages/) was silently absent from the customer ZIP with nothing reporting it.
+
+.git
+.github
+.gitignore
+.distignore
+.DS_Store
+.editorconfig
+
+# Dev tooling: tracked so a fresh clone can reproduce CI, never shipped.
+composer.json
+composer.lock
+phpstan.neon
+phpstan.neon.dist
+phpcs.xml
+phpcs.xml.dist
+phpunit.xml
+phpunit.xml.dist
+package.json
+package-lock.json
+vendor
+node_modules
+tests
+.wp-env.json
+
+# Per-release operational scripts.
+__release-*
+
+# Agent/editor working directories.
+.claude
+.vscode
+.idea
