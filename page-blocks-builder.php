@@ -4,7 +4,7 @@
  * Plugin URI: https://gauravtiwari.org/product/gt-page-blocks-builder/
  * Update URI: https://gauravtiwari.org/product/gt-page-blocks-builder/
  * Description: Standalone visual Page Blocks builder with HTML/CSS/JS sections synced to Gutenberg block content.
- * Version: 3.0.0-rc.2
+ * Version: 3.0.0-rc.3
  * Author: Gaurav Tiwari
  * Author URI: https://gauravtiwari.org
  * Text Domain: page-blocks-builder
@@ -20,7 +20,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 if ( ! defined( 'GT_PB_BUILDER_VERSION' ) ) {
-	define( 'GT_PB_BUILDER_VERSION', '3.0.0-rc.2' );
+	define( 'GT_PB_BUILDER_VERSION', '3.0.0-rc.3' );
 }
 
 if ( ! defined( 'GT_PB_BUILDER_FILE' ) ) {
@@ -857,7 +857,20 @@ class GT_Page_Blocks_Builder {
 		$block_id   = isset( $attributes['blockId'] ) ? (int) $attributes['blockId'] : 0;
 		$block_slug = isset( $attributes['blockSlug'] ) ? (string) $attributes['blockSlug'] : '';
 
-		if ( $block_id > 0 || '' !== $block_slug ) {
+		// blockId 0 with content of its own means the user detached this block
+		// and owns the code now. A blockSlug left behind by the link that
+		// created it must not out-vote that: the front end would keep serving
+		// the library row while the author edits a copy nobody sees.
+		//
+		// This is narrower than it looks. It only changes blocks in exactly the
+		// broken state, and it leaves the slug-over-id precedence below intact,
+		// which is what makes a linked block survive being copied between
+		// sites. A slug-only reference with no content of its own still
+		// resolves through the library, as portability needs.
+		$own_content = isset( $attributes['content'] ) ? (string) $attributes['content'] : '';
+		$is_detached = 0 === $block_id && '' !== trim( $own_content );
+
+		if ( ! $is_detached && ( $block_id > 0 || '' !== $block_slug ) ) {
 			// Prefer the slug. blockId is a site-local auto-increment, so a
 			// linked block copied to another site pointed at whatever row
 			// happened to hold that number - usually nothing, rendering blank.
@@ -2804,6 +2817,8 @@ class GT_Page_Blocks_Builder {
 				$id > 0 ? (string) ( $this->db->get( $id )->conditions ?? '' ) : ''
 			),
 			'author'      => get_current_user_id(),
+			'tags'        => sanitize_text_field( wp_unslash( $_POST['block_tags'] ?? '' ) ),
+			'description' => sanitize_textarea_field( wp_unslash( $_POST['block_description'] ?? '' ) ),
 		);
 		// phpcs:enable
 		// php_checksum is derived in gt_pb_db, so every write path — admin
@@ -3152,7 +3167,19 @@ class GT_Page_Blocks_Builder {
 			}
 		}
 
-		return $out;
+		/**
+		 * A library block's rendered output, before it reaches the page.
+		 *
+		 * The last seam this plugin was missing: gt_pb_block_saved and
+		 * gt_pb_block_deleted cover the write side, and this covers the read
+		 * side. Returning $out unchanged is the contract - the default must be
+		 * byte-identical to no filter at all, or every existing page shifts.
+		 *
+		 * @since 3.0.0
+		 * @param string $out   Rendered HTML.
+		 * @param object $block The library row.
+		 */
+		return (string) apply_filters( 'gt_pb_block_rendered', $out, $block );
 	}
 
 	/**

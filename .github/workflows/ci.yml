@@ -24,11 +24,26 @@ jobs:
         with:
           php-version: ${{ matrix.php }}
           coverage: none
-      - name: Lint
+      - name: Lint PHP
         run: |
           find . -name '*.php' \
             -not -path './vendor/*' -not -path './__release-*/*' \
             -print0 | xargs -0 -n1 -P4 php -l
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Lint JavaScript
+        run: |
+          # There is no bundler and no minifier: assets/js ships to browsers
+          # exactly as committed, and builder-shell.js alone is 4700 lines. A
+          # stray comma takes the builder down for every user, and nothing in
+          # this pipeline looked at these files until now.
+          for f in assets/js/*.js; do
+            echo "checking $f"
+            node --check "$f"
+          done
 
   analyse:
     name: PHPStan

@@ -73,6 +73,9 @@ Security release. Fixes privilege escalation in the block preview (any Author co
 
 == Changelog ==
 
+= 3.0.0-rc.3 =
+Closes two bugs 3.0.0 introduced, and makes three already-shipped things reachable. A block detached from the library in the block editor kept rendering the library version, because the editor never cleared the slug that 3.0 made take precedence - your edits were invisible to visitors and nothing reported it. Writing tags or a description over REST returned success and dropped the data. Blocks now take tags and a description on the edit screen; display conditions are always visible rather than only with a hook position set; a linked block can opt in to the library block's conditions; and a `gt_pb_block_rendered` filter joins the two action hooks, all four documented in README.md. CI now syntax-checks the JavaScript, which nothing had ever done.
+
 = 3.0.0-rc.2 =
 Fixes two migration blockers found auditing rc.1: the schema step stamped the version the upgrade router gates on, so a batched upgrade that yielded on a large library could never resume; and multisite network activation stamped every subsite as migrated while creating the table only for the activating site. Also: the utilities notice's button pointed at a page that does not exist and the notice could never be retired, the edit screen showed no result after a failed save, clearing a block's CSS or JS kept serving the old file, revisions were recorded for writes that failed, and the update channel accepted a plaintext http package URL.
 
@@ -140,7 +143,7 @@ GT Page Blocks Builder is free to use. Every feature works without a license key
 * Test suites, static analysis and a package check run on every push.
 * An upgrade router with a lock, batching and a resume cursor, driven by `wp gt-pb upgrade [--dry-run]`.
 * `wp gt-pb block list|get|create|delete|render`.
-* First action hooks: `gt_pb_block_saved`, `gt_pb_block_deleted`.
+* First extension points: actions `gt_pb_block_saved` and `gt_pb_block_deleted`, and a `gt_pb_block_rendered` filter on a library block's output. Documented with a worked cache-purge example in README.md.
 * Display conditions are readable and writable over REST, which silently dropped them before.
 * 388 strings can be translated for the first time; 82 carried a text domain retired two versions ago.
 

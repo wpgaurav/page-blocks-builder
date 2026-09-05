@@ -686,11 +686,16 @@ class gt_pb_db {
 	private function sanitize_data( array $data ): array {
 		$sanitized = array();
 
+		// Every key that may be written. A column missing from this list is
+		// accepted by the caller and then dropped here, which is how a REST PUT
+		// carrying tags returned 200 and lost the data: the columns shipped in
+		// schema 1.2 and this list was never opened.
 		$allowed = array(
 			'title', 'slug', 'status', 'content', 'css', 'js',
 			'js_location', 'output', 'php_exec', 'format',
 			'position', 'priority', 'conditions', 'author',
 			'created_at', 'updated_at',
+			'tags', 'description',
 		);
 
 		foreach ( $data as $key => $value ) {
@@ -715,6 +720,13 @@ class gt_pb_db {
 				'author'      => absint( $value ),
 				'created_at'  => sanitize_text_field( $value ),
 				'updated_at'  => sanitize_text_field( $value ),
+				// Normalised to a comma-separated list so the library's filter
+				// and the inserter can match on it without guessing a format.
+				'tags'        => implode( ', ', array_filter( array_map(
+					static fn( $t ) => sanitize_text_field( trim( (string) $t ) ),
+					is_array( $value ) ? $value : explode( ',', (string) $value )
+				) ) ),
+				'description' => sanitize_textarea_field( (string) $value ),
 			};
 		}
 
@@ -742,6 +754,8 @@ class gt_pb_db {
 			'php_checksum' => '%s',
 			'format'      => '%d',
 			'position'    => '%s',
+			'tags'        => '%s',
+			'description' => '%s',
 			'priority'    => '%d',
 			'conditions'  => '%s',
 			'author'      => '%d',

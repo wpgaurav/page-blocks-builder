@@ -220,6 +220,26 @@ $page_types = array(
 						</div>
 					<?php endif; ?>
 
+					<div class="postbox">
+						<div class="postbox-header">
+							<h2><?php esc_html_e( 'Organise', 'page-blocks-builder' ); ?></h2>
+						</div>
+						<div class="inside">
+							<p>
+								<label for="block_tags"><strong><?php esc_html_e( 'Tags', 'page-blocks-builder' ); ?></strong></label><br>
+								<input type="text" name="block_tags" id="block_tags" class="widefat"
+									value="<?php echo esc_attr( $is_new ? '' : ( $block->tags ?? '' ) ); ?>"
+									placeholder="<?php esc_attr_e( 'hero, cta, footer', 'page-blocks-builder' ); ?>">
+								<span class="description"><?php esc_html_e( 'Comma separated. Used to filter a library that has grown past a screenful.', 'page-blocks-builder' ); ?></span>
+							</p>
+							<p>
+								<label for="block_description"><strong><?php esc_html_e( 'Description', 'page-blocks-builder' ); ?></strong></label><br>
+								<textarea name="block_description" id="block_description" class="widefat" rows="2"><?php echo esc_textarea( $is_new ? '' : ( $block->description ?? '' ) ); ?></textarea>
+								<span class="description"><?php esc_html_e( 'What this block is for, so the next person does not have to read its markup.', 'page-blocks-builder' ); ?></span>
+							</p>
+						</div>
+					</div>
+
 					<!-- Revisions -->
 					<?php if ( ! $is_new ) : ?>
 						<?php $gt_pb_revisions = $this->db->get_revisions( (int) $block->id, 15 ); ?>
@@ -323,7 +343,14 @@ $page_types = array(
 							</p>
 
 							<!-- Conditions (shown when position is set) -->
-							<div id="md-pb-conditions" style="<?php echo empty( $position ) ? 'display: none;' : ''; ?>">
+							<?php
+							// Always shown since 3.0. Conditions used to apply
+							// only to hook positions, so the panel hid itself
+							// without one; they now also govern shortcode and
+							// block placements that opt in, and hiding the panel
+							// left REST or WP-CLI as the only way to set them.
+							?>
+							<div id="md-pb-conditions">
 								<hr>
 								<p><strong><?php esc_html_e( 'Display Conditions', 'page-blocks-builder' ); ?></strong></p>
 								<p class="description"><?php esc_html_e( 'Leave empty to display everywhere.', 'page-blocks-builder' ); ?></p>
