@@ -35,13 +35,13 @@ class gt_pb_list_table extends WP_List_Table {
 	public function get_columns(): array {
 		return array(
 			'cb'         => '<input type="checkbox">',
-			'title'      => __( 'Title', 'md' ),
-			'slug'       => __( 'Slug', 'md' ),
-			'shortcode'  => __( 'Shortcode', 'md' ),
-			'position'   => __( 'Position', 'md' ),
-			'status'     => __( 'Status', 'md' ),
-			'author'     => __( 'Author', 'md' ),
-			'updated_at' => __( 'Last Modified', 'md' ),
+			'title'      => __( 'Title', 'page-blocks-builder' ),
+			'slug'       => __( 'Slug', 'page-blocks-builder' ),
+			'shortcode'  => __( 'Shortcode', 'page-blocks-builder' ),
+			'position'   => __( 'Position', 'page-blocks-builder' ),
+			'status'     => __( 'Status', 'page-blocks-builder' ),
+			'author'     => __( 'Author', 'page-blocks-builder' ),
+			'updated_at' => __( 'Last Modified', 'page-blocks-builder' ),
 		);
 	}
 
@@ -68,13 +68,13 @@ class gt_pb_list_table extends WP_List_Table {
 
 		if ( $status === 'trash' ) {
 			return array(
-				'restore' => __( 'Restore', 'md' ),
-				'delete'  => __( 'Delete Permanently', 'md' ),
+				'restore' => __( 'Restore', 'page-blocks-builder' ),
+				'delete'  => __( 'Delete Permanently', 'page-blocks-builder' ),
 			);
 		}
 
 		return array(
-			'trash' => __( 'Move to Trash', 'md' ),
+			'trash' => __( 'Move to Trash', 'page-blocks-builder' ),
 		);
 	}
 
@@ -103,7 +103,7 @@ class gt_pb_list_table extends WP_List_Table {
 			'<a href="%s" class="%s">%s <span class="count">(%d)</span></a>',
 			esc_url( $base_url ),
 			$current === '' ? 'current' : '',
-			__( 'All', 'md' ),
+			__( 'All', 'page-blocks-builder' ),
 			$counts['']
 		);
 
@@ -112,7 +112,7 @@ class gt_pb_list_table extends WP_List_Table {
 				'<a href="%s" class="%s">%s <span class="count">(%d)</span></a>',
 				esc_url( add_query_arg( 'status', 'publish', $base_url ) ),
 				$current === 'publish' ? 'current' : '',
-				__( 'Published', 'md' ),
+				__( 'Published', 'page-blocks-builder' ),
 				$counts['publish']
 			);
 		}
@@ -122,7 +122,7 @@ class gt_pb_list_table extends WP_List_Table {
 				'<a href="%s" class="%s">%s <span class="count">(%d)</span></a>',
 				esc_url( add_query_arg( 'status', 'draft', $base_url ) ),
 				$current === 'draft' ? 'current' : '',
-				__( 'Draft', 'md' ),
+				__( 'Draft', 'page-blocks-builder' ),
 				$counts['draft']
 			);
 		}
@@ -132,7 +132,7 @@ class gt_pb_list_table extends WP_List_Table {
 				'<a href="%s" class="%s">%s <span class="count">(%d)</span></a>',
 				esc_url( add_query_arg( 'status', 'trash', $base_url ) ),
 				$current === 'trash' ? 'current' : '',
-				__( 'Trash', 'md' ),
+				__( 'Trash', 'page-blocks-builder' ),
 				$counts['trash']
 			);
 		}
@@ -282,8 +282,8 @@ class gt_pb_list_table extends WP_List_Table {
 				admin_url( 'admin.php?page=gt_page_blocks&action=delete&id=' . $item->id . '&status=' . $status ),
 				'md_pb_delete_' . $item->id
 			);
-			$actions['restore'] = '<a href="' . esc_url( $restore_url ) . '">' . __( 'Restore', 'md' ) . '</a>';
-			$actions['delete'] = '<a href="' . esc_url( $delete_url ) . '" class="submitdelete" onclick="return confirm(\'' . esc_attr__( 'Delete permanently?', 'md' ) . '\')">' . __( 'Delete Permanently', 'md' ) . '</a>';
+			$actions['restore'] = '<a href="' . esc_url( $restore_url ) . '">' . __( 'Restore', 'page-blocks-builder' ) . '</a>';
+			$actions['delete'] = '<a href="' . esc_url( $delete_url ) . '" class="submitdelete" onclick="return confirm(\'' . esc_attr__( 'Delete permanently?', 'page-blocks-builder' ) . '\')">' . __( 'Delete Permanently', 'page-blocks-builder' ) . '</a>';
 		} else {
 			$trash_url = wp_nonce_url(
 				admin_url( 'admin.php?page=gt_page_blocks&action=trash&id=' . $item->id . '&status=' . $status ),
@@ -293,9 +293,9 @@ class gt_pb_list_table extends WP_List_Table {
 				admin_url( 'admin.php?page=gt_page_blocks&action=duplicate&id=' . $item->id ),
 				'md_pb_duplicate_' . $item->id
 			);
-			$actions['edit'] = '<a href="' . esc_url( $edit_url ) . '">' . __( 'Edit', 'md' ) . '</a>';
-			$actions['duplicate'] = '<a href="' . esc_url( $duplicate_url ) . '">' . __( 'Duplicate', 'md' ) . '</a>';
-			$actions['trash'] = '<a href="' . esc_url( $trash_url ) . '" class="submitdelete">' . __( 'Trash', 'md' ) . '</a>';
+			$actions['edit'] = '<a href="' . esc_url( $edit_url ) . '">' . __( 'Edit', 'page-blocks-builder' ) . '</a>';
+			$actions['duplicate'] = '<a href="' . esc_url( $duplicate_url ) . '">' . __( 'Duplicate', 'page-blocks-builder' ) . '</a>';
+			$actions['trash'] = '<a href="' . esc_url( $trash_url ) . '" class="submitdelete">' . __( 'Trash', 'page-blocks-builder' ) . '</a>';
 		}
 
 		return $title . $this->row_actions( $actions );
@@ -313,7 +313,7 @@ class gt_pb_list_table extends WP_List_Table {
 	 */
 	public function column_shortcode( $item ): string {
 		$shortcode = '[page_block id="' . $item->id . '"]';
-		return '<code style="cursor: pointer; user-select: all;" title="' . esc_attr__( 'Click to select', 'md' ) . '">' . esc_html( $shortcode ) . '</code>';
+		return '<code style="cursor: pointer; user-select: all;" title="' . esc_attr__( 'Click to select', 'page-blocks-builder' ) . '">' . esc_html( $shortcode ) . '</code>';
 	}
 
 	/**
@@ -335,9 +335,9 @@ class gt_pb_list_table extends WP_List_Table {
 	 */
 	public function column_status( $item ): string {
 		$labels = array(
-			'publish' => __( 'Published', 'md' ),
-			'draft'   => __( 'Draft', 'md' ),
-			'trash'   => __( 'Trash', 'md' ),
+			'publish' => __( 'Published', 'page-blocks-builder' ),
+			'draft'   => __( 'Draft', 'page-blocks-builder' ),
+			'trash'   => __( 'Trash', 'page-blocks-builder' ),
 		);
 
 		return esc_html( $labels[ $item->status ] ?? $item->status );
@@ -355,7 +355,7 @@ class gt_pb_list_table extends WP_List_Table {
 	 * Updated at column.
 	 */
 	public function column_updated_at( $item ): string {
-		return esc_html( human_time_diff( strtotime( $item->updated_at ), current_time( 'timestamp' ) ) ) . ' ' . __( 'ago', 'md' );
+		return esc_html( human_time_diff( strtotime( $item->updated_at ), current_time( 'timestamp' ) ) ) . ' ' . __( 'ago', 'page-blocks-builder' );
 	}
 
 	/**
@@ -365,11 +365,11 @@ class gt_pb_list_table extends WP_List_Table {
 		$status = isset( $_REQUEST['status'] ) ? sanitize_text_field( $_REQUEST['status'] ) : '';
 
 		if ( $status === 'trash' ) {
-			esc_html_e( 'No page blocks in the trash.', 'md' );
+			esc_html_e( 'No page blocks in the trash.', 'page-blocks-builder' );
 		} else {
-			echo esc_html__( 'No page blocks found.', 'md' ) . ' ';
+			echo esc_html__( 'No page blocks found.', 'page-blocks-builder' ) . ' ';
 			echo '<a href="' . esc_url( admin_url( 'admin.php?page=gt_pb_edit&action=new' ) ) . '">';
-			esc_html_e( 'Create your first page block', 'md' );
+			esc_html_e( 'Create your first page block', 'page-blocks-builder' );
 			echo '</a>';
 		}
 	}

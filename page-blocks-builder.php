@@ -518,6 +518,11 @@ class GT_Page_Blocks_Builder {
 		add_action( 'plugins_loaded', array( $this, 'run_pending_upgrades' ), 5 );
 		add_action( gt_pb_upgrader::CRON_HOOK, array( $this, 'run_pending_upgrades' ) );
 
+		// init, not plugins_loaded and not the bootstrap. On WordPress 6.7+
+		// loading translations any earlier emits a _load_textdomain_just_in_time
+		// doing_it_wrong notice on every admin page load, which would undo the
+		// point of doing the i18n work at all.
+		add_action( 'init', array( $this, 'load_textdomain' ) );
 		add_action( 'init', array( $this, 'register_block' ) );
 		add_filter( 'block_categories_all', array( $this, 'register_block_category' ), 10, 1 );
 		add_action( 'enqueue_block_editor_assets', array( $this, 'enqueue_block_editor_assets' ) );
@@ -624,6 +629,22 @@ class GT_Page_Blocks_Builder {
 		}
 
 		return false;
+	}
+
+	/**
+	 * Load translations.
+	 *
+	 * This plugin is not hosted on wordpress.org, so nothing loads its
+	 * translations automatically - they have to be read from its own
+	 * languages/ directory. There were 388 translated strings and no call to
+	 * this at all, so none of them could ever be translated.
+	 */
+	public function load_textdomain(): void {
+		load_plugin_textdomain(
+			'page-blocks-builder',
+			false,
+			dirname( plugin_basename( GT_PB_BUILDER_FILE ) ) . '/languages'
+		);
 	}
 
 	public function register_block_category( $categories ) {
@@ -752,6 +773,16 @@ class GT_Page_Blocks_Builder {
 				filemtime( $script_path ),
 				true
 			);
+
+			// Without this, every wp.i18n call in the editor script resolves to
+			// the original English no matter what translations are installed.
+			if ( function_exists( 'wp_set_script_translations' ) ) {
+				wp_set_script_translations(
+					'gt-page-block-editor',
+					'page-blocks-builder',
+					GT_PB_BUILDER_DIR . 'languages'
+				);
+			}
 
 			// Use the same stylesheet set as the builder preview. Loading only
 			// style.css left blocks previewing unstyled on themes that split
@@ -2193,6 +2224,12 @@ class GT_Page_Blocks_Builder {
 			'default'           => false,
 		) );
 
+		register_setting( 'gt_page_blocks_builder_settings', 'gt_pb_delete_data_on_uninstall', array(
+			'type'              => 'boolean',
+			'sanitize_callback' => 'rest_sanitize_boolean',
+			'default'           => false,
+		) );
+
 		register_setting( 'gt_page_blocks_builder_settings', 'gt_pb_load_utilities', array(
 			'type'              => 'boolean',
 			'sanitize_callback' => 'rest_sanitize_boolean',
@@ -2870,9 +2907,13 @@ class GT_Page_Blocks_Builder {
 					'selectAll'         => __( 'Select all', 'page-blocks-builder' ),
 					'selected'          => __( 'selected', 'page-blocks-builder' ),
 					'clearSelection'    => __( 'Clear', 'page-blocks-builder' ),
+					/* translators: %d: number of blocks */
 					'bulkTrashConfirm'  => __( 'Move %d block(s) to trash?', 'page-blocks-builder' ),
+					/* translators: %d: number of blocks */
 					'bulkDeleteConfirm' => __( 'Permanently delete %d block(s)? This cannot be undone.', 'page-blocks-builder' ),
+					/* translators: %d: number of blocks */
 					'bulkDone'          => __( '%d block(s) updated.', 'page-blocks-builder' ),
+					/* translators: 1: updated count, 2: failed count */
 					'bulkPartly'        => __( '%1$d updated, %2$d failed.', 'page-blocks-builder' ),
 					'colTitle'          => __( 'Title', 'page-blocks-builder' ),
 					'colSlug'           => __( 'Slug', 'page-blocks-builder' ),
@@ -3911,6 +3952,7 @@ class GT_Page_Blocks_Builder {
 
 		if ( empty( $api_key ) ) {
 			return new WP_Error( 'missing_key', sprintf(
+				/* translators: %s: AI provider name */
 				__( 'No API key configured for %s. Add it in Settings > Page Blocks Builder.', 'page-blocks-builder' ),
 				ucfirst( $provider )
 			) );
@@ -4187,6 +4229,7 @@ class GT_Page_Blocks_Builder {
 				return new WP_Error(
 					'ai_timeout',
 					sprintf(
+						/* translators: %d: timeout in seconds */
 						__( 'AI request timed out after %d seconds. Try again, reduce prompt/context size, or switch to a faster model.', 'page-blocks-builder' ),
 						$this->get_ai_http_timeout( $provider )
 					),

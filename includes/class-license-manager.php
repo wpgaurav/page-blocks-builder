@@ -457,6 +457,7 @@ class GT_PB_License_Manager {
 					<div style="background: #d4edda; border: 1px solid #c3e6cb; padding: 12px 16px; border-radius: 4px; margin-bottom: 16px;">
 						<strong style="color: #155724;">&#10003; <?php esc_html_e( 'License Active', 'page-blocks-builder' ); ?></strong>
 						<?php if ( $expires && 'lifetime' !== $expires ) : ?>
+							<?php /* translators: %s: expiry date */ ?>
 							<br><small><?php printf( esc_html__( 'Expires: %s', 'page-blocks-builder' ), esc_html( $expires ) ); ?></small>
 						<?php elseif ( 'lifetime' === $expires ) : ?>
 							<br><small><?php esc_html_e( 'Lifetime license', 'page-blocks-builder' ); ?></small>
@@ -478,6 +479,7 @@ class GT_PB_License_Manager {
 					<div style="background: #fff3cd; border: 1px solid #ffc107; padding: 12px 16px; border-radius: 4px; margin-bottom: 16px;">
 						<strong style="color: #856404;">&#9888; <?php esc_html_e( 'License Expired', 'page-blocks-builder' ); ?></strong>
 						<?php if ( $expires ) : ?>
+							<?php /* translators: %s: expiry date */ ?>
 							<br><small><?php printf( esc_html__( 'Expired: %s', 'page-blocks-builder' ), esc_html( $expires ) ); ?></small>
 						<?php endif; ?>
 					</div>
@@ -521,7 +523,8 @@ class GT_PB_License_Manager {
 					<p>
 						<small>
 							<?php printf(
-								esc_html__( 'Don\'t have a license? %sGet one here%s.', 'page-blocks-builder' ),
+								/* translators: 1: opening link tag, 2: closing link tag */
+								esc_html__( 'Don\'t have a license? %1$sGet one here%2$s.', 'page-blocks-builder' ),
 								'<a href="https://gauravtiwari.org/product/page-blocks-builder/" target="_blank">',
 								'</a>'
 							); ?>
