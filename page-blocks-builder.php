@@ -556,12 +556,20 @@ class GT_Page_Blocks_Builder {
 		$shortcode->init();
 
 		add_action( 'admin_footer', array( $this, 'output_rankmath_integration' ) );
+		add_action( 'admin_notices', array( $this, 'utilities_reenable_notice' ) );
+
+		// A usage tally is only as good as the content it counted. These two
+		// were nested inside the classic-theme branch below, so on a block
+		// theme - the WordPress default - nothing invalidated the count except
+		// a 300-second transient, and the number sitting next to a delete
+		// button could be arbitrarily stale.
+		add_action( 'save_post', array( __CLASS__, 'flush_block_usage_counts' ) );
+		add_action( 'deleted_post', array( __CLASS__, 'flush_block_usage_counts' ) );
+		add_action( 'gt_pb_block_saved', array( __CLASS__, 'flush_block_usage_counts' ) );
+		add_action( 'gt_pb_block_deleted', array( __CLASS__, 'flush_block_usage_counts' ) );
 
 		if ( ! wp_is_block_theme() ) {
 			add_filter( 'theme_page_templates', array( $this, 'register_page_templates' ) );
-			// A usage tally is only as good as the content it counted.
-			add_action( 'save_post', array( __CLASS__, 'flush_block_usage_counts' ) );
-			add_action( 'deleted_post', array( __CLASS__, 'flush_block_usage_counts' ) );
 			add_filter( 'template_include', array( $this, 'load_page_template' ) );
 			add_action( 'wp_head', array( $this, 'output_template_styles' ) );
 		}
@@ -2216,17 +2224,40 @@ class GT_Page_Blocks_Builder {
 
 		global $wpdb;
 
-		$rows = $wpdb->get_col(
-			"SELECT post_content FROM {$wpdb->posts}
-			 WHERE post_status NOT IN ('auto-draft', 'inherit')
-			   AND post_type NOT IN ('revision')
-			   AND ( post_content LIKE '%blockId%' OR post_content LIKE '%page_block%' )"
+		// Bounded: this is two leading-wildcard LIKEs over wp_posts, so a
+		// pathological site degrades a number rather than a page load.
+		$cap  = (int) apply_filters( 'gt_pb_usage_scan_limit', 2000 );
+		$rows = $wpdb->get_results(
+			$wpdb->prepare(
+				"SELECT ID, post_content FROM {$wpdb->posts}
+				 WHERE post_status NOT IN ('auto-draft', 'inherit')
+				   AND post_type NOT IN ('revision')
+				   AND ( post_content LIKE %s OR post_content LIKE %s OR post_content LIKE %s )
+				 LIMIT %d",
+				'%blockId%',
+				'%blockSlug%',
+				'%page_block%',
+				$cap
+			)
 		);
 
-		$counts = array();
+		// Slug -> id, so a [page_block slug="..."] placement is counted too.
+		// Matching only on id= made every slug placement invisible, and a
+		// header rendering on every page of the site reported "Unused".
+		$slug_map = array();
+		foreach ( (array) $wpdb->get_results( "SELECT id, slug FROM {$wpdb->prefix}gt_page_blocks" ) as $row ) {
+			if ( ! empty( $row->slug ) ) {
+				$slug_map[ strtolower( (string) $row->slug ) ] = (int) $row->id;
+			}
+		}
 
-		foreach ( (array) $rows as $content ) {
-			$seen = array();
+		$counts = array();
+		$posts  = array();
+
+		foreach ( (array) $rows as $row ) {
+			$content = (string) $row->post_content;
+			$post_id = (int) $row->ID;
+			$seen    = array();
 
 			if ( preg_match_all( '/"blockId"\s*:\s*(\d+)/', (string) $content, $m ) ) {
 				foreach ( $m[1] as $id ) {
@@ -2234,9 +2265,27 @@ class GT_Page_Blocks_Builder {
 				}
 			}
 
-			if ( preg_match_all( '/\[page_block[^\]]*\bid\s*=\s*["\']?(\d+)/', (string) $content, $m ) ) {
+			if ( preg_match_all( '/\[page_block[^\]]*\bid\s*=\s*["\']?(\d+)/', $content, $m ) ) {
 				foreach ( $m[1] as $id ) {
 					$seen[ (int) $id ] = true;
+				}
+			}
+
+			if ( preg_match_all( '/\[page_block[^\]]*\bslug\s*=\s*["\']?([a-z0-9\-_]+)/i', $content, $m ) ) {
+				foreach ( $m[1] as $slug ) {
+					$mapped = $slug_map[ strtolower( $slug ) ] ?? 0;
+					if ( $mapped ) {
+						$seen[ $mapped ] = true;
+					}
+				}
+			}
+
+			if ( preg_match_all( '/"blockSlug"\s*:\s*"([a-z0-9\-_]+)"/i', $content, $m ) ) {
+				foreach ( $m[1] as $slug ) {
+					$mapped = $slug_map[ strtolower( $slug ) ] ?? 0;
+					if ( $mapped ) {
+						$seen[ $mapped ] = true;
+					}
 				}
 			}
 
@@ -2245,16 +2294,82 @@ class GT_Page_Blocks_Builder {
 			foreach ( array_keys( $seen ) as $id ) {
 				if ( $id > 0 ) {
 					$counts[ $id ] = ( $counts[ $id ] ?? 0 ) + 1;
+					// Keep the ids behind the number, capped, so the library
+					// can show which pages rather than only how many.
+					if ( count( $posts[ $id ] ?? array() ) < 20 ) {
+						$posts[ $id ][] = $post_id;
+					}
 				}
 			}
 		}
 
+		// A block assigned to a position or region never appears in
+		// post_content at all, so it always read as unused no matter how many
+		// pages it rendered on.
+		foreach ( gt_pb_theme_builder() ? gt_pb_theme_builder()->positioned_block_ids() : array() as $positioned_id ) {
+			if ( ! isset( $counts[ $positioned_id ] ) ) {
+				$counts[ $positioned_id ] = 0;
+			}
+			$posts[ $positioned_id ]['position'] = true;
+		}
+
 		set_transient( 'gt_pb_usage_counts', $counts, self::USAGE_CACHE_TTL );
+
+		set_transient( 'gt_pb_usage_posts', $posts, 300 );
 
 		return $counts;
 	}
 
+	/**
+	 * Post ids behind a block's usage count.
+	 *
+	 * @since 3.0.0
+	 * @param int $block_id Block ID.
+	 * @return array<int,int>
+	 */
+	public static function get_block_usage_posts( int $block_id ): array {
+		$posts = get_transient( 'gt_pb_usage_posts' );
+		if ( ! is_array( $posts ) ) {
+			self::get_block_usage_counts();
+			$posts = get_transient( 'gt_pb_usage_posts' );
+		}
+
+		$entry = is_array( $posts ) ? ( $posts[ $block_id ] ?? array() ) : array();
+
+		return array_values( array_filter( (array) $entry, 'is_int' ) );
+	}
+
+	/**
+	 * Whether a block renders through a theme position rather than a placement.
+	 *
+	 * @since 3.0.0
+	 */
+	public static function block_is_positioned( int $block_id ): bool {
+		$posts = get_transient( 'gt_pb_usage_posts' );
+		return is_array( $posts ) && ! empty( $posts[ $block_id ]['position'] );
+	}
+
+	/**
+	 * Explain the one-time utilities auto-disable.
+	 *
+	 * Without this the option silently flips off and the user concludes the
+	 * upgrade broke something.
+	 */
+	public function utilities_reenable_notice(): void {
+		if ( ! current_user_can( 'manage_options' ) || ! get_option( 'gt_pb_utilities_auto_disabled' ) ) {
+			return;
+		}
+
+		printf(
+			'<div class="notice notice-info is-dismissible"><p>%s</p><p><a href="%s" class="button">%s</a></p></div>',
+			esc_html__( 'GT Page Blocks Builder: utility classes were switched off during the upgrade to 3.0. The feature never emitted anything for page blocks before now, so this keeps your pages rendering exactly as they did. Turn it back on when you are ready to check your layouts.', 'page-blocks-builder' ),
+			esc_url( admin_url( 'admin.php?page=gt_page_blocks_settings' ) ),
+			esc_html__( 'Open settings', 'page-blocks-builder' )
+		);
+	}
+
 	public static function flush_block_usage_counts() {
+		delete_transient( 'gt_pb_usage_posts' );
 		delete_transient( 'gt_pb_usage_counts' );
 	}
 
@@ -2494,6 +2609,16 @@ class GT_Page_Blocks_Builder {
 			'restored' => __( 'Page block restored.', 'page-blocks-builder' ),
 			'deleted' => __( 'Page block permanently deleted.', 'page-blocks-builder' ),
 		);
+		$errors = array(
+			'slug_taken'  => __( 'Not saved: another page block already uses that slug. Change the slug and save again.', 'page-blocks-builder' ),
+			'save_failed' => __( 'Not saved: the database rejected the write. Nothing was changed.', 'page-blocks-builder' ),
+		);
+
+		if ( isset( $errors[ $msg ] ) ) {
+			echo '<div class="notice notice-error"><p>' . esc_html( $errors[ $msg ] ) . '</p></div>';
+			return;
+		}
+
 		if ( isset( $mapping[ $msg ] ) ) {
 			echo '<div class="notice notice-success is-dismissible"><p>' . esc_html( $mapping[ $msg ] ) . '</p></div>';
 		}
@@ -2567,12 +2692,25 @@ class GT_Page_Blocks_Builder {
 		// php_checksum is derived in gt_pb_db, so every write path — admin
 		// form, AJAX, REST — records it the same way.
 
+		// The return used to be discarded and 'updated' reported regardless, so
+		// a slug colliding with the UNIQUE index threw the whole editing
+		// session away behind a green "Page block saved." notice.
 		if ( $id > 0 ) {
-			$this->db->update( $id, $data );
-			$msg = 'updated';
+			$ok  = $this->db->update( $id, $data );
+			$msg = $ok ? 'updated' : ( $this->db->last_error_is_duplicate_slug() ? 'slug_taken' : 'save_failed' );
 		} else {
-			$id  = $this->db->insert( $data );
-			$msg = 'created';
+			$new_id = $this->db->insert( $data );
+			$ok     = ( false !== $new_id && $new_id > 0 );
+			$msg    = $ok ? 'created' : ( $this->db->last_error_is_duplicate_slug() ? 'slug_taken' : 'save_failed' );
+			if ( $ok ) {
+				$id = $new_id;
+			}
+		}
+
+		if ( ! $ok ) {
+			// Hand the submitted values back so the work is not lost with the
+			// redirect. Per user, short-lived, and cleared once redisplayed.
+			set_transient( 'gt_pb_failed_save_' . get_current_user_id(), $data, 5 * MINUTE_IN_SECONDS );
 		}
 
 		wp_safe_redirect( admin_url( "admin.php?page=gt_pb_edit&id={$id}&msg={$msg}" ) );
@@ -3284,7 +3422,11 @@ class GT_Page_Blocks_Builder {
 		$post_id = $post->ID;
 
 		if ( ! empty( $file_parts ) ) {
-			if ( ! $this->css_file_exists( $post_id, 'gb-' ) ) {
+			{
+				// Unconditional: generate_file() returns early when the hashed
+				// name already exists, so this is a content comparison rather
+				// than the old "the file exists, therefore it is current" -
+				// which is why an edited block served stale CSS indefinitely.
 				$this->generate_file( $post_id, 'gb-', 'css', $file_parts );
 			}
 
@@ -3336,7 +3478,7 @@ class GT_Page_Blocks_Builder {
 		}
 		$post_id = $post->ID;
 
-		if ( ! $this->css_file_exists( $post_id, 'gb-', 'js' ) ) {
+		{
 			$this->generate_file( $post_id, 'gb-', 'js', $js_parts );
 		}
 
@@ -3386,28 +3528,27 @@ class GT_Page_Blocks_Builder {
 	 * @param string $extension File extension.
 	 * @return array Array with 'path' and 'url' keys.
 	 */
-	private function get_asset_file_info( $post_id, $prefix = '', $extension = 'css' ) {
-		$dir      = $this->get_upload_dir();
-		$filename = 'page-blocks-' . $prefix . $post_id . '.' . $extension;
+	private function get_asset_file_info( $post_id, $prefix = '', $extension = 'css', $content = null ) {
+		$dir  = $this->get_upload_dir();
+		$base = 'page-blocks-' . $prefix . $post_id;
+
+		// The name carries a hash of what is in the file. Regeneration used to
+		// be triggered by "the file does not exist", so once written it was
+		// served unchanged forever - editing a library block never reached the
+		// visitor at all in file-output mode. A content hash means an edit
+		// produces a different filename, which no cache or CDN can hold.
+		$hash     = null === $content ? '' : substr( md5( (string) $content . '|' . $this->db->get_asset_version() ), 0, 8 );
+		$filename = '' === $hash ? $base . '.' . $extension : $base . '.' . $hash . '.' . $extension;
 
 		return array(
-			'path' => $dir['path'] . '/' . $filename,
-			'url'  => $dir['url'] . '/' . $filename,
+			'path'   => $dir['path'] . '/' . $filename,
+			'url'    => $dir['url'] . '/' . $filename,
+			'hash'   => $hash,
+			'legacy' => $dir['path'] . '/' . $base . '.' . $extension,
+			'glob'   => $dir['path'] . '/' . $base . '.*.' . $extension,
 		);
 	}
 
-	/**
-	 * Check if an asset file exists.
-	 *
-	 * @param int    $post_id   Post ID.
-	 * @param string $prefix    File prefix.
-	 * @param string $extension File extension.
-	 * @return bool
-	 */
-	private function css_file_exists( $post_id, $prefix = '', $extension = 'css' ) {
-		$info = $this->get_asset_file_info( $post_id, $prefix, $extension );
-		return file_exists( $info['path'] );
-	}
 
 	/**
 	 * Delete an asset file.
@@ -3459,9 +3600,33 @@ class GT_Page_Blocks_Builder {
 		$separator = $extension === 'js' ? ";\n" : "\n";
 		$combined  = implode( $separator, $parts );
 		$minified  = $extension === 'js' ? self::minify_js( $combined ) : self::minify_css( $combined );
-		$info      = $this->get_asset_file_info( $post_id, $prefix, $extension );
+		$info      = $this->get_asset_file_info( $post_id, $prefix, $extension, $minified );
 
-		return $this->write_asset_file( $info['path'], $minified );
+		if ( file_exists( $info['path'] ) ) {
+			// Same content, same name: nothing to do.
+			return true;
+		}
+
+		$written = $this->write_asset_file( $info['path'], $minified );
+
+		if ( ! $written ) {
+			return false;
+		}
+
+		// Garbage-collect earlier hashes for this post. Without this the
+		// uploads directory grows by one file per edit, forever.
+		foreach ( (array) glob( $info['glob'] ) as $old_file ) {
+			if ( $old_file !== $info['path'] ) {
+				wp_delete_file( $old_file );
+			}
+		}
+
+		// A copy under the pre-3.0 unhashed name, so any hand-written CDN rule
+		// or hardcoded reference keeps resolving for one major version.
+		// @todo Remove the legacy copy in 4.0.0. Added 2026-09-05.
+		$this->write_asset_file( $info['legacy'], $minified );
+
+		return true;
 	}
 
 	/**
@@ -3473,6 +3638,17 @@ class GT_Page_Blocks_Builder {
 	 */
 	public function enqueue_asset_file( $post_id, $prefix = '', $extension = 'css' ) {
 		$info = $this->get_asset_file_info( $post_id, $prefix, $extension );
+
+		// Prefer the content-hashed file; the unhashed one is only a
+		// compatibility copy for references written before 3.0.
+		$hashed = glob( $info['glob'] );
+		if ( $hashed ) {
+			usort( $hashed, static fn( $a, $b ) => filemtime( $b ) <=> filemtime( $a ) );
+			$dir          = $this->get_upload_dir();
+			$info['path'] = $hashed[0];
+			$info['url']  = $dir['url'] . '/' . basename( $hashed[0] );
+		}
+
 		if ( ! file_exists( $info['path'] ) ) {
 			return;
 		}

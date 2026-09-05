@@ -32,6 +32,15 @@ class gt_pb_db {
 	}
 
 	/**
+	 * Revisions table name.
+	 *
+	 * @since 3.0.0
+	 */
+	public function revisions_table_name(): string {
+		return $this->table_name . '_revisions';
+	}
+
+	/**
 	 * Create table if needed.
 	 */
 	/**
@@ -77,14 +86,39 @@ class gt_pb_db {
 			author bigint(20) unsigned NOT NULL DEFAULT 0,
 			created_at datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
 			updated_at datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			tags varchar(255) NOT NULL DEFAULT '',
+			description text NULL DEFAULT NULL,
 			PRIMARY KEY (id),
 			UNIQUE KEY slug (slug),
 			KEY status (status),
-			KEY position (position)
+			KEY position (position),
+			KEY updated_at (updated_at),
+			KEY status_position (status, position)
+		) $charset_collate;";
+
+		// Every column added in 1.2 is nullable or defaulted on purpose: a
+		// 2.8.0 write path that omits it still inserts, which is what makes a
+		// files-only rollback survivable rather than an accident.
+		$revisions = "CREATE TABLE {$this->revisions_table_name()} (
+			id bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+			block_id bigint(20) unsigned NOT NULL,
+			content longtext NULL,
+			css longtext NULL,
+			js longtext NULL,
+			php_exec tinyint(1) NOT NULL DEFAULT 0,
+			format tinyint(1) NOT NULL DEFAULT 0,
+			title varchar(255) NOT NULL DEFAULT '',
+			author bigint(20) unsigned NOT NULL DEFAULT 0,
+			note varchar(255) NOT NULL DEFAULT '',
+			created_at datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			PRIMARY KEY (id),
+			KEY block_id (block_id),
+			KEY block_created (block_id, created_at)
 		) $charset_collate;";
 
 		require_once ABSPATH . 'wp-admin/includes/upgrade.php';
 		dbDelta( $sql );
+		dbDelta( $revisions );
 
 		// No checksum back-fill here.
 		//
@@ -261,6 +295,20 @@ class gt_pb_db {
 
 		$this->bump_asset_version();
 
+		/**
+		 * A library block was created or updated.
+		 *
+		 * The plugin fired no actions at all before 3.0.0, which is why cache
+		 * purging had to be either built in per host or not done. This is the
+		 * hook a purge integration belongs on.
+		 *
+		 * @since 3.0.0
+		 * @param int   $id     Block ID.
+		 * @param array $data   Written fields.
+		 * @param bool  $is_new Whether the row was just created.
+		 */
+		do_action( 'gt_pb_block_saved', (int) $wpdb->insert_id, $data, true );
+
 		return (int) $wpdb->insert_id;
 	}
 
@@ -274,9 +322,19 @@ class gt_pb_db {
 	public function update( int $id, array $data ): bool {
 		global $wpdb;
 
+		$existing = $this->get( $id );
+
 		$data = $this->sanitize_data( $data );
 		$data['updated_at'] = current_time( 'mysql' );
-		$data['php_checksum'] = $this->derive_checksum( $data, $this->get( $id ) );
+		$data['php_checksum'] = $this->derive_checksum( $data, $existing );
+
+		// Every write path funnels through here - the admin form, AJAX, REST,
+		// and any future CLI or import - so recording the pre-image at this one
+		// point gives all of them history for free. Capture before the write,
+		// not after.
+		if ( $existing ) {
+			$this->record_revision( $existing );
+		}
 
 		$result = $wpdb->update(
 			$this->table_name,
@@ -288,9 +346,153 @@ class gt_pb_db {
 
 		if ( $result !== false ) {
 			$this->bump_asset_version();
+			do_action( 'gt_pb_block_saved', $id, $data, false );
 		}
 
 		return $result !== false;
+	}
+
+	/**
+	 * Whether the last write failed because the slug is taken.
+	 *
+	 * The admin form discarded update()'s return and reported success
+	 * unconditionally, so a slug collision against the UNIQUE index threw the
+	 * whole editing session away behind a green notice.
+	 *
+	 * @since 3.0.0
+	 */
+	public function last_error_is_duplicate_slug(): bool {
+		global $wpdb;
+
+		$error = (string) $wpdb->last_error;
+
+		if ( '' === $error ) {
+			return false;
+		}
+
+		// MySQL says "Duplicate entry ... for key 'slug'"; SQLite, which the
+		// sqlite-database-integration drop-in uses, says "UNIQUE constraint
+		// failed". Match both rather than assuming the backend.
+		foreach ( array( 'duplicate', 'unique constraint' ) as $needle ) {
+			if ( false !== stripos( $error, $needle ) ) {
+				return true;
+			}
+		}
+
+		return false;
+	}
+
+	/**
+	 * Store the pre-image of a row and prune old revisions.
+	 *
+	 * @since 3.0.0
+	 * @param object $row Row as it stands before the write.
+	 */
+	private function record_revision( object $row ): void {
+		global $wpdb;
+
+		$table = $this->revisions_table_name();
+
+		$wpdb->insert(
+			$table,
+			array(
+				'block_id'   => (int) $row->id,
+				'content'    => (string) ( $row->content ?? '' ),
+				'css'        => (string) ( $row->css ?? '' ),
+				'js'         => (string) ( $row->js ?? '' ),
+				'php_exec'   => (int) ( $row->php_exec ?? 0 ),
+				'format'     => (int) ( $row->format ?? 0 ),
+				'title'      => (string) ( $row->title ?? '' ),
+				'author'     => get_current_user_id(),
+				'created_at' => current_time( 'mysql' ),
+			),
+			array( '%d', '%s', '%s', '%s', '%d', '%d', '%s', '%d', '%s' )
+		);
+
+		/**
+		 * How many revisions to keep per block.
+		 *
+		 * Pruned on the same write that adds one, because unbounded growth in
+		 * the hottest write path is how this becomes a support problem.
+		 *
+		 * @since 3.0.0
+		 * @param int $limit Revisions kept per block.
+		 */
+		$limit = max( 1, (int) apply_filters( 'gt_pb_revision_limit', 25 ) );
+
+		$stale = $wpdb->get_col(
+			$wpdb->prepare(
+				// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- table name.
+				"SELECT id FROM {$table} WHERE block_id = %d ORDER BY id DESC LIMIT %d, 100",
+				(int) $row->id,
+				$limit
+			)
+		);
+
+		if ( $stale ) {
+			$ids = implode( ',', array_map( 'absint', $stale ) );
+			// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- ids are absint.
+			$wpdb->query( "DELETE FROM {$table} WHERE id IN ({$ids})" );
+		}
+	}
+
+	/**
+	 * Revisions for a block, newest first.
+	 *
+	 * @since 3.0.0
+	 * @param int $block_id Block ID.
+	 * @param int $limit    Max rows.
+	 * @return array<int,object>
+	 */
+	public function get_revisions( int $block_id, int $limit = 25 ): array {
+		global $wpdb;
+
+		return (array) $wpdb->get_results(
+			$wpdb->prepare(
+				// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- table name.
+				"SELECT id, block_id, title, author, note, created_at, php_exec, format
+				 FROM {$this->revisions_table_name()}
+				 WHERE block_id = %d ORDER BY id DESC LIMIT %d",
+				$block_id,
+				$limit
+			)
+		);
+	}
+
+	/**
+	 * Restore a revision.
+	 *
+	 * Goes through update() rather than writing directly, so the checksum is
+	 * re-derived rather than copied and the restore is itself revisioned.
+	 *
+	 * @since 3.0.0
+	 * @param int $block_id    Block ID.
+	 * @param int $revision_id Revision ID.
+	 * @return bool
+	 */
+	public function restore_revision( int $block_id, int $revision_id ): bool {
+		global $wpdb;
+
+		$revision = $wpdb->get_row(
+			$wpdb->prepare(
+				// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- table name.
+				"SELECT * FROM {$this->revisions_table_name()} WHERE id = %d AND block_id = %d",
+				$revision_id,
+				$block_id
+			)
+		);
+
+		if ( ! $revision ) {
+			return false;
+		}
+
+		return $this->update( $block_id, array(
+			'content'  => (string) $revision->content,
+			'css'      => (string) $revision->css,
+			'js'       => (string) $revision->js,
+			'php_exec' => (int) $revision->php_exec,
+			'format'   => (int) $revision->format,
+		) );
 	}
 
 	/**
@@ -336,7 +538,17 @@ class gt_pb_db {
 		$result = $wpdb->delete( $this->table_name, array( 'id' => $id ), array( '%d' ) );
 
 		if ( $result ) {
+			// The revisions go with it; nothing else references them.
+			$wpdb->delete( $this->revisions_table_name(), array( 'block_id' => $id ), array( '%d' ) );
 			$this->bump_asset_version();
+
+			/**
+			 * A library block was deleted permanently.
+			 *
+			 * @since 3.0.0
+			 * @param int $id Block ID.
+			 */
+			do_action( 'gt_pb_block_deleted', $id );
 		}
 
 		return (bool) $result;

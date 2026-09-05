@@ -110,6 +110,7 @@ class gt_pb_upgrader {
 
 		if ( version_compare( $from, '1.2', '<' ) ) {
 			$steps[] = 'rekey_php_checksums';
+			$steps[] = 'disable_broken_utilities';
 		}
 
 		return $steps;
@@ -127,6 +128,9 @@ class gt_pb_upgrader {
 
 			case 'rekey_php_checksums':
 				return $this->rekey_php_checksums();
+
+			case 'disable_broken_utilities':
+				return $this->disable_broken_utilities();
 		}
 
 		return true;
@@ -189,6 +193,30 @@ class gt_pb_upgrader {
 		} while ( time() < $until );
 
 		return false;
+	}
+
+	/**
+	 * Turn the utility-class output off, once, on upgrade.
+	 *
+	 * The scanner has never emitted a single rule for this plugin's own blocks:
+	 * it regexed class="..." out of raw post_content, where a page block's
+	 * markup sits inside a JSON attribute with every quote escaped. 3.0.0 fixes
+	 * that, which means a site with the option on would suddenly start
+	 * receiving CSS it has never received - on pages that look correct today.
+	 *
+	 * Turning it off is therefore the zero-visual-change upgrade: the feature
+	 * was emitting nothing, so nothing is lost. Re-enabling it becomes the
+	 * user's deliberate act, with a notice explaining why.
+	 *
+	 * @return bool
+	 */
+	private function disable_broken_utilities(): bool {
+		if ( get_option( 'gt_pb_load_utilities' ) ) {
+			update_option( 'gt_pb_load_utilities', false );
+			update_option( 'gt_pb_utilities_auto_disabled', 1, false );
+		}
+
+		return true;
 	}
 
 	/**

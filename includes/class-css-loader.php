@@ -105,6 +105,18 @@ class gt_pb_css_loader {
 			}
 		}
 
+		// The raw post_content above never yields a single class from this
+		// plugin's own blocks: a page block's markup lives inside a JSON
+		// attribute in the block delimiter, where every quote is escaped, so
+		// the class="..." regex below cannot match it. Decode the blocks and
+		// resolve library references, or the whole feature emits nothing for
+		// exactly the content it exists to serve.
+		$content .= ' ' . self::collect_page_block_markup( $content );
+
+		// Blocks assigned to a theme position render on views with no post in
+		// the loop at all, so they are added unconditionally.
+		$content .= ' ' . self::collect_positioned_block_markup();
+
 		// Allow themes/plugins to add extra class sources
 		$content = apply_filters( 'gt_pb_class_scan_content', $content );
 
@@ -125,6 +137,74 @@ class gt_pb_css_loader {
 		}
 
 		return array_keys( $classes );
+	}
+
+	/**
+	 * Markup of every page block in some post_content, with library
+	 * references resolved.
+	 *
+	 * @since 3.0.0
+	 * @param string $content Raw post_content already gathered.
+	 * @return string
+	 */
+	private static function collect_page_block_markup( string $content ): string {
+		if ( '' === trim( $content ) || ! function_exists( 'parse_blocks' ) ) {
+			return '';
+		}
+
+		$plugin = $GLOBALS['gt_page_blocks_builder'] ?? null;
+		$db     = $plugin && isset( $plugin->db ) ? $plugin->db : null;
+		$out    = '';
+
+		$walk = static function ( array $blocks ) use ( &$walk, $db, &$out ): void {
+			foreach ( $blocks as $block ) {
+				$name = (string) ( $block['blockName'] ?? '' );
+
+				if ( GT_Page_Blocks_Builder::is_page_block_name( $name ) ) {
+					$attrs = (array) ( $block['attrs'] ?? array() );
+					$out  .= ' ' . (string) ( $attrs['content'] ?? '' );
+
+					$slug = (string) ( $attrs['blockSlug'] ?? '' );
+					$id   = (int) ( $attrs['blockId'] ?? 0 );
+
+					if ( $db && ( '' !== $slug || $id > 0 ) ) {
+						$row = '' !== $slug ? $db->get_by_slug( $slug ) : $db->get( $id );
+						if ( $row ) {
+							$out .= ' ' . (string) $row->content;
+						}
+					}
+				}
+
+				if ( ! empty( $block['innerBlocks'] ) ) {
+					$walk( (array) $block['innerBlocks'] );
+				}
+			}
+		};
+
+		$walk( parse_blocks( $content ) );
+
+		return $out;
+	}
+
+	/**
+	 * Markup of every block rendering through a theme position or region.
+	 *
+	 * @since 3.0.0
+	 */
+	private static function collect_positioned_block_markup(): string {
+		$plugin = $GLOBALS['gt_page_blocks_builder'] ?? null;
+		$db     = $plugin && isset( $plugin->db ) ? $plugin->db : null;
+
+		if ( ! $db ) {
+			return '';
+		}
+
+		$out = '';
+		foreach ( $db->get_positioned_blocks() as $row ) {
+			$out .= ' ' . (string) $row->content;
+		}
+
+		return $out;
 	}
 
 	/**

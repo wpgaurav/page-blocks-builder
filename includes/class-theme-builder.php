@@ -75,6 +75,25 @@ class gt_pb_theme_builder {
 	 *
 	 * @return array<string, array<int, object>>
 	 */
+	/**
+	 * IDs of every block that renders through a theme position or region.
+	 *
+	 * These never appear in post_content, so a usage scan over posts alone
+	 * reports them as unused however many pages they render on.
+	 *
+	 * @since 3.0.0
+	 * @return array<int,int>
+	 */
+	public function positioned_block_ids(): array {
+		$ids = array();
+
+		foreach ( $this->db->get_positioned_blocks() as $block ) {
+			$ids[] = (int) $block->id;
+		}
+
+		return $ids;
+	}
+
 	private function positioned_blocks(): array {
 		if ( $this->positioned !== null ) {
 			return $this->positioned;
