@@ -446,6 +446,7 @@ class GT_Page_Blocks_Builder {
 
 	public function __construct() {
 		// Load includes
+		require_once GT_PB_BUILDER_DIR . 'includes/class-gt-pb-text.php';
 		require_once GT_PB_BUILDER_DIR . 'includes/class-db.php';
 		require_once GT_PB_BUILDER_DIR . 'includes/class-shortcode.php';
 		require_once GT_PB_BUILDER_DIR . 'includes/class-list-table.php';
@@ -3378,134 +3379,46 @@ class GT_Page_Blocks_Builder {
 	/**
 	 * Sanitize CSS to strip XSS vectors.
 	 *
+	 * @deprecated 3.0.0 Delegates to gt_pb_text::sanitize_css(). Kept because
+	 *             this is a public static method third-party code may call.
 	 * @param string $css Raw CSS.
 	 * @return string
 	 */
 	public static function sanitize_css( $css ) {
-		$css = (string) $css;
-		$css = preg_replace( '@<(script|style)[^>]*?>.*?</\\1>@si', '', $css );
-		$css = preg_replace( '/<[a-z\/!][^>]*>/i', '', $css );
-		$css = str_replace( array( 'javascript:', 'expression(', '-moz-binding:', 'behavior:' ), '', $css );
-		$css = preg_replace( '/@import\s+url\s*\(\s*["\']?\s*(?:javascript|data)\s*:/i', '@import url(blocked:', $css );
-		$css = preg_replace( '/url\s*\(\s*["\']?\s*data\s*:\s*text\/html/i', 'url(blocked:', $css );
-		return $css;
+		return gt_pb_text::sanitize_css( $css );
 	}
 
 	/**
 	 * Minify CSS.
 	 *
+	 * @deprecated 3.0.0 Delegates to gt_pb_text::minify_css().
 	 * @param string $css CSS.
 	 * @return string
 	 */
 	public static function minify_css( $css ) {
-		$css = (string) $css;
-
-		// Comments go first, before anything is stashed, so a commented-out
-		// quote cannot unbalance the string scan below.
-		$css = preg_replace( '!/\*[^*]*\*+([^/][^*]*\*+)*/!', '', $css );
-
-		// Quoted strings and url() payloads are literal values: whitespace
-		// inside them is significant. Collapsing it silently rewrites
-		// selectors — [style*="font-weight: 300"] and
-		// [style*="font-weight:300"] are different selectors, and squashing
-		// the first into the second drops every element it used to match.
-		// Stash them, minify the structure, then put them back verbatim.
-		$stash = array();
-
-		// Math functions must be stashed BEFORE the structural pass: the space
-		// around `+` is required inside calc()/clamp()/min()/max(), but `+` is
-		// also the sibling combinator, where collapsing it is correct. Removing
-		// it inside a clamp silently invalidates the whole declaration — that
-		// is how `clamp(6.75rem, 6rem + 2.2vw, 9rem)` became `6rem+2.2vw` and
-		// section padding computed to 0. (?1) recurses the parenthesised group
-		// so nested var()/calc() are captured whole.
-		$css = preg_replace_callback(
-			'/\b(?:calc|clamp|min|max|minmax)\s*(\((?:[^()]++|(?1))*\))/i',
-			static function ( $m ) use ( &$stash ) {
-				$token = "\x01" . count( $stash ) . "\x02";
-				$stash[ $token ] = $m[0];
-				return $token;
-			},
-			$css
-		);
-
-		$css   = preg_replace_callback(
-			'/"(?:[^"\\\\]|\\\\.)*"|\'(?:[^\'\\\\]|\\\\.)*\'|\burl\([^)\'"]*\)/s',
-			static function ( $m ) use ( &$stash ) {
-				$token = "\x01" . count( $stash ) . "\x02";
-				$stash[ $token ] = $m[0];
-				return $token;
-			},
-			$css
-		);
-
-		$css = str_replace( array( "\r\n", "\r", "\n", "\t" ), '', $css );
-		$css = preg_replace( '/\s+/', ' ', $css );
-		$css = preg_replace( '/\s*([\{\};:,~+])\s*/', '$1', $css );
-		$css = preg_replace( '/\s*>(?!=)\s*/', '>', $css );
-		$css = preg_replace( '/;}/', '}', $css );
-		$css = trim( (string) $css );
-
-		return $stash ? strtr( $css, $stash ) : $css;
+		return gt_pb_text::minify_css( $css );
 	}
 
 	/**
-	 * Minify JS.
+	 * Minify JavaScript.
 	 *
-	 * @param string $js JS.
+	 * @deprecated 3.0.0 Delegates to gt_pb_text::minify_js().
+	 * @param string $js JavaScript.
 	 * @return string
 	 */
 	public static function minify_js( $js ) {
-		$js = (string) $js;
-
-		$preserved = array();
-		$js = preg_replace_callback(
-			'/([\'"`])(?:(?!\\1)[^\\\\]|\\\\.)*\\1/s',
-			function ( $matches ) use ( &$preserved ) {
-				$key               = '___JSSTR_' . count( $preserved ) . '___';
-				$preserved[ $key ] = $matches[0];
-				return $key;
-			},
-			$js
-		);
-
-		$js = preg_replace( '#/\*(?!!).*?\*/#s', '', $js );
-		$js = preg_replace( '#(?<=[\s;{}(,=])//(?!/)[^\n]*#', '', $js );
-		$js = str_replace( array( "\r\n", "\r", "\n", "\t" ), ' ', $js );
-		$js = preg_replace( '/\s+/', ' ', $js );
-		$js = preg_replace( '/\s*([{};,])\s*/', '$1', $js );
-
-		$js = str_replace( array_keys( $preserved ), array_values( $preserved ), $js );
-
-		return trim( (string) $js );
+		return gt_pb_text::minify_js( $js );
 	}
 
 	/**
 	 * Minify HTML.
 	 *
+	 * @deprecated 3.0.0 Delegates to gt_pb_text::minify_html().
 	 * @param string $html HTML.
 	 * @return string
 	 */
 	public static function minify_html( $html ) {
-		$html      = (string) $html;
-		$preserved = array();
-
-		$html = preg_replace_callback(
-			'#(<(?:pre|code|script|style|textarea)\\b[^>]*>)(.*?)(</(?:pre|code|script|style|textarea)>)#si',
-			function ( $matches ) use ( &$preserved ) {
-				$key             = '<!--PRESERVED_' . count( $preserved ) . '-->';
-				$preserved[ $key ] = $matches[0];
-				return $key;
-			},
-			$html
-		);
-
-		$html = preg_replace( '/<!--(?!\\[if\\s|PRESERVED_).*?-->/s', '', $html );
-		$html = preg_replace( '/>\\s+</', '> <', $html );
-		$html = preg_replace( '/\\s+/', ' ', $html );
-		$html = str_replace( array_keys( $preserved ), array_values( $preserved ), $html );
-
-		return trim( (string) $html );
+		return gt_pb_text::minify_html( $html );
 	}
 
 	public function ajax_ai_generate() {
