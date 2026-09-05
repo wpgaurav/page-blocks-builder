@@ -676,6 +676,30 @@ class GT_Page_Blocks_Builder {
 				'format'     => array( 'type' => 'boolean', 'default' => false ),
 				'phpExec'    => array( 'type' => 'boolean', 'default' => false ),
 				'output'     => array( 'type' => 'string', 'default' => 'inline' ),
+
+				// Added together in 3.0.0, deliberately. Each defaults to a
+				// falsy value, so existing post_content parses unchanged and
+				// nothing new is written until a block is next saved - but that
+				// first save does rewrite every page-block delimiter on the
+				// page, so all four land in one release rather than producing
+				// that diff three separate times.
+
+				// The section's name in the builder sidebar. Renaming used to
+				// do nothing at all: the name was never sent, stored, or
+				// returned.
+				'name'              => array( 'type' => 'string', 'default' => '' ),
+
+				// Slug of the library row this block references. blockId is a
+				// site-local auto-increment, so a linked block copied to
+				// another site pointed at whatever row happened to hold that
+				// id - usually nothing, rendering blank. A slug travels.
+				'blockSlug'         => array( 'type' => 'string', 'default' => '' ),
+
+				// Opt in to display conditions for this placement. Off by
+				// default on purpose: conditions govern theme positions today,
+				// and applying them to existing placements would make pages
+				// that render now go blank with nothing in any log.
+				'respectConditions' => array( 'type' => 'boolean', 'default' => false ),
 			),
 		);
 
@@ -1033,6 +1057,9 @@ class GT_Page_Blocks_Builder {
 			'mdPbBuilder',
 			array(
 				'postId'             => $post_id,
+				// Scopes the crash-draft key, so a shared machine does not
+				// offer one user another's unsaved work.
+				'userId'             => get_current_user_id(),
 				'blockName'          => self::BLOCK_NAME,
 				// Save endpoint (dropin naming)
 				'saveEndpoint'       => admin_url( 'admin-ajax.php' ),
@@ -1348,9 +1375,14 @@ class GT_Page_Blocks_Builder {
 		// dropping it here would rewrite every migrated block as an empty
 		// inline one and blank the section everywhere it appears.
 		$block_id    = isset( $section['blockId'] ) ? max( 0, (int) $section['blockId'] ) : 0;
+		$name        = isset( $section['name'] ) ? sanitize_text_field( (string) $section['name'] ) : '';
+		$block_slug  = isset( $section['blockSlug'] ) ? sanitize_title( (string) $section['blockSlug'] ) : '';
 
 		return array(
-			'blockId'    => $block_id,
+			'blockId'           => $block_id,
+			'name'              => $name,
+			'blockSlug'         => $block_slug,
+			'respectConditions' => ! empty( $section['respectConditions'] ),
 			'content'    => $this->decode_builder_unicode_sequences( $content ),
 			'css'        => $this->decode_builder_unicode_sequences( $css ),
 			'js'         => $this->decode_builder_unicode_sequences( $js ),
@@ -1725,6 +1757,19 @@ class GT_Page_Blocks_Builder {
 				unset( $attrs['blockId'] );
 			}
 			unset( $attrs['kind'] );
+
+			// Same reasoning for the 3.0 attributes: only write one that
+			// carries a value, so a page of ordinary sections serializes
+			// exactly as it did before and the upgrade diff stays limited to
+			// blocks that actually gained something.
+			foreach ( array( 'name', 'blockSlug' ) as $optional ) {
+				if ( empty( $attrs[ $optional ] ) ) {
+					unset( $attrs[ $optional ] );
+				}
+			}
+			if ( empty( $attrs['respectConditions'] ) ) {
+				unset( $attrs['respectConditions'] );
+			}
 
 			$parts[] = serialize_block( array(
 				'blockName'    => self::BLOCK_NAME,

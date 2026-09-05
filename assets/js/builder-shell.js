@@ -96,8 +96,35 @@
 	// Helpers
 	// -------------------------------------------------------------------------
 
+	var uidCounter = 0;
+
+	/**
+	 * Stable client-side identity for a section.
+	 *
+	 * Deliberately not a block attribute: nothing about it belongs in
+	 * post_content. Undo, AI targeting and the preview all used the array
+	 * index, which changes under reorder and delete - that is how an AI reply
+	 * landed on the wrong section and how undo restored the wrong one.
+	 */
+	function mintUid() {
+		uidCounter += 1;
+		return 'pb-' + Date.now().toString(36) + uidCounter.toString(36) + Math.random().toString(36).slice(2, 6);
+	}
+
+	/**
+	 * Index of a section by uid, or -1.
+	 */
+	function indexOfUid(uid) {
+		if (typeof uid !== 'string' || !uid) return -1;
+		for (var i = 0; i < state.sections.length; i++) {
+			if (state.sections[i] && state.sections[i].uid === uid) return i;
+		}
+		return -1;
+	}
+
 	function createDefaultSection() {
 		return {
+			uid: mintUid(),
 			name: '',
 			// 'block'   — an editable Page Block.
 			// 'foreign' — anything else on the page (core or third-party). The
@@ -127,6 +154,9 @@
 		var section = createDefaultSection();
 		var source = input && typeof input === 'object' ? input : {};
 
+		// Keep an incoming uid so identity survives a save response or a
+		// restored draft; mint one for anything saved before 3.0.
+		section.uid = typeof source.uid === 'string' && /^pb-[a-z0-9]+$/.test(source.uid) ? source.uid : mintUid();
 		section.name = typeof source.name === 'string' ? source.name : '';
 		section.kind = source.kind === 'foreign' ? 'foreign' : 'block';
 		section.blockName = typeof source.blockName === 'string' ? source.blockName : '';
@@ -439,7 +469,10 @@
 	// Autosave
 	// -------------------------------------------------------------------------
 
-	var AUTOSAVE_KEY = 'md_pb_draft_' + (config.postId || 0);
+	// Versioned, and scoped per user as well as per post: a shared login on one
+	// machine otherwise offers one person another's unsaved work.
+	var DRAFT_VERSION = 3;
+	var AUTOSAVE_KEY = 'md_pb_draft_' + (config.postId || 0) + '_u' + (config.userId || 0);
 	var AUTOSAVE_INTERVAL = 5000;
 	var autosaveTimer = null;
 
@@ -450,6 +483,16 @@
 				return null;
 			}
 			var data = JSON.parse(raw);
+
+			// A draft written before 3.0 has no uid on any section and a
+			// foreign-row shape that is missing `rendered`. Half-restoring that
+			// produces a builder whose preview has lost every core block, so
+			// discard it rather than pretend it can be recovered.
+			if (data && data.version !== DRAFT_VERSION) {
+				window.localStorage.removeItem(AUTOSAVE_KEY);
+				return null;
+			}
+
 			if (data && Array.isArray(data.sections) && data.sections.length) {
 				return data;
 			}
@@ -459,10 +502,44 @@
 		return null;
 	}
 
+	/**
+	 * A crash draft is not a save payload.
+	 *
+	 * getApplyPayloadSections() deliberately strips a foreign row down to its
+	 * markup, because that is all the server needs. Restoring from that leaves
+	 * the builder with no `rendered` output for those rows, so the recovered
+	 * preview is missing every core block, and no `collapsed` state. The draft
+	 * keeps the whole client-side shape instead.
+	 */
+	function getAutosaveDraftSections() {
+		return state.sections.map(function(section) {
+			var n = normalizeSection(section);
+			return {
+				uid: n.uid,
+				kind: n.kind,
+				name: n.name,
+				blockName: n.blockName,
+				label: n.label,
+				serialized: n.serialized,
+				rendered: n.rendered,
+				blockId: n.blockId,
+				content: n.content,
+				css: n.css,
+				js: n.js,
+				jsLocation: n.jsLocation,
+				output: n.output,
+				format: n.format,
+				phpExec: n.phpExec,
+				collapsed: n.collapsed
+			};
+		});
+	}
+
 	function saveAutosaveDraft() {
 		try {
 			window.localStorage.setItem(AUTOSAVE_KEY, JSON.stringify({
-				sections: getApplyPayloadSections(),
+				version: DRAFT_VERSION,
+				sections: getAutosaveDraftSections(),
 				timestamp: Date.now()
 			}));
 		} catch (error) {
@@ -574,11 +651,11 @@
 			if (section.kind === 'foreign') {
 				// Rendered server-side and inert here. Included so the preview
 				// is the actual page, not just its editable parts.
-				html.push('<div data-pb-section="' + i + '" data-pb-foreign="1">' + (section.rendered || '') + '</div>');
+				html.push('<div data-pb-section="' + section.uid + '" data-pb-foreign="1">' + (section.rendered || '') + '</div>');
 				return;
 			}
 
-			html.push('<div data-pb-section="' + i + '">' + (section.content || '') + '</div>');
+			html.push('<div data-pb-section="' + section.uid + '">' + (section.content || '') + '</div>');
 
 			if (section.css) {
 				css.push(section.css);
@@ -671,8 +748,8 @@
 			'document.addEventListener("mousedown",function(e){' +
 			'var sec=e.target.closest?e.target.closest("[data-pb-section]"):null;' +
 			'if(!sec)return;' +
-			'var i=parseInt(sec.getAttribute("data-pb-section"),10);' +
-			'if(i>=0)window.parent.postMessage({type:"md_pb_section_focus",sectionIndex:i},"*");' +
+			'var u=sec.getAttribute("data-pb-section");' +
+			'if(u)window.parent.postMessage({type:"md_pb_section_focus",sectionUid:u},"*");' +
 			'},true);' +
 			'document.addEventListener("mouseover",function(e){var el=e.target.closest(SEL);if(el&&el!==editing)el.setAttribute("data-pb-editable-hover","");});' +
 			'document.addEventListener("mouseout",function(e){var el=e.target.closest(SEL);if(el)el.removeAttribute("data-pb-editable-hover");});' +
@@ -692,8 +769,8 @@
 			'var t=el.textContent;' +
 			'if(t!==origText){' +
 			'var sec=el.closest("[data-pb-section]");' +
-			'var idx=sec?parseInt(sec.getAttribute("data-pb-section"),10):-1;' +
-			'if(idx>=0)window.parent.postMessage({type:"md_pb_inline_edit",sectionIndex:idx,oldText:origText,newText:t},"*");' +
+			'var u=sec?sec.getAttribute("data-pb-section"):"";' +
+			'if(u)window.parent.postMessage({type:"md_pb_inline_edit",sectionUid:u,oldText:origText,newText:t},"*");' +
 			'}' +
 			'editing=null;origText="";' +
 			'});' +
@@ -721,12 +798,22 @@
 
 			// Update each section's HTML in place
 			var patched = true;
-			state.sections.forEach(function(section, i) {
-				var el = doc.querySelector('[data-pb-section="' + i + '"]');
+			state.sections.forEach(function(section) {
+				var el = doc.querySelector('[data-pb-section="' + section.uid + '"]');
 				if (!el) {
 					patched = false;
 					return;
 				}
+
+				// A foreign section's markup lives in `serialized`/`rendered`;
+				// its `content` is always ''. Writing content over it blanked
+				// every core and third-party block in the canvas on every
+				// keystroke. Only the visibility toggle applies here.
+				if (section.kind === 'foreign') {
+					el.style.display = section.collapsed ? 'none' : '';
+					return;
+				}
+
 				if (!section.collapsed) {
 					el.innerHTML = section.content || '';
 					el.style.display = '';
@@ -1119,13 +1206,17 @@
 			if (normalized.kind === 'foreign') {
 				return {
 					kind: 'foreign',
+					uid: normalized.uid,
 					blockName: normalized.blockName,
+					label: normalized.label,
 					serialized: normalized.serialized
 				};
 			}
 
 			return {
 				kind: 'block',
+				uid: normalized.uid,
+				name: normalized.name,
 				blockId: normalized.blockId,
 				content: normalized.content,
 				css: normalized.css,
@@ -1195,12 +1286,25 @@
 			return;
 		}
 		var copy = normalizeSection(state.sections[index]);
+		copy.uid = mintUid();
 		if (copy.content) {
 			copy.content = copy.content.replace(/id=(["'])([^"']+)\1/i, function(match, quote, idValue) {
-				if (/-copy$/.test(idValue)) {
-					return 'id=' + quote + idValue + quote;
+				// A one-shot '-copy' suffix meant duplicating twice produced two
+				// elements sharing an id. Scan what is already on the page and
+				// take the next free suffix instead.
+				var base = idValue.replace(/-copy(-\d+)?$/, '');
+				var used = {};
+				state.sections.forEach(function(other) {
+					var m = /id=(["'])([^"']+)\1/i.exec(other.content || '');
+					if (m) used[m[2]] = true;
+				});
+				var candidate = base + '-copy';
+				var n = 2;
+				while (used[candidate]) {
+					candidate = base + '-copy-' + n;
+					n++;
 				}
-				return 'id=' + quote + idValue + '-copy' + quote;
+				return 'id=' + quote + candidate + quote;
 			});
 		}
 		state.sections.splice(index + 1, 0, copy);
@@ -1319,7 +1423,8 @@
 				return;
 			}
 
-			var marker = iframeDoc.querySelector('[data-pb-section="' + index + '"]');
+			var target = state.sections[index];
+			var marker = target ? iframeDoc.querySelector('[data-pb-section="' + target.uid + '"]') : null;
 			if (marker) {
 				marker.scrollIntoView({ behavior: 'smooth', block: 'start' });
 			}
@@ -1481,6 +1586,23 @@
 		renderActiveSectionMeta();
 	}
 
+	/**
+	 * Set a CodeMirror's contents and reset its undo stack.
+	 *
+	 * clearHistory appeared nowhere in this file while setValue was called from
+	 * three places, so CodeMirror's undo stack survived a section switch and the
+	 * first Cmd+Z after switching pasted the previous section's code into the
+	 * current one - an undo that silently corrupted the thing it was undoing.
+	 */
+	function setEditorValue(editor, value) {
+		if (!editor || !editor.codemirror) return false;
+		editor.codemirror.setValue(value || '');
+		if (typeof editor.codemirror.clearHistory === 'function') {
+			editor.codemirror.clearHistory();
+		}
+		return true;
+	}
+
 	function renderCurrentSectionToEditors() {
 		var section = getCurrentSection();
 		if (!section) {
@@ -1490,13 +1612,13 @@
 		state.syncingEditors = true;
 		if (state.hasCodeMirror) {
 			if (state.editors.html) {
-				state.editors.html.codemirror.setValue(section.content || '');
+				setEditorValue(state.editors.html, section.content || '');
 			}
 			if (state.editors.css) {
-				state.editors.css.codemirror.setValue(section.css || '');
+				setEditorValue(state.editors.css, section.css || '');
 			}
 			if (state.editors.js) {
-				state.editors.js.codemirror.setValue(section.js || '');
+				setEditorValue(state.editors.js, section.js || '');
 			}
 		} else {
 			dom.textareaHtml.value = section.content || '';
@@ -2639,6 +2761,11 @@
 		var editor = state.editors[editorKey];
 		var cm = editor && editor.codemirror ? editor.codemirror : null;
 		if (cm && typeof cm.setValue === 'function') {
+			// Deliberately not setEditorValue(): this replaces the current
+			// section's own content, so keeping the undo stack lets Cmd+Z revert
+			// an AI edit. The stack only has to be cleared when the editor
+			// switches to a *different* section, which is where undo would
+			// otherwise paste the previous section's code.
 			state.syncingEditors = true;
 			cm.setValue(value);
 			state.syncingEditors = false;
@@ -3611,7 +3738,11 @@
 				(
 					tagName === 'textarea' ||
 					tagName === 'select' ||
-					(tagName === 'input' && target.type !== 'checkbox')
+					(tagName === 'input' && target.type !== 'checkbox') ||
+					// A tagName test misses both a contenteditable host and
+					// CodeMirror, whose editing surface is a styled div.
+					target.isContentEditable === true ||
+					(target.closest && target.closest('.CodeMirror'))
 				)
 			);
 			var isMeta = !!(event.metaKey || event.ctrlKey);
@@ -3634,6 +3765,19 @@
 			if (isMeta && key === 's') {
 				event.preventDefault();
 				activateApply();
+				return;
+			}
+
+			// Everything below this line acts on the document rather than on
+			// what you are typing into. The bail used to sit at the very end of
+			// this handler, underneath the duplicate and delete branches, so
+			// Cmd+D and Cmd+Backspace inside a code pane duplicated or deleted
+			// the whole section - permanently, with no undo anywhere - while
+			// the guard that existed to prevent exactly that could never fire.
+			//
+			// Escape, Cmd+S and Cmd+K stay above: all three are non-destructive
+			// and meaningful while typing.
+			if (isInputTarget) {
 				return;
 			}
 
@@ -3695,9 +3839,6 @@
 				return;
 			}
 
-			if (isInputTarget) {
-				return;
-			}
 		});
 
 		// Section list click delegation
@@ -4351,7 +4492,7 @@
 			var data = e.data;
 
 			if (data && 'md_pb_section_focus' === data.type) {
-				selectSectionFromPreview(data.sectionIndex);
+				selectSectionFromPreview(indexOfUid(data.sectionUid));
 				return;
 			}
 
@@ -4359,7 +4500,10 @@
 				return;
 			}
 
-			var idx = data.sectionIndex;
+			// Resolve by uid, not by the index the preview happened to hold: a
+			// reorder between render and edit would otherwise apply the edit to
+			// whichever section moved into that slot.
+			var idx = indexOfUid(data.sectionUid);
 			var oldText = data.oldText;
 			var newText = data.newText;
 
@@ -4383,7 +4527,7 @@
 				if (idx === state.selectedIndex) {
 					if (state.hasCodeMirror && state.editors.html) {
 						state.syncingEditors = true;
-						state.editors.html.codemirror.setValue(section.content);
+						setEditorValue(state.editors.html, section.content);
 						state.syncingEditors = false;
 					} else if (dom.textareaHtml) {
 						dom.textareaHtml.value = section.content;
