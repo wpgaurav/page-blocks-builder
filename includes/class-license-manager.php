@@ -13,11 +13,7 @@ class GT_PB_License_Manager {
 	const UPDATE_TRANSIENT = 'gt_pb_builder_update_info';
 	const PAGE_SLUG        = 'gt-pb-builder-license';
 	const NOTICE_DISMISSED_KEY = 'gt_pb_license_notice_dismissed';
-
-	/**
-	 * @var string
-	 */
-	private $plugin_file;
+	const SECURITY_TRANSIENT   = 'gt_pb_security_manifest';
 
 	/**
 	 * @var string
@@ -25,7 +21,7 @@ class GT_PB_License_Manager {
 	private $plugin_basename;
 
 	public function __construct( $plugin_file ) {
-		$this->plugin_file     = $plugin_file;
+		// Only the basename is used; the full path was stored and never read.
 		$this->plugin_basename = plugin_basename( $plugin_file );
 	}
 
@@ -244,7 +240,12 @@ class GT_PB_License_Manager {
 
 		$license = $this->get_license_data();
 		if ( empty( $license['license_key'] ) || 'valid' !== ( $license['status'] ?? '' ) ) {
-			return $transient_data;
+			// Unlicensed sites still get security releases. Under this model
+			// they would otherwise never receive one, and both remote-execution
+			// paths found in the 2026 audit would have reached only paying
+			// customers. Core's auto-update machinery reads this same
+			// transient, so there is no WordPress-native fallback to defer to.
+			return $this->maybe_security_update( $transient_data );
 		}
 
 		$update_info = get_transient( self::UPDATE_TRANSIENT );
@@ -291,6 +292,79 @@ class GT_PB_License_Manager {
 
 			$transient_data->response[ $this->plugin_basename ] = $plugin_data;
 		}
+
+		return $transient_data;
+	}
+
+	/**
+	 * Offer a security release to a site with no valid licence.
+	 *
+	 * Reads a small static JSON manifest and injects an update only when the
+	 * installed version is below its min_safe_version. Gated strictly on that,
+	 * so this path can never be used to push a feature release around the
+	 * licence, and the package URL goes through the same host allowlist as the
+	 * licensed one.
+	 *
+	 * Opt out with GT_PB_DISABLE_SECURITY_CHANNEL. The request sends nothing
+	 * but the plugin version, and that disclosure belongs in readme.txt.
+	 *
+	 * @since 3.0.0
+	 * @param object $transient_data update_plugins transient.
+	 * @return object
+	 */
+	private function maybe_security_update( $transient_data ) {
+		if ( defined( 'GT_PB_DISABLE_SECURITY_CHANNEL' ) && GT_PB_DISABLE_SECURITY_CHANNEL ) {
+			return $transient_data;
+		}
+
+		$manifest = get_transient( self::SECURITY_TRANSIENT );
+
+		if ( false === $manifest ) {
+			$response = wp_safe_remote_get(
+				self::LICENSE_SERVER . 'security/page-blocks-builder.json',
+				array( 'timeout' => 8 )
+			);
+
+			$manifest = is_wp_error( $response )
+				? array()
+				: (array) json_decode( (string) wp_remote_retrieve_body( $response ), true );
+
+			// Cached either way, so an outage does not mean a request per page
+			// load on every unlicensed site.
+			set_transient( self::SECURITY_TRANSIENT, $manifest, 12 * HOUR_IN_SECONDS );
+		}
+
+		$min_safe = (string) ( $manifest['min_safe_version'] ?? '' );
+		$new      = (string) ( $manifest['new_version'] ?? '' );
+		$current  = defined( 'GT_PB_BUILDER_VERSION' ) ? GT_PB_BUILDER_VERSION : '0.0.0';
+
+		if ( '' === $min_safe || '' === $new ) {
+			return $transient_data;
+		}
+
+		// Strictly below the minimum safe version, and the offer never exceeds
+		// what the manifest names as the fix.
+		if ( ! version_compare( $current, $min_safe, '<' ) || ! version_compare( $new, $current, '>' ) ) {
+			return $transient_data;
+		}
+
+		$package = $this->trusted_url( $manifest['package'] ?? '' );
+
+		if ( '' === $package ) {
+			return $transient_data;
+		}
+
+		$transient_data->response[ $this->plugin_basename ] = (object) array(
+			'id'            => $this->plugin_basename,
+			'slug'          => 'page-blocks-builder',
+			'plugin'        => $this->plugin_basename,
+			'new_version'   => $new,
+			'url'           => $this->trusted_url( $manifest['advisory_url'] ?? '' ) ?: self::LICENSE_SERVER,
+			'package'       => $package,
+			'tested'        => (string) ( $manifest['tested'] ?? '' ),
+			'requires_php'  => (string) ( $manifest['requires_php'] ?? ( defined( 'GT_PB_MIN_PHP' ) ? GT_PB_MIN_PHP : '8.1' ) ),
+			'compatibility' => new stdClass(),
+		);
 
 		return $transient_data;
 	}

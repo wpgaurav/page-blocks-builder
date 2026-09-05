@@ -10,6 +10,7 @@ parameters:
         - includes/class-gt-pb-text.php
         - includes/class-upgrader.php
         - includes/class-cli.php
+        - includes/class-license-manager.php
         # ~
         - page-blocks-builder.php
         - includes/class-db.php
@@ -18,8 +19,7 @@ parameters:
         - includes/class-rest-api.php
         - includes/class-theme-builder.php
         - includes/class-migration.php
-    scanFiles:
-        - includes/class-license-manager.php
+
     excludePaths:
         - templates/*
     bootstrapFiles:

@@ -91,6 +91,17 @@ Security release. Fixes privilege escalation in the block preview (any Author co
 * **Library usage counts change, sometimes sharply, on block themes,** where the invalidation hooks were never registered. Blocks that read "Unused" while rendering site-wide now read correctly.
 * **The database schema moves to 1.2 and the migration is one-way.** Reinstalling 2.8 files does not revert it.
 
+**Privacy and outbound requests**
+
+Every install, licensed or not, now checks a small static file at
+gauravtiwari.org twice a day to learn whether a security release exists. The
+request sends the plugin version and nothing else - no site URL, no licence
+key, no content. It exists because updates are otherwise gated behind a
+licence, which would mean an unlicensed site never receiving a security fix.
+Disable it with `define( 'GT_PB_DISABLE_SECURITY_CHANNEL', true );` in
+wp-config.php; every security release is also published as a public download,
+so a manual path always exists.
+
 **Licensing**
 
 GT Page Blocks Builder is free to use. Every feature works without a license key; nothing is gated. A license buys automatic updates and support. An unlicensed site now says so on the Plugins screen instead of simply never being offered an update.

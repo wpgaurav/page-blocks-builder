@@ -28,6 +28,9 @@ tests
 # Per-release operational scripts.
 __release-*
 
+# Repo documents that are not plugin runtime.
+SECURITY.md
+
 # Agent/editor working directories.
 .claude
 .vscode
