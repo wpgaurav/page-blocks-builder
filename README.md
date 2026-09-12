@@ -1,5 +1,7 @@
 # Page Blocks Builder
 
+[![Buy me a coffee](https://img.shields.io/badge/Buy%20me%20a%20coffee-FFDD00?style=flat&logo=buymeacoffee&logoColor=black)](https://buymeacoffee.com/gauravtiwari)
+
 Build, reuse, and place custom HTML/CSS/JS sections anywhere in WordPress — through a visual Gutenberg block, a full-page frontend builder, a reusable block library, theme regions, a shortcode, and a REST API. Works with any theme; pairs especially well with a minimal "blank hybrid" theme that delegates its layout to Page Blocks regions.
 
 Originally part of Marketers Delight's Page Blocks dropin (2018–2026, © Kolakube), now a standalone plugin.
@@ -304,6 +306,16 @@ Also available: `gt_pb_positions` (add theme regions), `gt_pb_can_execute_php`,
 ## Changelog
 
 See [readme.txt](readme.txt) for the full changelog, and [Releases](https://github.com/wpgaurav/page-blocks-builder/releases) for tagged builds.
+
+## Support This Project
+
+Page Blocks Builder gives WordPress a CodePen-style editor for plain HTML, CSS and JS sections that you can place in posts, theme regions and hooks or render with a shortcode. It started as the Page Blocks dropin in Marketers Delight and I now maintain it as a free GPL plugin, with a migration path for sites still on the dropin.
+
+If a Page Block let you drop hand-coded markup into a post and preview it with your theme's styles right in the editor, you can buy me a coffee.
+
+<a href="https://buymeacoffee.com/gauravtiwari"><img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" alt="Buy me a coffee" height="50"></a>
+
+Beyond a star, the most useful thing you can send is an issue with your WordPress and PHP versions and the steps that trigger the bug.
 
 ## License
 
