@@ -81,10 +81,28 @@ final class SectionCssTest extends TestCase {
 			array( 'uid' => 'pb-foreign', 'kind' => 'foreign', 'serialized' => '<!-- wp:paragraph --><p>Core paragraph</p><!-- /wp:paragraph -->' ),
 			array( 'uid' => 'pb-hidden', 'content' => '<p>Hidden</p>', 'css' => '.hidden{}', 'collapsed' => true ),
 		) );
-		$this->assertStringContainsString( 'data-pb-section="pb-first"', $payload['html'] );
-		$this->assertStringContainsString( 'data-pb-section="pb-foreign" data-pb-foreign="1"', $payload['html'] );
+		$this->assertStringContainsString( '<!--gt-pb:start:pb-first:block--><p>First</p><!--gt-pb:end:pb-first-->', $payload['html'] );
+		$this->assertStringContainsString( '<!--gt-pb:start:pb-foreign:foreign-->', $payload['html'] );
 		$this->assertStringContainsString( 'Core paragraph', $payload['html'] );
 		$this->assertStringNotContainsString( 'Hidden', $payload['html'] );
 		$this->assertStringNotContainsString( '.hidden', $payload['css'] );
+	}
+
+	public function test_server_preview_preserves_cross_section_container(): void {
+		$method = new ReflectionMethod( GT_Page_Blocks_Builder::class, 'build_preview_payload' );
+		$payload = $method->invoke( $GLOBALS['gt_page_blocks_builder'], array(
+			array( 'uid' => 'pb-first', 'content' => '<main class="gth"><section>First</section>', 'css' => '.gth section{color:red}' ),
+			array( 'uid' => 'pb-last', 'content' => '<section>Last</section></main>' ),
+		) );
+		$this->assertStringNotContainsString( '<div', $payload['html'] );
+		$this->assertSame( 1, substr_count( $payload['html'], '</main>' ) );
+		$doc = new DOMDocument();
+		$previous = libxml_use_internal_errors( true );
+		$doc->loadHTML( '<!doctype html><html><body>' . $payload['html'] . '</body></html>' );
+		libxml_clear_errors();
+		libxml_use_internal_errors( $previous );
+		$xpath = new DOMXPath( $doc );
+		$this->assertSame( 2, $xpath->query( '//main[@class="gth"]/section' )->length );
+		$this->assertSame( '.gth section{color:red}', $payload['css'] );
 	}
 }

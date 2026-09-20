@@ -4,7 +4,7 @@
  * Plugin URI: https://gauravtiwari.org/product/gt-page-blocks-builder/
  * Update URI: https://gauravtiwari.org/product/gt-page-blocks-builder/
  * Description: Standalone visual Page Blocks builder with HTML/CSS/JS sections synced to Gutenberg block content.
- * Version: 3.0.1
+ * Version: 3.0.2
  * Author: Gaurav Tiwari
  * Author URI: https://gauravtiwari.org
  * Text Domain: page-blocks-builder
@@ -20,7 +20,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 if ( ! defined( 'GT_PB_BUILDER_VERSION' ) ) {
-	define( 'GT_PB_BUILDER_VERSION', '3.0.1' );
+	define( 'GT_PB_BUILDER_VERSION', '3.0.2' );
 }
 
 if ( ! defined( 'GT_PB_BUILDER_FILE' ) ) {
@@ -1130,9 +1130,16 @@ class GT_Page_Blocks_Builder {
 
 		if ( file_exists( $js_path ) ) {
 			wp_enqueue_script(
+				'gt-page-block-preview-dom',
+				GT_PB_BUILDER_URL . 'assets/js/preview-dom.js',
+				array(),
+				filemtime( GT_PB_BUILDER_DIR . 'assets/js/preview-dom.js' ),
+				true
+			);
+			wp_enqueue_script(
 				'gt-page-block-builder-shell',
 				GT_PB_BUILDER_URL . 'assets/js/builder-shell.js',
-				array( 'code-editor', 'wp-codemirror' ),
+				array( 'code-editor', 'wp-codemirror', 'gt-page-block-preview-dom' ),
 				filemtime( $js_path ),
 				true
 			);
@@ -1759,9 +1766,10 @@ class GT_Page_Blocks_Builder {
 		}
 		$uid = $section['uid'] ?? '';
 		if ( is_string( $uid ) && preg_match( '/^pb-[a-z0-9]+$/', $uid ) ) {
-			$foreign = 'foreign' === ( $section['kind'] ?? '' ) ? ' data-pb-foreign="1"' : '';
-			$linked = ! empty( $section['blockId'] ) ? ' data-pb-linked="1"' : '';
-			return '<div data-pb-section="' . esc_attr( $uid ) . '"' . $foreign . $linked . '>' . $html . '</div>';
+			$kind = 'foreign' === ( $section['kind'] ?? '' ) ? 'foreign' : ( ! empty( $section['blockId'] ) ? 'linked' : 'block' );
+			// Sections may open/close a shared ancestor across block boundaries.
+			// Element wrappers force the HTML parser to close that ancestor early.
+			return '<!--gt-pb:start:' . $uid . ':' . $kind . '-->' . $html . '<!--gt-pb:end:' . $uid . '-->';
 		}
 		return $html;
 	}

@@ -10,6 +10,7 @@
 	'use strict';
 
 	var config = window.mdPbBuilder || {};
+	var previewDom = window.gtPbPreviewDom;
 
 	// Enter sends, so the button is an affordance rather than the instruction.
 	// Same reasoning as Claude's own composer: an arrow, not a word.
@@ -656,11 +657,11 @@
 			if (section.kind === 'foreign') {
 				// Rendered server-side and inert here. Included so the preview
 				// is the actual page, not just its editable parts.
-				html.push('<div data-pb-section="' + section.uid + '" data-pb-foreign="1">' + (section.rendered || '') + '</div>');
+				html.push(previewDom.sectionHtml(section.rendered || '', section));
 				return;
 			}
 
-			html.push('<div data-pb-section="' + section.uid + '"' + (section.blockId ? ' data-pb-linked="1"' : '') + '>' + (section.content || '') + '</div>');
+			html.push(previewDom.sectionHtml(section.content || '', section));
 
 			if (section.css) {
 				css.push(section.css);
@@ -693,9 +694,7 @@
 		var inlineJsOutput = typeof rendered.jsInline === 'string' ? rendered.jsInline : inlineJs.join(';\n');
 		var footerJsOutput = typeof rendered.jsFooter === 'string' ? rendered.jsFooter : footerJs.join(';\n');
 
-		var customCssTag = cssOutput
-			? '<style>' + cssOutput + '</style>'
-			: '';
+		var customCssTag = '<style id="md-pb-section-css">' + escapeClosingTag(cssOutput, 'style') + '</style>';
 
 		// Preview injection from theme/plugins
 		var injection = config.previewInjection && typeof config.previewInjection === 'object'
@@ -780,7 +779,8 @@
 			'if(!el||el!==editing||el.innerHTML===origHtml)return;' +
 			'var sec=el.closest("[data-pb-section]"),path=[],node=el;' +
 			'while(sec&&node!==sec){path.unshift(Array.prototype.indexOf.call(node.parentElement.children,node));node=node.parentElement;}' +
-			'if(sec)window.parent.postMessage({type:"md_pb_inline_edit",sectionUid:sec.getAttribute("data-pb-section"),oldText:origText,newText:el.textContent,oldHtml:origHtml,newHtml:el.innerHTML,path:path},"*");' +
+			'if(sec)path.unshift(Number(sec.getAttribute("data-pb-root-index")));' +
+			'if(sec)window.parent.postMessage({type:"md_pb_inline_edit",sectionUid:sec.getAttribute("data-pb-section"),tagName:el.tagName.toLowerCase(),oldText:origText,newText:el.textContent,oldHtml:origHtml,newHtml:el.innerHTML,path:path},"*");' +
 			'origText=el.textContent;origHtml=el.innerHTML;' +
 			'}' +
 			'document.addEventListener("input",function(e){syncEdit(e.target);});' +
@@ -799,50 +799,27 @@
 		return { html: docHtml, scripts: scripts };
 	}
 
-	/**
-	 * Try live-patching the iframe DOM instead of full srcdoc reload.
-	 * Returns true if patched successfully, false if full reload needed.
-	 */
+	var renderedStructure = null;
+
+	function previewStructureSignature() {
+		return JSON.stringify(state.sections.map(function(section) {
+			var structure = Object.assign({}, section);
+			delete structure.css;
+			return structure;
+		}));
+	}
+
+	/** Patch CSS only; HTML fragments may share ancestors across sections. */
 	function tryLivePatch() {
-		if (!dom.previewFrame) return false;
+		if (!dom.previewFrame || renderedStructure !== previewStructureSignature()) return false;
 
 		try {
 			var doc = dom.previewFrame.contentDocument || dom.previewFrame.contentWindow.document;
 			if (!doc || !doc.body) return false;
 
-			// Update each section's HTML in place
-			var patched = true;
-			state.sections.forEach(function(section) {
-				var el = doc.querySelector('[data-pb-section="' + section.uid + '"]');
-				if (!el) {
-					patched = false;
-					return;
-				}
-
-				// A foreign section's markup lives in `serialized`/`rendered`;
-				// its `content` is always ''. Writing content over it blanked
-				// every core and third-party block in the canvas on every
-				// keystroke. Only the visibility toggle applies here.
-				if (section.kind === 'foreign') {
-					el.style.display = section.collapsed ? 'none' : '';
-					return;
-				}
-
-				if (!section.collapsed) {
-					el.innerHTML = section.content || '';
-					el.style.display = '';
-				} else {
-					el.style.display = 'none';
-				}
-			});
-
-			// Update combined CSS in the preview
-			var cssEl = doc.getElementById('md-pb-live-css');
-			if (!cssEl) {
-				cssEl = doc.createElement('style');
-				cssEl.id = 'md-pb-live-css';
-				doc.head.appendChild(cssEl);
-			}
+			// Replace the original stylesheet so deleted rules disappear too.
+			var cssEl = doc.getElementById('md-pb-section-css');
+			if (!cssEl) return false;
 			var allCss = [];
 			state.sections.forEach(function(section) {
 				if (section.css && !section.collapsed) {
@@ -851,7 +828,7 @@
 			});
 			cssEl.textContent = allCss.join('\n');
 
-			return patched;
+			return true;
 		} catch (e) {
 			return false;
 		}
@@ -862,6 +839,8 @@
 
 		var requestId = state.previewRequestId + 1;
 		state.previewRequestId = requestId;
+		var structure = previewStructureSignature();
+		renderedStructure = null;
 
 		function applyPreview(preview) {
 			if (!dom.previewFrame || requestId !== state.previewRequestId) return;
@@ -876,6 +855,8 @@
 				if (requestId !== state.previewRequestId) return;
 				try {
 					var doc = dom.previewFrame.contentDocument;
+					previewDom.markSections(doc);
+					renderedStructure = structure;
 					(preview.scripts || []).forEach(function(code) {
 						var script = doc.createElement('script');
 						script.textContent = code;
@@ -918,7 +899,7 @@
 		if (needsServerPreview()) wait = Math.max(wait, 250);
 
 		state.previewTimer = window.setTimeout(function() {
-			// Try live-patching first (no flicker) for CSS/content edits
+			// CSS edits can keep the existing document and scroll position.
 			if (previewInitialized && !forceFullRender && !needsServerPreview()) {
 				if (tryLivePatch()) {
 					return;
@@ -4731,43 +4712,21 @@
 			// reorder between render and edit would otherwise apply the edit to
 			// whichever section moved into that slot.
 			var idx = indexOfUid(data.sectionUid);
-			var oldText = data.oldText;
-			var newText = data.newText;
 
 			if (typeof idx !== 'number' || idx < 0 || idx >= state.sections.length) {
 				return;
 			}
 
 			var section = state.sections[idx];
-			if (!section || !section.content) {
+			if (!section || !section.content || section.kind === 'foreign' || section.blockId) {
 				return;
 			}
 
-			// Match the selected element, so identical text in another part
-			// of the same section is never edited by accident.
-			var html = section.content;
-			var changed = false;
-			if (Array.isArray(data.path) && typeof data.oldHtml === 'string' && typeof data.newHtml === 'string') {
-				var template = document.createElement('template');
-				template.innerHTML = html;
-				var node = template.content;
-				data.path.forEach(function(index) {
-					node = node && Number.isInteger(index) && index >= 0 ? node.children[index] : null;
-				});
-				if (node && node.nodeType === 1 && node.innerHTML === data.oldHtml) {
-					node.innerHTML = data.newHtml;
-					section.content = template.innerHTML;
-					changed = true;
-				}
-			}
-			if (!changed && typeof oldText === 'string' && oldText && typeof newText === 'string') {
-				var pos = html.indexOf(oldText);
-				if (pos !== -1 && html.indexOf(oldText, pos + oldText.length) === -1) {
-					section.content = html.substring(0, pos) + escapeHtml(newText) + html.substring(pos + oldText.length);
-					changed = true;
-				}
-			}
-			if (changed) {
+			// Replace only the selected source range. Serializing the fragment
+			// would add closing tags that belong to a later section.
+			var updatedHtml = previewDom.replaceInnerHtml(section.content, data, document);
+			if (updatedHtml !== null) {
+				section.content = updatedHtml;
 				// Sync to CodeMirror if this is the selected section
 				if (idx === state.selectedIndex) {
 					if (state.hasCodeMirror && state.editors.html) {
@@ -4782,6 +4741,9 @@
 				renderIndexList();
 				queueAutosave();
 				// Don't re-render preview — we edited it in-place
+			} else {
+				queuePreviewRender(0, true);
+				window.alert('This text could not be matched to its source. Edit it in the HTML panel instead.');
 			}
 		});
 

@@ -4,7 +4,7 @@ Tags: page builder, html blocks, css sections, gutenberg, visual builder
 Requires at least: 6.0
 Tested up to: 6.9.1
 Requires PHP: 8.1
-Stable tag: 3.0.1
+Stable tag: 3.0.2
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -65,6 +65,9 @@ Check **Load CSS from a file** to give a section its own stylesheet in `wp-conte
 
 == Upgrade Notice ==
 
+= 3.0.2 =
+Fixes the 3.0.1 preview regression that left later sections unstyled when a shared container opened in one section and closed in another. Shared CSS can remain in the first section; no page-content changes are needed.
+
 = 3.0.1 =
 Adds Functionalities preview compatibility, optional per-section CSS files, and smoother selection and saving in the visual builder. Existing sections remain inline unless file output is selected.
 
@@ -75,6 +78,13 @@ Major release. Back up your database first: the schema change is one-way. Requir
 Security release. Fixes privilege escalation in the block preview (any Author could execute PHP on sites with PHP blocks enabled) and restores certificate verification on the update channel. If you have PHP blocks turned on, update now. Requires PHP 8.1.
 
 == Changelog ==
+
+= 3.0.2 =
+
+* Fixed a 3.0.1 preview regression: section-selection wrappers could close a shared HTML container after the first section, leaving later sections outside its CSS scope. The preview now tracks sections without adding wrapper elements.
+* Inline text edits preserve opening and closing tags shared across sections. Editing replaces only the selected element's content, including when identical text occurs elsewhere or the server minifies whitespace.
+* CSS-only preview updates replace the existing stylesheet so removed declarations disappear. HTML changes rebuild the complete document to preserve shared containers and their layout.
+* Added browser-DOM regression coverage for shared containers, section selection, and precise inline edits.
 
 = 3.0.1 =
 

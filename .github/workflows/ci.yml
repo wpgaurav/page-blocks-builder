@@ -89,6 +89,18 @@ jobs:
       # runs in milliseconds, so it can gate every push.
       - run: vendor/bin/phpunit --testsuite unit
 
+  preview:
+    name: Preview DOM regressions
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - run: npm test
+
   integration:
     name: Integration (real WordPress)
     runs-on: ubuntu-latest

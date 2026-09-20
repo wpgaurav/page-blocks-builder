@@ -6,6 +6,7 @@ assets/.DS_Store
 # Composer artifacts. The tooling *config* is tracked, so a fresh clone can
 # run the same analysis CI does; only the installed tree is ignored.
 vendor/
+node_modules/
 
 # Per-release operational scripts. They are run once against the live store
 # and never packaged (the release workflow copies an allowlist), so they are
