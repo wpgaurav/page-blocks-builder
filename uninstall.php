@@ -68,6 +68,7 @@ function gt_pb_uninstall_site( bool $drop_tables ): void {
 	);
 
 	delete_metadata( 'user', 0, 'gt_pb_license_notice_dismissed', '', true );
+	delete_metadata( 'post', 0, '_gt_pb_section_css_files', '', true );
 
 	wp_clear_scheduled_hook( 'gt_pb_builder_verify_license' );
 	wp_clear_scheduled_hook( 'gt_pb_continue_upgrade' );

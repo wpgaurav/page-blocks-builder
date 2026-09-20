@@ -30,6 +30,7 @@ __release-*
 
 # Repo documents that are not plugin runtime.
 SECURITY.md
+/docs
 
 # Agent/editor working directories.
 .claude

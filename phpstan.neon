@@ -19,6 +19,8 @@ parameters:
         - includes/class-rest-api.php
         - includes/class-theme-builder.php
         - includes/class-migration.php
+        - includes/class-functionalities-compat.php
+        - includes/class-section-css.php
 
     excludePaths:
         - templates/*

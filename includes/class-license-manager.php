@@ -5,6 +5,8 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 class GT_PB_License_Manager {
+	// The configured private package bucket, not the public media CDN.
+	const PACKAGE_HOST = 'gauravtiwari-org-fluentcart.a6f90b6ea3dd1ee17fbca66a01108b5c.r2.cloudflarestorage.com';
 
 	const LICENSE_SERVER  = 'https://gauravtiwari.org/';
 	const ITEM_ID        = 1152523;
@@ -282,7 +284,7 @@ class GT_PB_License_Manager {
 				'plugin'        => $this->plugin_basename,
 				'new_version'   => $update_info['new_version'],
 				'url'           => $this->trusted_url( $update_info['url'] ?? '' ) ?: self::LICENSE_SERVER . 'product/gt-page-blocks-builder/',
-				'package'       => $this->trusted_url( $update_info['package'] ?? '' ),
+				'package'       => $this->trusted_package_url( $update_info['package'] ?? '' ),
 				'icons'         => $update_info['icons'] ?? array(),
 				'banners'       => $update_info['banners'] ?? array(),
 				'tested'        => $update_info['tested'] ?? '',
@@ -385,7 +387,7 @@ class GT_PB_License_Manager {
 			'version'       => $update_info['new_version'] ?? '',
 			'author'        => '<a href="https://gauravtiwari.org">Gaurav Tiwari</a>',
 			'homepage'      => $this->trusted_url( $update_info['homepage'] ?? '' ) ?: self::LICENSE_SERVER . 'product/gt-page-blocks-builder/',
-			'download_link' => $this->trusted_url( $update_info['package'] ?? '' ),
+			'download_link' => $this->trusted_package_url( $update_info['package'] ?? '' ),
 			'trunk'         => $update_info['trunk'] ?? '',
 			'last_updated'  => $update_info['last_updated'] ?? '',
 			'sections'      => array_map( 'wp_kses_post', (array) ( $update_info['sections'] ?? array() ) ),
@@ -665,6 +667,24 @@ class GT_PB_License_Manager {
 		}
 
 		return $url;
+	}
+
+	/** Allow signed packages from the exact configured R2 bucket over HTTPS. */
+	private function trusted_package_url( $url ): string {
+		if ( ! is_string( $url ) || '' === $url ) {
+			return '';
+		}
+		$parts = wp_parse_url( $url );
+		if ( ! is_array( $parts ) || isset( $parts['user'] ) || isset( $parts['pass'] ) || ( isset( $parts['port'] ) && 443 !== $parts['port'] ) ) {
+			return '';
+		}
+		if ( $this->trusted_url( $url ) ) {
+			return $url;
+		}
+		if ( 'https' !== strtolower( $parts['scheme'] ?? '' ) || self::PACKAGE_HOST !== strtolower( $parts['host'] ?? '' ) ) {
+			return '';
+		}
+		return preg_match( '~^/page-blocks-builder-v[0-9]+\.[0-9]+\.[0-9]+(?:-[a-z0-9.]+)?\.zip$~', $parts['path'] ?? '' ) ? $url : '';
 	}
 
 	private function api_request( $action, $params = array() ) {

@@ -2,20 +2,21 @@
 # This file is distributed under the GPL-2.0-or-later.
 msgid ""
 msgstr ""
-"Project-Id-Version: GT Page Blocks Builder 2.8.1\n"
+"Project-Id-Version: GT Page Blocks Builder 3.0.1\n"
 "Report-Msgid-Bugs-To: https://wordpress.org/support/plugin/page-blocks-builder\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
-"POT-Creation-Date: 2026-09-05T09:29:23+00:00\n"
+"POT-Creation-Date: 2026-09-20T04:46:38+00:00\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "X-Generator: WP-CLI 2.12.0\n"
 "X-Domain: page-blocks-builder\n"
 
 #. Plugin Name of the plugin
 #: page-blocks-builder.php
+#: page-blocks-builder.php:2825
 msgid "GT Page Blocks Builder"
 msgstr ""
 
@@ -39,151 +40,151 @@ msgstr ""
 msgid "https://gauravtiwari.org"
 msgstr ""
 
-#: includes/class-license-manager.php:57
+#: includes/class-license-manager.php:55
 msgid "Once Weekly"
 msgstr ""
 
-#: includes/class-license-manager.php:81
-#: includes/class-license-manager.php:82
-#: includes/class-license-manager.php:340
+#: includes/class-license-manager.php:79
+#: includes/class-license-manager.php:80
+#: includes/class-license-manager.php:416
 msgid "License"
 msgstr ""
 
-#: includes/class-license-manager.php:101
+#: includes/class-license-manager.php:99
 msgid "Please enter a license key."
 msgstr ""
 
-#: includes/class-license-manager.php:108
+#: includes/class-license-manager.php:106
 msgid "License activated successfully."
 msgstr ""
 
-#: includes/class-license-manager.php:116
+#: includes/class-license-manager.php:114
 msgid "License deactivated successfully."
 msgstr ""
 
-#: includes/class-license-manager.php:133
+#: includes/class-license-manager.php:131
 msgid "License activation failed. Please check your key and try again."
 msgstr ""
 
-#: includes/class-license-manager.php:158
+#: includes/class-license-manager.php:156
 msgid "No license key found."
 msgstr ""
 
-#: includes/class-license-manager.php:384
+#: includes/class-license-manager.php:460
 msgid "Your GT Page Blocks Builder license has expired. Renew to continue receiving updates and support."
 msgstr ""
 
-#: includes/class-license-manager.php:386
+#: includes/class-license-manager.php:462
 msgid "Manage License"
 msgstr ""
 
-#: includes/class-license-manager.php:391
+#: includes/class-license-manager.php:467
 msgid "GT Page Blocks Builder is free to use, and every feature is available without a license. A license adds automatic updates and support."
 msgstr ""
 
-#: includes/class-license-manager.php:393
-#: includes/class-license-manager.php:438
+#: includes/class-license-manager.php:469
+#: includes/class-license-manager.php:514
 msgid "Activate a license"
 msgstr ""
 
-#: includes/class-license-manager.php:436
+#: includes/class-license-manager.php:512
 msgid "Automatic updates need a license. The plugin itself stays free."
 msgstr ""
 
-#: includes/class-license-manager.php:451
+#: includes/class-license-manager.php:527
 msgid "GT Page Blocks Builder License"
 msgstr ""
 
-#: includes/class-license-manager.php:454
+#: includes/class-license-manager.php:530
 msgid "License Status"
 msgstr ""
 
-#: includes/class-license-manager.php:458
+#: includes/class-license-manager.php:534
 msgid "License Active"
 msgstr ""
 
 #. translators: %s: expiry date
-#: includes/class-license-manager.php:461
+#: includes/class-license-manager.php:537
 #, php-format
 msgid "Expires: %s"
 msgstr ""
 
-#: includes/class-license-manager.php:463
+#: includes/class-license-manager.php:539
 msgid "Lifetime license"
 msgstr ""
 
-#: includes/class-license-manager.php:474
+#: includes/class-license-manager.php:550
 msgid "Deactivate License"
 msgstr ""
 
-#: includes/class-license-manager.php:480
+#: includes/class-license-manager.php:556
 msgid "License Expired"
 msgstr ""
 
 #. translators: %s: expiry date
-#: includes/class-license-manager.php:483
+#: includes/class-license-manager.php:559
 #, php-format
 msgid "Expired: %s"
 msgstr ""
 
-#: includes/class-license-manager.php:487
+#: includes/class-license-manager.php:563
 msgid "Your license has expired. Renew it to continue receiving updates and support."
 msgstr ""
 
-#: includes/class-license-manager.php:490
+#: includes/class-license-manager.php:566
 msgid "Renew License"
 msgstr ""
 
-#: includes/class-license-manager.php:499
+#: includes/class-license-manager.php:575
 msgid "Or enter a new license key:"
 msgstr ""
 
-#: includes/class-license-manager.php:500
-#: includes/class-license-manager.php:515
+#: includes/class-license-manager.php:576
+#: includes/class-license-manager.php:591
 msgid "Enter license key..."
 msgstr ""
 
-#: includes/class-license-manager.php:503
-#: includes/class-license-manager.php:518
+#: includes/class-license-manager.php:579
+#: includes/class-license-manager.php:594
 msgid "Activate License"
 msgstr ""
 
-#: includes/class-license-manager.php:508
+#: includes/class-license-manager.php:584
 msgid "Enter your license key to enable automatic updates and support."
 msgstr ""
 
-#: includes/class-license-manager.php:514
+#: includes/class-license-manager.php:590
 msgid "License Key"
 msgstr ""
 
 #. translators: 1: opening link tag, 2: closing link tag
-#: includes/class-license-manager.php:527
+#: includes/class-license-manager.php:603
 #, php-format
 msgid "Don't have a license? %1$sGet one here%2$s."
 msgstr ""
 
-#: includes/class-license-manager.php:610
+#: includes/class-license-manager.php:711
 msgid "Could not connect to the license server. Please try again later."
 msgstr ""
 
-#: includes/class-license-manager.php:618
+#: includes/class-license-manager.php:719
 msgid "License server returned an error."
 msgstr ""
 
 #: includes/class-list-table.php:38
-#: page-blocks-builder.php:2918
+#: page-blocks-builder.php:3085
 #: templates/admin-edit.php:78
 msgid "Title"
 msgstr ""
 
 #: includes/class-list-table.php:39
-#: page-blocks-builder.php:2919
+#: page-blocks-builder.php:3086
 msgid "Slug"
 msgstr ""
 
 #: includes/class-list-table.php:40
-#: page-blocks-builder.php:2866
-#: page-blocks-builder.php:2922
+#: page-blocks-builder.php:3033
+#: page-blocks-builder.php:3089
 #: templates/admin-edit.php:204
 msgid "Shortcode"
 msgstr ""
@@ -206,7 +207,8 @@ msgstr ""
 
 #: includes/class-list-table.php:71
 #: includes/class-list-table.php:285
-#: page-blocks-builder.php:2868
+#: page-blocks-builder.php:3035
+#: templates/admin-edit.php:279
 msgid "Restore"
 msgstr ""
 
@@ -221,20 +223,20 @@ msgid "Move to Trash"
 msgstr ""
 
 #: includes/class-list-table.php:106
-#: page-blocks-builder.php:2857
+#: page-blocks-builder.php:3024
 msgid "All"
 msgstr ""
 
 #: includes/class-list-table.php:115
 #: includes/class-list-table.php:338
-#: page-blocks-builder.php:2858
+#: page-blocks-builder.php:3025
 #: templates/admin-edit.php:158
 msgid "Published"
 msgstr ""
 
 #: includes/class-list-table.php:125
 #: includes/class-list-table.php:339
-#: page-blocks-builder.php:2860
+#: page-blocks-builder.php:3027
 #: templates/admin-edit.php:159
 msgid "Draft"
 msgstr ""
@@ -242,8 +244,8 @@ msgstr ""
 #: includes/class-list-table.php:135
 #: includes/class-list-table.php:298
 #: includes/class-list-table.php:340
-#: page-blocks-builder.php:2861
-#: page-blocks-builder.php:2867
+#: page-blocks-builder.php:3028
+#: page-blocks-builder.php:3034
 msgid "Trash"
 msgstr ""
 
@@ -252,12 +254,12 @@ msgid "Delete permanently?"
 msgstr ""
 
 #: includes/class-list-table.php:296
-#: page-blocks-builder.php:2864
+#: page-blocks-builder.php:3031
 msgid "Edit"
 msgstr ""
 
 #: includes/class-list-table.php:297
-#: page-blocks-builder.php:2865
+#: page-blocks-builder.php:3032
 msgid "Duplicate"
 msgstr ""
 
@@ -282,23 +284,23 @@ msgid "Create your first page block"
 msgstr ""
 
 #. translators: %s: database table name
-#: includes/class-migration.php:411
+#: includes/class-migration.php:419
 #, php-format
 msgid "No dropin library table found (%s). Nothing to import."
 msgstr ""
 
-#: includes/class-migration.php:440
+#: includes/class-migration.php:448
 msgid "The dropin library table is empty. Nothing to import."
 msgstr ""
 
 #. translators: 1: imported count, 2: overwritten count, 3: skipped count, 4: total rows, 5: failed count
-#: includes/class-migration.php:557
+#: includes/class-migration.php:565
 #, php-format
 msgid "Imported %1$d, replaced %2$d, skipped %3$d of %4$d dropin block(s). Failed: %5$d."
 msgstr ""
 
-#: includes/class-migration.php:611
-#: includes/class-migration.php:638
+#: includes/class-migration.php:619
+#: includes/class-migration.php:646
 msgid "You do not have permission to run the migration."
 msgstr ""
 
@@ -306,12 +308,12 @@ msgstr ""
 #: includes/class-rest-api.php:204
 #: includes/class-rest-api.php:226
 #: includes/class-rest-api.php:264
-#: page-blocks-builder.php:2630
+#: page-blocks-builder.php:2726
 msgid "Page block not found."
 msgstr ""
 
 #: includes/class-rest-api.php:185
-#: page-blocks-builder.php:1732
+#: page-blocks-builder.php:1789
 msgid "A title is required."
 msgstr ""
 
@@ -413,402 +415,489 @@ msgstr ""
 msgid "get_sidebar"
 msgstr ""
 
-#: page-blocks-builder.php:663
-#: page-blocks-builder.php:2517
-#: page-blocks-builder.php:2518
-#: page-blocks-builder.php:2572
-#: page-blocks-builder.php:2596
+#: page-blocks-builder.php:670
+#: page-blocks-builder.php:2613
+#: page-blocks-builder.php:2614
+#: page-blocks-builder.php:2668
+#: page-blocks-builder.php:2692
 msgid "Page Blocks"
 msgstr ""
 
-#: page-blocks-builder.php:1036
+#: page-blocks-builder.php:1063
 msgid "You do not have permission to access the Page Blocks Builder."
 msgstr ""
 
-#: page-blocks-builder.php:1037
+#: page-blocks-builder.php:1064
 msgid "Forbidden"
 msgstr ""
 
-#: page-blocks-builder.php:1529
+#: page-blocks-builder.php:1568
 msgid "Classic content"
 msgstr ""
 
-#: page-blocks-builder.php:1707
+#: page-blocks-builder.php:1749
 msgid "PHP in this section was not executed in the preview. Running PHP requires administrator access."
 msgstr ""
 
-#: page-blocks-builder.php:1722
-#: page-blocks-builder.php:1756
-#: page-blocks-builder.php:1943
-#: page-blocks-builder.php:3823
+#: page-blocks-builder.php:1779
+#: page-blocks-builder.php:1813
+#: page-blocks-builder.php:2013
+#: page-blocks-builder.php:4095
 msgid "Authentication required."
 msgstr ""
 
-#: page-blocks-builder.php:1727
+#: page-blocks-builder.php:1784
 msgid "You do not have permission to save to the library."
 msgstr ""
 
-#: page-blocks-builder.php:1748
+#: page-blocks-builder.php:1805
 msgid "Could not save the Page Block."
 msgstr ""
 
-#: page-blocks-builder.php:1763
+#: page-blocks-builder.php:1820
 msgid "You do not have permission to save Page Blocks."
 msgstr ""
 
-#: page-blocks-builder.php:1776
+#: page-blocks-builder.php:1833
 msgid "Invalid builder payload."
 msgstr ""
 
-#: page-blocks-builder.php:1781
+#: page-blocks-builder.php:1838
 msgid "Post no longer exists."
 msgstr ""
 
-#: page-blocks-builder.php:1842
+#: page-blocks-builder.php:1899
 msgid "Refusing to save an empty document."
 msgstr ""
 
 #. translators: 1: blocks in the payload, 2: blocks on the page
-#: page-blocks-builder.php:1881
+#: page-blocks-builder.php:1938
 #, php-format
 msgid "Refusing to save: this page has %2$d block(s) the builder cannot edit but the save only accounted for %1$d. Reload the builder and try again."
 msgstr ""
 
-#: page-blocks-builder.php:1927
+#: page-blocks-builder.php:1984
 msgid "Page Blocks saved."
 msgstr ""
 
-#: page-blocks-builder.php:1950
+#: page-blocks-builder.php:2004
+msgid "A POST request is required."
+msgstr ""
+
+#: page-blocks-builder.php:2020
 msgid "You do not have permission to preview Page Blocks."
 msgstr ""
 
-#: page-blocks-builder.php:1956
+#: page-blocks-builder.php:2026
 msgid "Invalid preview payload."
 msgstr ""
 
-#: page-blocks-builder.php:1995
-#: page-blocks-builder.php:2127
+#: page-blocks-builder.php:2047
+msgid "Unrecognized block in preview. Reload the builder and try again."
+msgstr ""
+
+#: page-blocks-builder.php:2083
+#: page-blocks-builder.php:2215
 #: templates/builder-shell.php:20
 #: templates/settings-page.php:18
 msgid "Page Blocks Builder"
 msgstr ""
 
-#: page-blocks-builder.php:1998
+#: page-blocks-builder.php:2086
 msgid "Open Page Blocks visual builder"
 msgstr ""
 
-#: page-blocks-builder.php:2128
+#: page-blocks-builder.php:2216
 msgid "Full Page Builder"
 msgstr ""
 
-#: page-blocks-builder.php:2402
+#: page-blocks-builder.php:2498
 msgid "GT Page Blocks Builder: utility classes were switched off during the upgrade to 3.0. The feature never emitted anything for page blocks before now, so this keeps your pages rendering exactly as they did. Turn it back on when you are ready to check your layouts."
 msgstr ""
 
-#: page-blocks-builder.php:2404
+#: page-blocks-builder.php:2500
 msgid "Open settings"
 msgstr ""
 
-#: page-blocks-builder.php:2528
-#: page-blocks-builder.php:2529
+#: page-blocks-builder.php:2624
+#: page-blocks-builder.php:2625
 msgid "All Page Blocks"
 msgstr ""
 
-#: page-blocks-builder.php:2537
-#: page-blocks-builder.php:2538
-#: page-blocks-builder.php:2574
-#: page-blocks-builder.php:2598
+#: page-blocks-builder.php:2633
+#: page-blocks-builder.php:2634
+#: page-blocks-builder.php:2670
+#: page-blocks-builder.php:2694
 msgid "Add New"
 msgstr ""
 
-#: page-blocks-builder.php:2546
-#: page-blocks-builder.php:2547
-#: templates/admin-edit.php:226
+#: page-blocks-builder.php:2642
+#: page-blocks-builder.php:2643
+#: templates/admin-edit.php:292
 msgid "Settings"
 msgstr ""
 
-#: page-blocks-builder.php:2582
+#: page-blocks-builder.php:2678
 msgid "JavaScript is required for the library view — use the list view instead."
 msgstr ""
 
-#: page-blocks-builder.php:2601
+#: page-blocks-builder.php:2697
 msgid "Library view"
 msgstr ""
 
-#: page-blocks-builder.php:2611
+#: page-blocks-builder.php:2707
 msgid "Search Page Blocks"
 msgstr ""
 
-#: page-blocks-builder.php:2643
+#: page-blocks-builder.php:2743
 msgid "Page block created."
 msgstr ""
 
-#: page-blocks-builder.php:2644
+#: page-blocks-builder.php:2744
 msgid "Page block updated."
 msgstr ""
 
-#: page-blocks-builder.php:2645
+#: page-blocks-builder.php:2745
 msgid "Page block moved to trash."
 msgstr ""
 
-#: page-blocks-builder.php:2646
+#: page-blocks-builder.php:2746
 msgid "Page block restored."
 msgstr ""
 
-#: page-blocks-builder.php:2647
+#: page-blocks-builder.php:2747
+msgid "Revision restored. The version you replaced is kept as a revision."
+msgstr ""
+
+#: page-blocks-builder.php:2748
 msgid "Page block permanently deleted."
 msgstr ""
 
-#: page-blocks-builder.php:2650
+#: page-blocks-builder.php:2751
 msgid "Not saved: another page block already uses that slug. Change the slug and save again."
 msgstr ""
 
-#: page-blocks-builder.php:2651
+#: page-blocks-builder.php:2752
 msgid "Not saved: the database rejected the write. Nothing was changed."
 msgstr ""
 
-#: page-blocks-builder.php:2703
-#: page-blocks-builder.php:3830
+#: page-blocks-builder.php:2827
+msgid "Version"
+msgstr ""
+
+#: page-blocks-builder.php:2828
+msgid "Schema version"
+msgstr ""
+
+#: page-blocks-builder.php:2829
+msgid "Upgrade pending"
+msgstr ""
+
+#: page-blocks-builder.php:2829
+msgid "yes, resuming in batches"
+msgstr ""
+
+#: page-blocks-builder.php:2829
+#: page-blocks-builder.php:2833
+#: page-blocks-builder.php:2834
+msgid "no"
+msgstr ""
+
+#: page-blocks-builder.php:2830
+msgid "Library blocks"
+msgstr ""
+
+#: page-blocks-builder.php:2831
+msgid "Blocks with PHP enabled"
+msgstr ""
+
+#: page-blocks-builder.php:2832
+msgid "Blocks using file output"
+msgstr ""
+
+#: page-blocks-builder.php:2833
+msgid "PHP execution allowed"
+msgstr ""
+
+#: page-blocks-builder.php:2833
+msgid "yes (GT_PB_ALLOW_PHP)"
+msgstr ""
+
+#: page-blocks-builder.php:2834
+msgid "Inline PHP allowed"
+msgstr ""
+
+#: page-blocks-builder.php:2834
+#: page-blocks-builder.php:2836
+msgid "yes"
+msgstr ""
+
+#: page-blocks-builder.php:2835
+msgid "Utility classes"
+msgstr ""
+
+#: page-blocks-builder.php:2835
+msgid "on"
+msgstr ""
+
+#: page-blocks-builder.php:2835
+msgid "off"
+msgstr ""
+
+#: page-blocks-builder.php:2836
+msgid "Asset directory writable"
+msgstr ""
+
+#: page-blocks-builder.php:2836
+msgid "no - file output will silently fall back to inline"
+msgstr ""
+
+#: page-blocks-builder.php:2837
+msgid "Builder post types"
+msgstr ""
+
+#: page-blocks-builder.php:2868
+#: page-blocks-builder.php:4102
 msgid "Permission denied."
 msgstr ""
 
-#: page-blocks-builder.php:2859
+#: page-blocks-builder.php:3026
 msgid "Drafts"
 msgstr ""
 
-#: page-blocks-builder.php:2862
+#: page-blocks-builder.php:3029
 msgid "Search blocks…"
 msgstr ""
 
-#: page-blocks-builder.php:2863
+#: page-blocks-builder.php:3030
 msgid "Add new block"
 msgstr ""
 
-#: page-blocks-builder.php:2869
+#: page-blocks-builder.php:3036
 msgid "Delete forever"
 msgstr ""
 
-#: page-blocks-builder.php:2870
+#: page-blocks-builder.php:3037
 msgid "Delete this page block permanently? This cannot be undone."
 msgstr ""
 
-#: page-blocks-builder.php:2871
+#: page-blocks-builder.php:3038
 msgid "Block duplicated."
 msgstr ""
 
-#: page-blocks-builder.php:2872
+#: page-blocks-builder.php:3039
 msgid "Block moved to trash."
 msgstr ""
 
-#: page-blocks-builder.php:2873
+#: page-blocks-builder.php:3040
 msgid "Block restored as draft."
 msgstr ""
 
-#: page-blocks-builder.php:2874
+#: page-blocks-builder.php:3041
 msgid "Block deleted permanently."
 msgstr ""
 
-#: page-blocks-builder.php:2875
+#: page-blocks-builder.php:3042
 msgid "Shortcode copied to clipboard."
 msgstr ""
 
-#: page-blocks-builder.php:2876
+#: page-blocks-builder.php:3043
 msgid "Load more"
 msgstr ""
 
-#: page-blocks-builder.php:2877
+#: page-blocks-builder.php:3044
 msgid "Loading…"
 msgstr ""
 
-#: page-blocks-builder.php:2878
+#: page-blocks-builder.php:3045
 msgid "just now"
 msgstr ""
 
-#: page-blocks-builder.php:2879
+#: page-blocks-builder.php:3046
 msgid "Your library is empty"
 msgstr ""
 
-#: page-blocks-builder.php:2880
+#: page-blocks-builder.php:3047
 msgid "Save reusable sections once, drop them anywhere with a shortcode or the editor block."
 msgstr ""
 
-#: page-blocks-builder.php:2881
+#: page-blocks-builder.php:3048
 msgid "Create your first block"
 msgstr ""
 
-#: page-blocks-builder.php:2882
+#: page-blocks-builder.php:3049
 msgid "No blocks match"
 msgstr ""
 
-#: page-blocks-builder.php:2883
+#: page-blocks-builder.php:3050
 msgid "Try a different search or filter."
 msgstr ""
 
-#: page-blocks-builder.php:2886
+#: page-blocks-builder.php:3053
 msgid "CSS only"
 msgstr ""
 
-#: page-blocks-builder.php:2887
+#: page-blocks-builder.php:3054
 msgid "JavaScript only"
 msgstr ""
 
-#: page-blocks-builder.php:2888
+#: page-blocks-builder.php:3055
 msgid "PHP only"
 msgstr ""
 
-#: page-blocks-builder.php:2889
+#: page-blocks-builder.php:3056
 msgid "Nothing to preview"
 msgstr ""
 
-#: page-blocks-builder.php:2890
+#: page-blocks-builder.php:3057
 msgid "Search blocks"
 msgstr ""
 
-#: page-blocks-builder.php:2891
+#: page-blocks-builder.php:3058
 msgid "Search"
 msgstr ""
 
-#: page-blocks-builder.php:2892
+#: page-blocks-builder.php:3059
 msgid "page"
 msgstr ""
 
-#: page-blocks-builder.php:2893
+#: page-blocks-builder.php:3060
 msgid "pages"
 msgstr ""
 
-#: page-blocks-builder.php:2894
+#: page-blocks-builder.php:3061
 msgid "Posts and pages that place this block"
 msgstr ""
 
-#: page-blocks-builder.php:2895
+#: page-blocks-builder.php:3062
 msgid "Unused"
 msgstr ""
 
-#: page-blocks-builder.php:2896
+#: page-blocks-builder.php:3063
 msgid "Nothing on this site places this block"
 msgstr ""
 
-#: page-blocks-builder.php:2897
+#: page-blocks-builder.php:3064
 msgid "Copy shortcode"
 msgstr ""
 
-#: page-blocks-builder.php:2898
+#: page-blocks-builder.php:3065
 msgid "Preview width"
 msgstr ""
 
-#: page-blocks-builder.php:2899
+#: page-blocks-builder.php:3066
 msgid "Sort by"
 msgstr ""
 
-#: page-blocks-builder.php:2900
+#: page-blocks-builder.php:3067
 msgid "Recently updated"
 msgstr ""
 
-#: page-blocks-builder.php:2901
+#: page-blocks-builder.php:3068
 msgid "Title A–Z"
 msgstr ""
 
-#: page-blocks-builder.php:2902
+#: page-blocks-builder.php:3069
 msgid "Most used"
 msgstr ""
 
-#: page-blocks-builder.php:2903
+#: page-blocks-builder.php:3070
 msgid "Least used"
 msgstr ""
 
-#: page-blocks-builder.php:2904
+#: page-blocks-builder.php:3071
 msgid "View"
 msgstr ""
 
-#: page-blocks-builder.php:2905
+#: page-blocks-builder.php:3072
 msgid "Grid view"
 msgstr ""
 
-#: page-blocks-builder.php:2906
+#: page-blocks-builder.php:3073
 msgid "List view"
 msgstr ""
 
-#: page-blocks-builder.php:2907
+#: page-blocks-builder.php:3074
 msgid "Select all"
 msgstr ""
 
-#: page-blocks-builder.php:2908
+#: page-blocks-builder.php:3075
 msgid "selected"
 msgstr ""
 
-#: page-blocks-builder.php:2909
+#: page-blocks-builder.php:3076
 msgid "Clear"
 msgstr ""
 
 #. translators: %d: number of blocks
-#: page-blocks-builder.php:2911
+#: page-blocks-builder.php:3078
 #, php-format
 msgid "Move %d block(s) to trash?"
 msgstr ""
 
 #. translators: %d: number of blocks
-#: page-blocks-builder.php:2913
+#: page-blocks-builder.php:3080
 #, php-format
 msgid "Permanently delete %d block(s)? This cannot be undone."
 msgstr ""
 
 #. translators: %d: number of blocks
-#: page-blocks-builder.php:2915
+#: page-blocks-builder.php:3082
 #, php-format
 msgid "%d block(s) updated."
 msgstr ""
 
 #. translators: 1: updated count, 2: failed count
-#: page-blocks-builder.php:2917
+#: page-blocks-builder.php:3084
 #, php-format
 msgid "%1$d updated, %2$d failed."
 msgstr ""
 
-#: page-blocks-builder.php:2920
+#: page-blocks-builder.php:3087
 msgid "Contains"
 msgstr ""
 
-#: page-blocks-builder.php:2921
+#: page-blocks-builder.php:3088
 msgid "Used on"
 msgstr ""
 
-#: page-blocks-builder.php:2923
+#: page-blocks-builder.php:3090
 msgid "Updated"
 msgstr ""
 
-#: page-blocks-builder.php:3847
+#: page-blocks-builder.php:4119
 msgid "You do not have permission to use AI generation on this site."
 msgstr ""
 
-#: page-blocks-builder.php:3863
+#: page-blocks-builder.php:4135
 msgid "Prompt is required."
 msgstr ""
 
-#: page-blocks-builder.php:3950
+#: page-blocks-builder.php:4222
 msgid "Unknown model."
 msgstr ""
 
 #. translators: %s: AI provider name
-#: page-blocks-builder.php:3956
+#: page-blocks-builder.php:4228
 #, php-format
 msgid "No API key configured for %s. Add it in Settings > Page Blocks Builder."
 msgstr ""
 
-#: page-blocks-builder.php:4020
+#: page-blocks-builder.php:4292
 msgid "Invalid provider."
 msgstr ""
 
 #. translators: %d: timeout in seconds
-#: page-blocks-builder.php:4233
+#: page-blocks-builder.php:4505
 #, php-format
 msgid "AI request timed out after %d seconds. Try again, reduce prompt/context size, or switch to a faster model."
 msgstr ""
 
-#: page-blocks-builder.php:4262
+#: page-blocks-builder.php:4534
 msgid "Invalid API response."
 msgstr ""
 
-#: page-blocks-builder.php:4301
+#: page-blocks-builder.php:4573
 msgid "AI returned an empty response. Try again or switch the model."
 msgstr ""
 
@@ -966,72 +1055,114 @@ msgstr ""
 msgid "REST API"
 msgstr ""
 
-#: templates/admin-edit.php:230
-msgid "CSS/JS Output"
+#: templates/admin-edit.php:225
+msgid "Organise"
+msgstr ""
+
+#: templates/admin-edit.php:229
+msgid "Tags"
 msgstr ""
 
 #: templates/admin-edit.php:232
-#: templates/admin-edit.php:240
-msgid "Inline"
+msgid "hero, cta, footer"
 msgstr ""
 
 #: templates/admin-edit.php:233
+msgid "Comma separated. Used to filter a library that has grown past a screenful."
+msgstr ""
+
+#: templates/admin-edit.php:236
+msgid "Description"
+msgstr ""
+
+#: templates/admin-edit.php:238
+msgid "What this block is for, so the next person does not have to read its markup."
+msgstr ""
+
+#: templates/admin-edit.php:248
+msgid "Revisions"
+msgstr ""
+
+#: templates/admin-edit.php:253
+msgid "No revisions yet. One is kept each time you save, so you can get back to a working version."
+msgstr ""
+
+#. translators: %s: human-readable time difference, e.g. "2 hours"
+#: templates/admin-edit.php:264
+#, php-format
+msgid "%s ago"
+msgstr ""
+
+#: templates/admin-edit.php:278
+msgid "Restore this version? The current content is kept as a revision, so this is reversible."
+msgstr ""
+
+#: templates/admin-edit.php:296
+msgid "CSS/JS Output"
+msgstr ""
+
+#: templates/admin-edit.php:298
+#: templates/admin-edit.php:306
+msgid "Inline"
+msgstr ""
+
+#: templates/admin-edit.php:299
 msgid "External File"
 msgstr ""
 
-#: templates/admin-edit.php:237
+#: templates/admin-edit.php:303
 msgid "JS Location"
 msgstr ""
 
-#: templates/admin-edit.php:239
+#: templates/admin-edit.php:305
 msgid "Footer"
 msgstr ""
 
-#: templates/admin-edit.php:246
+#: templates/admin-edit.php:312
 msgid "Execute PHP"
 msgstr ""
 
-#: templates/admin-edit.php:250
+#: templates/admin-edit.php:316
 msgid "Auto-format (wpautop)"
 msgstr ""
 
-#: templates/admin-edit.php:259
+#: templates/admin-edit.php:325
 msgid "Hook Position"
 msgstr ""
 
-#: templates/admin-edit.php:263
+#: templates/admin-edit.php:329
 msgid "Position:"
 msgstr ""
 
-#: templates/admin-edit.php:274
+#: templates/admin-edit.php:340
 msgid "Priority:"
 msgstr ""
 
-#: templates/admin-edit.php:276
+#: templates/admin-edit.php:342
 msgid "Lower = earlier"
 msgstr ""
 
-#: templates/admin-edit.php:282
+#: templates/admin-edit.php:355
 msgid "Display Conditions"
 msgstr ""
 
-#: templates/admin-edit.php:283
+#: templates/admin-edit.php:356
 msgid "Leave empty to display everywhere."
 msgstr ""
 
-#: templates/admin-edit.php:285
+#: templates/admin-edit.php:358
 msgid "Post Types:"
 msgstr ""
 
-#: templates/admin-edit.php:294
+#: templates/admin-edit.php:367
 msgid "Page Types:"
 msgstr ""
 
-#: templates/admin-edit.php:304
+#: templates/admin-edit.php:377
 msgid "Specific Post IDs:"
 msgstr ""
 
-#: templates/admin-edit.php:307
+#: templates/admin-edit.php:380
 msgid "123, 456, 789"
 msgstr ""
 
@@ -1067,175 +1198,187 @@ msgstr ""
 msgid "Modern reset: box-sizing, list/heading defaults, accessible images, prefers-reduced-motion. ~1KB inlined when enabled."
 msgstr ""
 
-#: templates/settings-page.php:61
+#: templates/settings-page.php:62
+msgid "Delete data on uninstall"
+msgstr ""
+
+#: templates/settings-page.php:66
+msgid "Also drop the block library table when the plugin is deleted"
+msgstr ""
+
+#: templates/settings-page.php:69
+msgid "Options, transients and stored AI keys are always removed on uninstall. Your blocks are your content, so the library table is kept unless you tick this. There is no undo."
+msgstr ""
+
+#: templates/settings-page.php:74
 msgid "Typography"
 msgstr ""
 
-#: templates/settings-page.php:65
+#: templates/settings-page.php:78
 msgid "Load minified typography defaults in <head>"
 msgstr ""
 
-#: templates/settings-page.php:67
+#: templates/settings-page.php:80
 msgid "System fonts (no external requests), responsive heading sizes via clamp(), proper measure (65ch), styled lists, blockquotes, code, kbd, tables, dark-mode adjustments. ~3KB inlined when enabled."
 msgstr ""
 
-#: templates/settings-page.php:71
+#: templates/settings-page.php:84
 msgid "Utility Classes"
 msgstr ""
 
-#: templates/settings-page.php:75
+#: templates/settings-page.php:88
 msgid "Inline utility classes that are actually used on the page"
 msgstr ""
 
-#: templates/settings-page.php:78
+#: templates/settings-page.php:91
 msgid "Tailwind-inspired utilities (grid, flex, spacing, typography, colors, etc.). The plugin scans your post content for class names and inlines ONLY the matching rules — no bloat."
 msgstr ""
 
-#: templates/settings-page.php:80
+#: templates/settings-page.php:93
 msgid "In the builder, the full utility set is always available for autocomplete."
 msgstr ""
 
-#: templates/settings-page.php:88
+#: templates/settings-page.php:101
 msgid "AI Integration"
 msgstr ""
 
-#: templates/settings-page.php:89
+#: templates/settings-page.php:102
 msgid "Configure AI providers for the builder's code generation chat sidebar (Cmd+K)."
 msgstr ""
 
-#: templates/settings-page.php:94
+#: templates/settings-page.php:107
 msgid "OpenAI API Key"
 msgstr ""
 
-#: templates/settings-page.php:100
+#: templates/settings-page.php:113
 msgid "Anthropic API Key"
 msgstr ""
 
-#: templates/settings-page.php:106
+#: templates/settings-page.php:119
 msgid "Google Gemini API Key"
 msgstr ""
 
-#: templates/settings-page.php:112
+#: templates/settings-page.php:125
 msgid "Default AI Model"
 msgstr ""
 
-#: templates/settings-page.php:146
+#: templates/settings-page.php:159
 msgid "Preview Customization"
 msgstr ""
 
-#: templates/settings-page.php:147
+#: templates/settings-page.php:160
 msgid "Add custom CSS, HTML, or JS to the builder preview iframe. Use this for custom fonts, design tokens, or scripts the preview needs."
 msgstr ""
 
-#: templates/settings-page.php:152
+#: templates/settings-page.php:165
 msgid "Preview CSS"
 msgstr ""
 
-#: templates/settings-page.php:155
+#: templates/settings-page.php:168
 msgid "Injected into a <style> tag in the preview <head>. Example: @font-face rules, CSS custom properties."
 msgstr ""
 
-#: templates/settings-page.php:159
+#: templates/settings-page.php:172
 msgid "Preview Head HTML"
 msgstr ""
 
-#: templates/settings-page.php:162
+#: templates/settings-page.php:175
 msgid "Raw HTML added to the preview <head>. Use for preconnect hints, external stylesheets, or meta tags."
 msgstr ""
 
-#: templates/settings-page.php:166
+#: templates/settings-page.php:179
 msgid "Preview Footer JS"
 msgstr ""
 
-#: templates/settings-page.php:169
+#: templates/settings-page.php:182
 msgid "JavaScript added before </body> in the preview. No <script> tags needed."
 msgstr ""
 
-#: templates/settings-page.php:176
+#: templates/settings-page.php:189
 msgid "Preview Injection Filter (Advanced)"
 msgstr ""
 
-#: templates/settings-page.php:181
+#: templates/settings-page.php:194
 msgid "PHP Filter"
 msgstr ""
 
-#: templates/settings-page.php:183
+#: templates/settings-page.php:196
 msgid "For dynamic/conditional injection, use this filter in functions.php. Settings above feed the defaults."
 msgstr ""
 
-#: templates/settings-page.php:194
+#: templates/settings-page.php:207
 msgid "Tools"
 msgstr ""
 
 #. translators: %d: number of posts
-#: templates/settings-page.php:202
+#: templates/settings-page.php:215
 #, php-format
 msgid "Dry run: %d post(s) contain legacy page blocks and would be migrated."
 msgstr ""
 
 #. translators: %d: number of posts
-#: templates/settings-page.php:205
+#: templates/settings-page.php:218
 #, php-format
 msgid "Migrated %d post(s) to the gt-page-block/page-block block."
 msgstr ""
 
-#: templates/settings-page.php:219
+#: templates/settings-page.php:232
 msgid "Positions remapped:"
 msgstr ""
 
-#: templates/settings-page.php:227
+#: templates/settings-page.php:240
 msgid "Positions cleared (no plugin equivalent — these blocks are now shortcode/block only):"
 msgstr ""
 
-#: templates/settings-page.php:241
+#: templates/settings-page.php:254
 msgid "Block migration"
 msgstr ""
 
 #. translators: %d: number of posts
-#: templates/settings-page.php:246
+#: templates/settings-page.php:259
 #, php-format
 msgid "Rewrites marketers-delight/page-block to gt-page-block/page-block in stored content. %d post(s) currently contain the legacy block."
 msgstr ""
 
-#: templates/settings-page.php:253
-#: templates/settings-page.php:293
+#: templates/settings-page.php:266
+#: templates/settings-page.php:306
 msgid "Dry run"
 msgstr ""
 
-#: templates/settings-page.php:258
+#: templates/settings-page.php:271
 msgid "Migrate blocks"
 msgstr ""
 
-#: templates/settings-page.php:261
+#: templates/settings-page.php:274
 msgid "Also available via WP-CLI: wp gt-pb migrate-blocks [--dry-run]"
 msgstr ""
 
-#: templates/settings-page.php:271
+#: templates/settings-page.php:284
 msgid "Import from dropin"
 msgstr ""
 
-#: templates/settings-page.php:275
+#: templates/settings-page.php:288
 msgid "No Marketers Delight page-blocks table found in this database. Nothing to import."
 msgstr ""
 
 #. translators: 1: total dropin rows, 2: importable count, 3: conflicting count
-#: templates/settings-page.php:282
+#: templates/settings-page.php:295
 #, php-format
 msgid "Copies the dropin library into this plugin, keeping the original block IDs so existing shortcodes and blocks keep resolving. Found %1$d dropin block(s): %2$d new, %3$d already present here."
 msgstr ""
 
-#: templates/settings-page.php:298
+#: templates/settings-page.php:311
 msgid "Import blocks"
 msgstr ""
 
-#: templates/settings-page.php:302
+#: templates/settings-page.php:315
 msgid "This overwrites blocks in this plugin that share an ID with a dropin block. Continue?"
 msgstr ""
 
-#: templates/settings-page.php:306
+#: templates/settings-page.php:319
 msgid "Import and overwrite"
 msgstr ""
 
-#: templates/settings-page.php:310
+#: templates/settings-page.php:323
 msgid "Also available via WP-CLI: wp gt-pb migrate-library [--dry-run] [--overwrite]"
 msgstr ""

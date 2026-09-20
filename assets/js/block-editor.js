@@ -518,6 +518,7 @@
 			format:     { type: 'boolean', default: false },
 			phpExec:    { type: 'boolean', default: false },
 			output:     { type: 'string', default: 'inline' },
+			cssOutput:  { type: 'string', default: '' },
 			// Added in 3.0.0. These must mirror the PHP registration for the
 			// same reason the comment above gives.
 			name:              { type: 'string', default: '' },
@@ -1480,6 +1481,13 @@
 						onChange: function( val ) {
 							props.setAttributes( { phpExec: val } );
 						}
+					}),
+					el( ToggleControl, {
+						label: __( 'Load CSS from a file' ),
+						checked: attributes.cssOutput === 'file' || (!attributes.cssOutput && attributes.output === 'file'),
+						disabled: isLinked,
+						help: isLinked ? settingsHelp : __( 'One stylesheet per section, with a new filename each time this page is saved.' ),
+						onChange: function( val ) { props.setAttributes( { cssOutput: val ? 'file' : 'inline' } ); }
 					}),
 					// Only meaningful on a linked block: display conditions live
 					// on the library row. Off by default, and deliberately so -

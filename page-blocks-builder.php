@@ -4,7 +4,7 @@
  * Plugin URI: https://gauravtiwari.org/product/gt-page-blocks-builder/
  * Update URI: https://gauravtiwari.org/product/gt-page-blocks-builder/
  * Description: Standalone visual Page Blocks builder with HTML/CSS/JS sections synced to Gutenberg block content.
- * Version: 3.0.0
+ * Version: 3.0.1
  * Author: Gaurav Tiwari
  * Author URI: https://gauravtiwari.org
  * Text Domain: page-blocks-builder
@@ -20,7 +20,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 if ( ! defined( 'GT_PB_BUILDER_VERSION' ) ) {
-	define( 'GT_PB_BUILDER_VERSION', '3.0.0' );
+	define( 'GT_PB_BUILDER_VERSION', '3.0.1' );
 }
 
 if ( ! defined( 'GT_PB_BUILDER_FILE' ) ) {
@@ -509,9 +509,13 @@ class GT_Page_Blocks_Builder {
 		require_once GT_PB_BUILDER_DIR . 'includes/class-rest-api.php';
 		require_once GT_PB_BUILDER_DIR . 'includes/class-theme-builder.php';
 		require_once GT_PB_BUILDER_DIR . 'includes/class-migration.php';
+		require_once GT_PB_BUILDER_DIR . 'includes/class-functionalities-compat.php';
+		require_once GT_PB_BUILDER_DIR . 'includes/class-section-css.php';
 
 		$this->db = new gt_pb_db();
 		gt_pb_css_loader::init();
+		gt_pb_functionalities_compat::init();
+		gt_pb_section_css::init();
 
 		// plugins_loaded, not admin_init: WP-CLI, cron and the REST API never
 		// touch wp-admin, and every one of them needs the table to exist.
@@ -529,6 +533,7 @@ class GT_Page_Blocks_Builder {
 
 		add_filter( 'template_include', array( $this, 'builder_template_include' ), 0 );
 		add_action( 'wp_enqueue_scripts', array( $this, 'enqueue_builder_assets' ), 1 );
+		add_action( 'template_redirect', array( $this, 'frontend_builder_preview' ), -1 );
 		add_action( 'admin_bar_menu', array( $this, 'add_builder_admin_bar_link' ), 80 );
 
 		add_action( 'wp_ajax_md_page_blocks_builder_apply', array( $this, 'ajax_builder_apply' ) );
@@ -707,6 +712,7 @@ class GT_Page_Blocks_Builder {
 				'format'     => array( 'type' => 'boolean', 'default' => false ),
 				'phpExec'    => array( 'type' => 'boolean', 'default' => false ),
 				'output'     => array( 'type' => 'string', 'default' => 'inline' ),
+				'cssOutput'  => array( 'type' => 'string', 'default' => '' ),
 
 				// Added together in 3.0.0, deliberately. Each defaults to a
 				// falsy value, so existing post_content parses unchanged and
@@ -759,7 +765,9 @@ class GT_Page_Blocks_Builder {
 		$preview_nonce = $post_id > 0 ? wp_create_nonce( gt_page_blocks_preview_nonce_action( $post_id ) ) : '';
 
 		$editor_settings = array(
-			'html' => wp_enqueue_code_editor( array( 'type' => 'application/x-httpd-php' ) ),
+			// PHP has no HTMLHint dependency. Pin lint off so the last editor's
+			// shared WordPress defaults cannot enable an unavailable HTML linter.
+			'html' => wp_enqueue_code_editor( array( 'type' => 'application/x-httpd-php', 'codemirror' => array( 'lint' => false ) ) ),
 			'css'  => wp_enqueue_code_editor( array( 'type' => 'text/css' ) ),
 			'js'   => wp_enqueue_code_editor( array( 'type' => 'application/javascript' ) ),
 		);
@@ -904,13 +912,16 @@ class GT_Page_Blocks_Builder {
 		$format       = ! empty( $attributes['format'] );
 		$php_exec     = ! empty( $attributes['phpExec'] );
 		$is_file_mode = $output_mode === 'file';
+		$css_output   = $attributes['cssOutput'] ?? '';
 		$output       = '';
 
 		// Emit this block's CSS unless this exact CSS already went out — either
 		// hoisted into <head> by collect_css_for_head() or written by an
 		// earlier placement — rather than on a request-global flag, which would
 		// drop the styles of any block that scan never saw.
-		if ( $css !== '' && ! $is_file_mode ) {
+		if ( $css !== '' && 'file' === $css_output ) {
+			$output .= gt_pb_section_css::render( $css, get_the_ID() );
+		} elseif ( $css !== '' && ( 'inline' === $css_output || ! $is_file_mode ) ) {
 			$css_key = md5( $css );
 			if ( ! isset( $this->inline_css_done[ $css_key ] ) ) {
 				$this->inline_css_done[ $css_key ] = true;
@@ -1095,10 +1106,13 @@ class GT_Page_Blocks_Builder {
 		}
 
 		$editor_settings = array(
-			'html' => wp_enqueue_code_editor( array( 'type' => 'application/x-httpd-php' ) ),
+			'html' => wp_enqueue_code_editor( array( 'type' => 'application/x-httpd-php', 'codemirror' => array( 'lint' => false ) ) ),
 			'css'  => wp_enqueue_code_editor( array( 'type' => 'text/css' ) ),
 			'js'   => wp_enqueue_code_editor( array( 'type' => 'application/javascript' ) ),
 		);
+		$preview_context = gt_pb_functionalities_compat::with_post( $post_id, static function() {
+			return array( 'bodyClasses' => get_body_class(), 'languageAttributes' => get_language_attributes() );
+		} );
 
 		$css_path = GT_PB_BUILDER_DIR . 'assets/css/builder-shell.css';
 		$js_path  = GT_PB_BUILDER_DIR . 'assets/js/builder-shell.js';
@@ -1138,7 +1152,11 @@ class GT_Page_Blocks_Builder {
 				'saveAction'         => 'md_page_blocks_builder_apply',
 				'saveNonce'          => $nonce,
 				// Preview endpoint
-				'previewEndpoint'    => admin_url( 'admin-ajax.php' ),
+				'previewEndpoint'    => add_query_arg( 'gt_pb_preview', '1', home_url( '/' ) ),
+				'previewBaseUrl'     => get_permalink( $post_id ),
+				'previewBodyClasses' => $preview_context['bodyClasses'],
+				'previewLanguageAttributes' => $preview_context['languageAttributes'],
+				'previewRequiresServer' => (bool) apply_filters( 'gt_page_blocks_builder_preview_requires_server', false, $post_id ),
 				'previewAction'      => 'md_page_blocks_builder_preview',
 				'previewNonce'       => $nonce, // Use same nonce for both
 				'previewCssUrl'      => '', // Plugin doesn't compile theme CSS; uses themeStyleUrls
@@ -1244,7 +1262,9 @@ class GT_Page_Blocks_Builder {
 		$urls[] = GT_PB_BUILDER_URL . 'assets/css/typography.min.css';
 		$urls[] = GT_PB_BUILDER_URL . 'assets/css/utilities.css';
 
-		return array_values( array_unique( array_filter( $urls ) ) );
+		/** Allows an isolated canvas to supply its own preview stylesheets. */
+		$urls = apply_filters( 'gt_page_blocks_builder_preview_style_urls', $urls, $this->get_builder_post_id() );
+		return array_values( array_unique( array_filter( is_array( $urls ) ? $urls : array() ) ) );
 	}
 
 	/**
@@ -1462,6 +1482,7 @@ class GT_Page_Blocks_Builder {
 			'js'         => $this->decode_builder_unicode_sequences( $js ),
 			'jsLocation' => $js_location,
 			'output'     => $output,
+			'cssOutput'  => isset( $section['cssOutput'] ) && in_array( $section['cssOutput'], array( 'inline', 'file' ), true ) ? $section['cssOutput'] : '',
 			'format'     => ! empty( $section['format'] ),
 			'phpExec'    => ! empty( $section['phpExec'] ),
 		);
@@ -1625,7 +1646,7 @@ class GT_Page_Blocks_Builder {
 	 * @param bool  $allow_php Whether this caller may execute PHP in the preview.
 	 * @return array
 	 */
-	private function build_preview_payload( $sections, $allow_php = false ) {
+	private function build_preview_payload( $sections, $allow_php = false, $post_id = 0 ) {
 		$php_stripped     = false;
 		$html_output      = array();
 		$css_output       = array();
@@ -1634,6 +1655,9 @@ class GT_Page_Blocks_Builder {
 
 		foreach ( (array) $sections as $section ) {
 			$section = is_array( $section ) ? $section : array();
+			if ( ! empty( $section['collapsed'] ) ) {
+				continue;
+			}
 
 			// Blocks the builder cannot edit still belong in the preview —
 			// otherwise the preview shows a different page from the one the
@@ -1642,7 +1666,7 @@ class GT_Page_Blocks_Builder {
 			if ( isset( $section['kind'] ) && 'foreign' === $section['kind'] ) {
 				$raw = isset( $section['serialized'] ) ? (string) $section['serialized'] : '';
 				if ( '' !== trim( $raw ) ) {
-					$html_output[] = (string) do_blocks( $raw );
+					$html_output[] = $this->preview_section_html( (string) do_blocks( $raw ), $section, $post_id );
 				}
 				continue;
 			}
@@ -1661,7 +1685,7 @@ class GT_Page_Blocks_Builder {
 				// No extra minify pass here: render_library_block() already
 				// minifies, and render_block() calls it bare on the front end.
 				// Wrapping it would make the preview diverge from what ships.
-				$html_output[] = (string) $this->render_library_block( $row );
+				$html_output[] = $this->preview_section_html( (string) $this->render_library_block( $row ), $section, $post_id );
 
 				$queued_key = 'block-' . (int) $row->id;
 				if ( isset( $this->footer_scripts[ $queued_key ] ) ) {
@@ -1698,7 +1722,7 @@ class GT_Page_Blocks_Builder {
 					$content = wpautop( $content );
 				}
 				$content = do_shortcode( $content );
-				$html_output[] = self::minify_html( (string) $content );
+				$html_output[] = $this->preview_section_html( self::minify_html( (string) $content ), $section, $post_id );
 			}
 
 			if ( $css !== '' ) {
@@ -1725,6 +1749,21 @@ class GT_Page_Blocks_Builder {
 				? __( 'PHP in this section was not executed in the preview. Running PHP requires administrator access.', 'page-blocks-builder' )
 				: '',
 		);
+	}
+
+	/** Apply preview-only content integrations and preserve section selection. */
+	private function preview_section_html( $html, $section, $post_id ) {
+		if ( $post_id ) {
+			/** Filters rendered section HTML without changing saved content. */
+			$html = (string) apply_filters( 'gt_page_blocks_builder_preview_html', $html, $post_id );
+		}
+		$uid = $section['uid'] ?? '';
+		if ( is_string( $uid ) && preg_match( '/^pb-[a-z0-9]+$/', $uid ) ) {
+			$foreign = 'foreign' === ( $section['kind'] ?? '' ) ? ' data-pb-foreign="1"' : '';
+			$linked = ! empty( $section['blockId'] ) ? ' data-pb-linked="1"' : '';
+			return '<div data-pb-section="' . esc_attr( $uid ) . '"' . $foreign . $linked . '>' . $html . '</div>';
+		}
+		return $html;
 	}
 
 	/**
@@ -1836,7 +1875,7 @@ class GT_Page_Blocks_Builder {
 			// carries a value, so a page of ordinary sections serializes
 			// exactly as it did before and the upgrade diff stays limited to
 			// blocks that actually gained something.
-			foreach ( array( 'name', 'blockSlug' ) as $optional ) {
+			foreach ( array( 'name', 'blockSlug', 'cssOutput' ) as $optional ) {
 				if ( empty( $attrs[ $optional ] ) ) {
 					unset( $attrs[ $optional ] );
 				}
@@ -1944,7 +1983,7 @@ class GT_Page_Blocks_Builder {
 			array(
 				'message'     => __( 'Page Blocks saved.', 'page-blocks-builder' ),
 				'postId'      => $post_id,
-				'sections'    => $sections,
+				'sections'    => $this->get_builder_sections_from_post( $post_id ),
 				'editPostUrl' => get_edit_post_link( $post_id, 'raw' ) ?: '',
 				'postTitle'   => get_the_title( $post_id ),
 				'postSlug'    => get_post_field( 'post_name', $post_id ),
@@ -1956,6 +1995,19 @@ class GT_Page_Blocks_Builder {
 	/**
 	 * AJAX: render preview payload.
 	 */
+	public function frontend_builder_preview() {
+		if ( ! isset( $_GET['gt_pb_preview'] ) || '1' !== $_GET['gt_pb_preview'] ) {
+			return;
+		}
+		nocache_headers();
+		if ( 'POST' !== ( $_SERVER['REQUEST_METHOD'] ?? '' ) ) {
+			wp_send_json_error( array( 'message' => __( 'A POST request is required.', 'page-blocks-builder' ) ), 405 );
+		}
+		// Same authentication, nonce, post-type and PHP capability checks as
+		// AJAX, in a frontend request where content plugins register their hooks.
+		$this->ajax_builder_preview();
+	}
+
 	public function ajax_builder_preview() {
 		if ( ! is_user_logged_in() ) {
 			wp_send_json_error( array( 'message' => __( 'Authentication required.', 'page-blocks-builder' ) ), 403 );
@@ -1975,15 +2027,33 @@ class GT_Page_Blocks_Builder {
 		}
 
 		$sections = array();
+		$allowed_foreign = null;
 		foreach ( $decoded as $section ) {
 			if ( ! is_array( $section ) ) {
 				continue;
 			}
-			$sections[] = $this->normalize_builder_section( $section );
+			$normalized = $this->normalize_builder_section( $section );
+			$normalized['uid'] = isset( $section['uid'] ) && is_string( $section['uid'] ) ? $section['uid'] : '';
+			$normalized['collapsed'] = ! empty( $section['collapsed'] );
+			$normalized['kind'] = 'foreign' === ( $section['kind'] ?? '' ) ? 'foreign' : 'block';
+			$normalized['serialized'] = isset( $section['serialized'] ) && is_string( $section['serialized'] ) ? $section['serialized'] : '';
+			if ( 'foreign' === $normalized['kind'] && ! current_user_can( 'manage_options' ) ) {
+				// Foreign blocks are read-only. Do not let a crafted preview
+				// smuggle new executable blocks around the PHP capability gate.
+				if ( null === $allowed_foreign ) {
+					$allowed_foreign = array_column( array_filter( $this->get_builder_sections_from_post( $post_id ), static fn( $saved ) => 'foreign' === ( $saved['kind'] ?? '' ) ), 'serialized' );
+				}
+				if ( ! in_array( $normalized['serialized'], $allowed_foreign, true ) ) {
+					wp_send_json_error( array( 'message' => __( 'Unrecognized block in preview. Reload the builder and try again.', 'page-blocks-builder' ) ), 400 );
+				}
+			}
+			$sections[] = $normalized;
 		}
 
 		wp_send_json_success(
-			$this->build_preview_payload( $sections, current_user_can( 'manage_options' ) )
+			gt_pb_functionalities_compat::with_post( $post_id, function() use ( $sections, $post_id ) {
+				return $this->build_preview_payload( $sections, current_user_can( 'manage_options' ), $post_id );
+			} )
 		);
 	}
 
@@ -3602,6 +3672,13 @@ class GT_Page_Blocks_Builder {
 		foreach ( self::find_page_blocks( $blocks ) as $block ) {
 			$css      = $block['attrs']['css'] ?? '';
 			$output   = $block['attrs']['output'] ?? 'inline';
+			$css_output = $block['attrs']['cssOutput'] ?? '';
+			if ( 'file' === $css_output && empty( $block['attrs']['blockId'] ) && empty( $block['attrs']['blockSlug'] ) ) {
+				continue; // The section owns a separate stylesheet and inline fallback.
+			}
+			if ( 'inline' === $css_output ) {
+				$output = 'inline';
+			}
 			$block_id = isset( $block['attrs']['blockId'] ) ? (int) $block['attrs']['blockId'] : 0;
 
 			// Reference blocks carry no inline CSS — pull it from the library
@@ -3935,7 +4012,7 @@ class GT_Page_Blocks_Builder {
 			}
 
 			$css = $block['attrs']['css'] ?? '';
-			if ( $css ) {
+			if ( $css && empty( $block['attrs']['cssOutput'] ) ) {
 				$css_parts[] = self::sanitize_css( $css );
 			}
 

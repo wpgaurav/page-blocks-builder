@@ -4,7 +4,7 @@ Tags: page builder, html blocks, css sections, gutenberg, visual builder
 Requires at least: 6.0
 Tested up to: 6.9.1
 Requires PHP: 8.1
-Stable tag: 3.0.0
+Stable tag: 3.0.1
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -12,7 +12,7 @@ Build pages with custom HTML, CSS, and JavaScript sections using a visual builde
 
 == Description ==
 
-GT Page Blocks Builder lets you create section-based pages with full control over HTML, CSS, and JavaScript. Each section is a Gutenberg block (`marketers-delight/page-block`) with separate code editors for HTML, CSS, and JS.
+GT Page Blocks Builder lets you create section-based pages with full control over HTML, CSS, and JavaScript. Each section is a Gutenberg block (`gt-page-block/page-block`) with separate code editors for HTML, CSS, and JS.
 
 **Key features:**
 
@@ -20,7 +20,7 @@ GT Page Blocks Builder lets you create section-based pages with full control ove
 * **Frontend visual builder** launched from the admin bar on any singular post/page
 * **AI chat sidebar** with multi-turn conversation (OpenAI, Anthropic, Gemini)
 * **Inline text editing in preview** — click any heading, paragraph, link, or list item to edit it directly
-* **Live preview patching** — no flicker on edits, only structural changes trigger full reload
+* **Live preview patching** with debounced server rendering when enabled integrations need it
 * **HTML snippet buttons** — quick-insert sec, div, h1-h3, p, a, img, ul, ol, span, b, i with selection wrapping
 * **Section management** — drag-and-drop reorder, duplicate, delete, hide, rename (double-click)
 * **Export/Import** — JSON download/upload with append or replace modes
@@ -29,7 +29,7 @@ GT Page Blocks Builder lets you create section-based pages with full control ove
 * **Preview customization** — add custom CSS, head HTML, footer JS via settings (no PHP filter needed)
 * **Server-rendered preview** with `wpautop`, shortcode, and PHP execution support
 * **External file output** for cacheable CSS/JS served from the uploads directory
-* **CSS-in-head optimization** that combines all block CSS into a single `<style>` tag in `<head>`
+* **CSS-in-head optimization** that groups inline section styles while keeping opted-in section files separate
 * **Theme class suggestions** in HTML/CSS editors, extracted from your active theme stylesheets
 * **Theme CSS context for AI** — CSS variables and utility classes sent to AI as system context
 * **Post type allowlist** under Settings > Page Blocks Builder
@@ -61,9 +61,12 @@ Yes. Enable PHP execution per block. PHP runs on the frontend and in server-rend
 
 = What is the "file" output mode? =
 
-When set to "file", CSS and JS for that block are written to external files in `wp-content/uploads/gt-page-blocks/` and served as cacheable resources instead of inline output.
+Check **Load CSS from a file** to give a section its own stylesheet in `wp-content/uploads/gt-page-blocks/`. Its name is `page-{pageId}-{abc12}.css`, with a new five-character ID on every page save. JavaScript placement is independent. Existing combined CSS/JS file settings remain supported; the visual builder upgrades their CSS to separate section files on the next save.
 
 == Upgrade Notice ==
+
+= 3.0.1 =
+Adds Functionalities preview compatibility, optional per-section CSS files, and smoother selection and saving in the visual builder. Existing sections remain inline unless file output is selected.
 
 = 3.0.0 =
 Major release. Back up your database first: the schema change is one-way. Requires PHP 8.1. Flush your page cache and CDN after updating - generated CSS and JS filenames change. Read the BREAKING list in the changelog before updating a live site.
@@ -72,6 +75,17 @@ Major release. Back up your database first: the schema change is one-way. Requir
 Security release. Fixes privilege escalation in the block preview (any Author could execute PHP on sites with PHP blocks enabled) and restores certificate verification on the update channel. If you have PHP blocks turned on, update now. Requires PHP 8.1.
 
 == Changelog ==
+
+= 3.0.1 =
+
+* Licensed updates accept HTTPS packages from the exact configured R2 bucket while rejecting other hosts and products. Downloads can proceed while WordPress maintenance mode is active.
+* Functionalities fonts, typography assignments, components, snippets, content filters, and enabled editor helpers work in the standalone builder preview. Existing module settings remain authoritative, with an opt-out filter for the bridge.
+* Each section can load CSS from its own file. Names use the page ID and a five-character ID that changes on each save. Inline remains the default, JavaScript placement stays independent, and unavailable file storage falls back to inline CSS.
+* Clicking, focusing, or selecting preview text selects the matching navigator section without refreshing the canvas. Inline edits target the selected element even when identical text appears elsewhere.
+* Saving preserves the selected section and ordinary WordPress blocks. Edits made while a save is in progress remain unsaved instead of being overwritten by the response.
+* Server previews preserve section identity, hidden sections, and read-only blocks. Preview messages are accepted only from the builder's own iframe.
+* New preview filters let isolated templates provide their own stylesheets, language attributes, and typography. Preview rendering keeps the existing permission, nonce, post-type, and PHP-execution checks.
+* Editor initialization waits for footer dependencies and avoids enabling an unavailable HTML linter for PHP.
 
 = 3.0.0 =
 

@@ -6,7 +6,7 @@ Build, reuse, and place custom HTML/CSS/JS sections anywhere in WordPress — th
 
 Originally part of Marketers Delight's Page Blocks dropin (2018–2026, © Kolakube), now a standalone plugin.
 
-**Requires:** WordPress 6.0+, PHP 8.1+ · **Current version:** 3.0.0
+**Requires:** WordPress 6.0+, PHP 8.1+ · **Current version:** 3.0.1
 
 ---
 
@@ -220,6 +220,9 @@ Inline blocks live in `post_content` with no separately stored checksum, so a da
 - **Post types**: where the visual builder is available.
 - **AI**: OpenAI / Anthropic / Gemini API keys, default model, optional terminal tool.
 - **Preview assets**: optional reset/typography/utilities stylesheets, custom preview CSS, `<head>` HTML, and footer JS for the builder preview.
+- **Section CSS**: leave **Load CSS from a file** unchecked for inline CSS. Checked sections each get a stylesheet named `page-{pageId}-{abc12}.css`. The five-character ID changes on every page save, including title-only updates. Old files remain available for seven days for cached pages; unavailable storage falls back to inline CSS. JavaScript placement is independent.
+- **Functionalities compatibility**: enabled fonts and their assignments, component CSS, header/body/footer snippets, frontend output, content filters, and opted-in editor helpers such as Prism are carried into the builder preview automatically. Module settings and filters remain authoritative. Unsaved preview content is processed through an authenticated frontend POST, with the same permission and nonce checks as the AJAX preview. Functionalities administrative tools, login/redirect rules, and save-time checks continue in their normal WordPress contexts.
+- **Editing workflow**: clicking, focusing, or selecting preview text selects its section without refreshing the canvas. Saving keeps the selected section and preserves newer edits made while the save was in progress.
 - **Tools**: block-name migration and dropin library import (see above).
 
 ---
@@ -232,6 +235,10 @@ Inline blocks live in `post_content` with no separately stored checksum, so a da
 | `gt_pb_can_execute_php` | filter | Gate PHP execution (`bool $can, string $content`) |
 | `gt_page_blocks_builder_post_types` | filter | Builder-enabled post types |
 | `gt_page_blocks_builder_preview_injection` | filter | Inject `headHtml` / `css` / `jsFooter` into the builder preview (`array $injection, int $post_id`) |
+| `gt_page_blocks_builder_functionalities_compatibility` | filter | Enable the automatic Functionalities bridge (`bool $enabled, int $post_id`, default true when the plugin is active) |
+| `gt_page_blocks_builder_preview_requires_server` | filter | Request frontend server rendering for preview integrations (`bool $required, int $post_id`) |
+| `gt_page_blocks_builder_preview_html` | filter | Process rendered preview-section HTML without changing stored content (`string $html, int $post_id`) |
+| `gt_page_blocks_builder_preview_style_urls` | filter | Match preview stylesheets to an isolated page template (`array $urls, int $post_id`) |
 | `gt_pb_class_scan_content` | filter | Filter stylesheet content before class-suggestion scanning |
 | `gt_pb_ai_request_timeout` | filter | AI request timeout (`int $seconds, string $provider`) |
 | `gt_pb_ai_debug_enabled` / `gt_pb_ai_debug_log_raw_payload` / `gt_pb_ai_debug_max_length` | filter | AI debug logging controls |

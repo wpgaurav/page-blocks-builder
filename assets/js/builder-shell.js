@@ -144,6 +144,7 @@
 			js: '',
 			jsLocation: 'footer',
 			output: 'inline',
+			cssOutput: '',
 			format: false,
 			phpExec: false,
 			collapsed: false
@@ -173,6 +174,8 @@
 		section.js = typeof source.js === 'string' ? source.js : '';
 		section.jsLocation = source.jsLocation === 'inline' ? 'inline' : 'footer';
 		section.output = source.output === 'file' ? 'file' : 'inline';
+		section.cssOutput = source.cssOutput === 'file' || source.cssOutput === 'inline'
+			? source.cssOutput : (source.output === 'file' ? 'file' : '');
 		section.format = !!source.format;
 		section.phpExec = !!source.phpExec;
 		section.collapsed = !!source.collapsed;
@@ -528,6 +531,7 @@
 				js: n.js,
 				jsLocation: n.jsLocation,
 				output: n.output,
+				cssOutput: n.cssOutput,
 				format: n.format,
 				phpExec: n.phpExec,
 				collapsed: n.collapsed
@@ -574,6 +578,7 @@
 	// -------------------------------------------------------------------------
 
 	function needsServerPreview() {
+		if (config.previewRequiresServer) return true;
 		if (!Array.isArray(state.sections) || !state.sections.length) {
 			return false;
 		}
@@ -655,7 +660,7 @@
 				return;
 			}
 
-			html.push('<div data-pb-section="' + section.uid + '">' + (section.content || '') + '</div>');
+			html.push('<div data-pb-section="' + section.uid + '"' + (section.blockId ? ' data-pb-linked="1"' : '') + '>' + (section.content || '') + '</div>');
 
 			if (section.css) {
 				css.push(section.css);
@@ -714,7 +719,8 @@
 		var canvasCss = '<style>html{color-scheme:light;background:#fff;}body{background:#fff;}</style>';
 
 		var docHtml = '<!doctype html>' +
-			'<html><head><meta charset="utf-8">' +
+			'<html ' + (config.previewLanguageAttributes || '') + '><head><meta charset="utf-8">' +
+			(config.previewBaseUrl ? '<base href="' + escapeAttribute(config.previewBaseUrl) + '">' : '') +
 			'<meta name="viewport" content="width=device-width, initial-scale=1">' +
 			canvasCss +
 			themeStyleLinks +
@@ -723,7 +729,7 @@
 			injectedCssTag +
 			customCssTag +
 			inlineEditCss +
-			'</head><body>' +
+			'</head><body class="' + escapeAttribute((config.previewBodyClasses || []).join(' ')) + '">' +
 			(injection.bodyStartHtml || '') +
 			htmlOutput +
 			(injection.bodyEndHtml || '') +
@@ -745,44 +751,47 @@
 		scripts.push(
 			'(function(){' +
 			'var SEL="h1,h2,h3,h4,h5,h6,p,li,td,th,figcaption,blockquote,label,cite,dt,dd,summary,a";' +
-			'var editing=null,origText="";' +
+			'var editing=null,origText="",origHtml="",startHtml="";' +
 			// Pointing at something in the preview is a statement about which
 			// section you are working on. Sent on mousedown so the panel and
 			// the code editors have already followed by the time the click
 			// opens an inline edit.
-			'document.addEventListener("mousedown",function(e){' +
-			'var sec=e.target.closest?e.target.closest("[data-pb-section]"):null;' +
-			'if(!sec)return;' +
-			'var u=sec.getAttribute("data-pb-section");' +
-			'if(u)window.parent.postMessage({type:"md_pb_section_focus",sectionUid:u},"*");' +
-			'},true);' +
+			'function focusSection(node){' +
+			'if(node&&node.nodeType===3)node=node.parentElement;' +
+			'var sec=node&&node.closest?node.closest("[data-pb-section]"):null;' +
+			'if(sec)window.parent.postMessage({type:"md_pb_section_focus",sectionUid:sec.getAttribute("data-pb-section")},"*");' +
+			'}' +
+			'document.addEventListener("pointerdown",function(e){focusSection(e.target);},true);' +
+			'document.addEventListener("focusin",function(e){focusSection(e.target);},true);' +
+			'document.addEventListener("selectionchange",function(){var s=document.getSelection();if(s)focusSection(s.anchorNode);});' +
 			'document.addEventListener("mouseover",function(e){var el=e.target.closest(SEL);if(el&&el!==editing)el.setAttribute("data-pb-editable-hover","");});' +
 			'document.addEventListener("mouseout",function(e){var el=e.target.closest(SEL);if(el)el.removeAttribute("data-pb-editable-hover");});' +
 			'document.addEventListener("click",function(e){' +
 			'var el=e.target.closest(SEL);' +
-			'if(!el||el.contentEditable==="true")return;' +
+			'if(!el||el.contentEditable==="true"||el.closest("[data-pb-foreign],[data-pb-linked]"))return;' +
 			'if(el.querySelector("div,section,article,ul,ol,table,form,header,footer,nav,aside"))return;' +
 			'e.preventDefault();e.stopPropagation();' +
 			'el.removeAttribute("data-pb-editable-hover");' +
-			'el.contentEditable="true";editing=el;origText=el.textContent;' +
+			'el.contentEditable="true";editing=el;origText=el.textContent;origHtml=el.innerHTML;startHtml=origHtml;' +
 			'el.focus();' +
 			'try{var r=document.createRange();r.selectNodeContents(el);var s=window.getSelection();s.removeAllRanges();s.addRange(r);}catch(x){}' +
 			'},true);' +
+			'function syncEdit(el){' +
+			'if(!el||el!==editing||el.innerHTML===origHtml)return;' +
+			'var sec=el.closest("[data-pb-section]"),path=[],node=el;' +
+			'while(sec&&node!==sec){path.unshift(Array.prototype.indexOf.call(node.parentElement.children,node));node=node.parentElement;}' +
+			'if(sec)window.parent.postMessage({type:"md_pb_inline_edit",sectionUid:sec.getAttribute("data-pb-section"),oldText:origText,newText:el.textContent,oldHtml:origHtml,newHtml:el.innerHTML,path:path},"*");' +
+			'origText=el.textContent;origHtml=el.innerHTML;' +
+			'}' +
+			'document.addEventListener("input",function(e){syncEdit(e.target);});' +
 			'document.addEventListener("focusout",function(e){' +
 			'var el=e.target;if(el.contentEditable!=="true")return;' +
-			'el.contentEditable="false";' +
-			'var t=el.textContent;' +
-			'if(t!==origText){' +
-			'var sec=el.closest("[data-pb-section]");' +
-			'var u=sec?sec.getAttribute("data-pb-section"):"";' +
-			'if(u)window.parent.postMessage({type:"md_pb_inline_edit",sectionUid:u,oldText:origText,newText:t},"*");' +
-			'}' +
-			'editing=null;origText="";' +
+			'syncEdit(el);el.contentEditable="false";editing=null;origText="";origHtml="";' +
 			'});' +
 			'document.addEventListener("keydown",function(e){' +
 			'if(!editing)return;' +
 			'if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();editing.blur();}' +
-			'if(e.key==="Escape"){editing.textContent=origText;editing.blur();}' +
+			'if(e.key==="Escape"){editing.innerHTML=startHtml;syncEdit(editing);editing.blur();}' +
 			'});' +
 			'})();'
 		);
@@ -855,23 +864,27 @@
 		state.previewRequestId = requestId;
 
 		function applyPreview(preview) {
-			if (!dom.previewFrame) return;
+			if (!dom.previewFrame || requestId !== state.previewRequestId) return;
+			var scrollX = 0, scrollY = 0;
+			try {
+				scrollX = dom.previewFrame.contentWindow.scrollX;
+				scrollY = dom.previewFrame.contentWindow.scrollY;
+			} catch (error) {}
+			// One listener per document: a fast second render must not run
+			// the previous document's scripts in the new frame.
+			dom.previewFrame.onload = function() {
+				if (requestId !== state.previewRequestId) return;
+				try {
+					var doc = dom.previewFrame.contentDocument;
+					(preview.scripts || []).forEach(function(code) {
+						var script = doc.createElement('script');
+						script.textContent = code;
+						doc.body.appendChild(script);
+					});
+					dom.previewFrame.contentWindow.scrollTo(scrollX, scrollY);
+				} catch (error) {}
+			};
 			dom.previewFrame.srcdoc = preview.html;
-			if (preview.scripts && preview.scripts.length) {
-				dom.previewFrame.addEventListener('load', function onLoad() {
-					dom.previewFrame.removeEventListener('load', onLoad);
-					try {
-						var doc = dom.previewFrame.contentDocument || dom.previewFrame.contentWindow.document;
-						preview.scripts.forEach(function(code) {
-							var s = doc.createElement('script');
-							s.textContent = code;
-							doc.body.appendChild(s);
-						});
-					} catch (e) {
-						// cross-origin or iframe not ready
-					}
-				});
-			}
 		}
 
 		if (!needsServerPreview()) {
@@ -879,7 +892,10 @@
 			return;
 		}
 
-		requestServerPreview(getApplyPayloadSections())
+		requestServerPreview(getApplyPayloadSections().map(function(section, index) {
+			section.collapsed = !!state.sections[index].collapsed;
+			return section;
+		}))
 			.then(function(renderedData) {
 				if (requestId !== state.previewRequestId || !dom.previewFrame) return;
 				applyPreview(buildPreviewDoc(renderedData));
@@ -899,6 +915,7 @@
 		}
 
 		var wait = typeof delay === 'number' ? delay : 0;
+		if (needsServerPreview()) wait = Math.max(wait, 250);
 
 		state.previewTimer = window.setTimeout(function() {
 			// Try live-patching first (no flicker) for CSS/content edits
@@ -1134,6 +1151,11 @@
 		}
 
 		setApplyButtonBusy(true, 'Saving...');
+		var submittedSections = JSON.stringify(sections);
+		var submittedTitle = state.pageTitle;
+		var submittedSlug = state.pageSlug;
+		var submittedTemplate = state.pageTemplate;
+		var submittedRemoved = state.removedForeign;
 
 		var form = new window.URLSearchParams();
 		form.set('action', config.saveAction || 'md_pb_builder_save');
@@ -1163,8 +1185,10 @@
 					throw new Error(extractAjaxErrorMessage(payload, 'Could not save Page Blocks.'));
 				}
 
-				if (payload.data && Array.isArray(payload.data.sections)) {
-					hydrateSections(payload.data.sections);
+				var hasNewEdits = submittedSections !== JSON.stringify(getApplyPayloadSections()) ||
+					submittedTitle !== state.pageTitle || submittedSlug !== state.pageSlug || submittedTemplate !== state.pageTemplate;
+				if (!hasNewEdits && payload.data && Array.isArray(payload.data.sections)) {
+					hydrateSections(payload.data.sections, true);
 				}
 
 				if (payload.data && payload.data.editPostUrl) {
@@ -1174,10 +1198,10 @@
 				// WordPress sanitises and de-duplicates the slug, so the
 				// builder adopts the saved values rather than keeping what it
 				// asked for.
-				if (payload.data && typeof payload.data.postSlug === 'string') {
+				if (state.pageSlug === submittedSlug && payload.data && typeof payload.data.postSlug === 'string') {
 					state.pageSlug = payload.data.postSlug;
 				}
-				if (payload.data && typeof payload.data.postTitle === 'string') {
+				if (state.pageTitle === submittedTitle && payload.data && typeof payload.data.postTitle === 'string') {
 					state.pageTitle = payload.data.postTitle;
 				}
 				if (payload.data && payload.data.viewPostUrl) {
@@ -1186,10 +1210,16 @@
 
 				// Those blocks are gone from the page now, so they are no
 				// longer a discrepancy the next save has to explain.
-				state.removedForeign = 0;
+				state.removedForeign = Math.max(0, state.removedForeign - submittedRemoved);
 
-				clearAutosaveDraft();
-				setApplyButtonBusy(false, 'Saved');
+				if (hasNewEdits) {
+					queueAutosave();
+					if (dom.saveStatus) dom.saveStatus.textContent = 'Saved. Newer edits are still unsaved.';
+				} else {
+					clearAutosaveDraft();
+					if (dom.saveStatus) dom.saveStatus.textContent = '';
+				}
+				setApplyButtonBusy(false, hasNewEdits ? 'Save' : 'Saved');
 				window.setTimeout(function() {
 					resetApplyButtonLabel();
 				}, 1200);
@@ -1228,6 +1258,7 @@
 				js: normalized.js,
 				jsLocation: normalized.jsLocation,
 				output: normalized.output,
+				cssOutput: normalized.cssOutput,
 				format: normalized.format,
 				phpExec: normalized.phpExec
 			};
@@ -1466,9 +1497,7 @@
 		if (index < 0 || index >= state.sections.length) {
 			return;
 		}
-		state.selectedIndex = index;
-		renderAll();
-		ensureSelectedIndexVisible();
+		selectSectionFromPreview(index);
 		scrollPreviewToSection(index);
 	}
 
@@ -1714,6 +1743,7 @@
 		dom.jsLocation.value = section.jsLocation;
 		dom.format.checked = !!section.format;
 		dom.phpExec.checked = !!section.phpExec;
+		dom.cssFile.checked = section.cssOutput === 'file' || (!section.cssOutput && section.output === 'file');
 		applyLinkedSectionLock(section);
 		renderDetachControl(section);
 		renderActiveSectionMeta();
@@ -1758,7 +1788,7 @@
 			}
 		});
 
-		[dom.jsLocation, dom.format, dom.phpExec].forEach(function(node) {
+		[dom.jsLocation, dom.format, dom.phpExec, dom.cssFile].forEach(function(node) {
 			if (node) {
 				node.disabled = locked;
 				node.title = reason;
@@ -1912,9 +1942,17 @@
 		});
 	}
 
-	function hydrateSections(sections) {
+	function hydrateSections(sections, preserveSelection) {
+		var selectedIndex = state.selectedIndex;
+		var previous = state.sections;
 		state.sections = sanitizeSections(sections);
-		state.selectedIndex = 0;
+		if (preserveSelection && previous.length === state.sections.length) {
+			state.sections.forEach(function(section, index) {
+				section.uid = previous[index].uid;
+				section.collapsed = previous[index].collapsed;
+			});
+		}
+		state.selectedIndex = preserveSelection ? Math.min(selectedIndex, state.sections.length - 1) : 0;
 		ensureAllSectionRootIds();
 		renderAll();
 	}
@@ -3278,6 +3316,8 @@
 							'<input type="checkbox" data-role="format"><span>Auto-format</span></label>' +
 						'<label class="md-pb-chip" title="Run PHP in this section. The site has to allow PHP snippets.">' +
 							'<input type="checkbox" data-role="php-exec"><span>Run PHP</span></label>' +
+						'<label class="md-pb-chip" title="Save this section\u2019s CSS in its own file. The filename changes each time the page is saved.">' +
+							'<input type="checkbox" data-role="css-file"><span>Load CSS from a file</span></label>' +
 						'<label class="md-pb-select-wrap" title="Where this section\u2019s JavaScript is placed on the page.">' +
 							'<span class="md-pb-select-label">Script</span>' +
 							'<select data-role="js-location"><option value="footer">In footer</option><option value="inline">Inline</option></select>' +
@@ -3324,6 +3364,7 @@
 			'</div>' +
 			'<div class="md-pb-statusbar">' +
 				'<div><span class="md-pb-live-dot"></span>Live preview</div>' +
+				'<div data-role="save-status" role="status" aria-live="polite"></div>' +
 				'<div data-role="status-count">0/0 sections</div>' +
 			'</div>';
 
@@ -3341,6 +3382,7 @@
 		dom.jsLocation = shell.querySelector('[data-role="js-location"]');
 		dom.format = shell.querySelector('[data-role="format"]');
 		dom.phpExec = shell.querySelector('[data-role="php-exec"]');
+		dom.cssFile = shell.querySelector('[data-role="css-file"]');
 		dom.applyButton = shell.querySelector('[data-role="apply"]');
 		dom.previewFrontendButton = shell.querySelector('[data-role="preview-frontend"]');
 		dom.cancelButton = shell.querySelector('[data-role="cancel"]');
@@ -3351,6 +3393,7 @@
 		dom.activeSectionId = shell.querySelector('[data-role="active-section-id"]');
 		dom.activeSectionClasses = shell.querySelector('[data-role="active-section-classes"]');
 		dom.statusCount = shell.querySelector('[data-role="status-count"]');
+		dom.saveStatus = shell.querySelector('[data-role="save-status"]');
 		dom.splitter = shell.querySelector('[data-role="splitter"]');
 		dom.splitterHandle = shell.querySelector('[data-role="splitter-handle"]');
 		dom.bottom = shell.querySelector('.md-pb-bottom');
@@ -3840,6 +3883,9 @@
 
 		dom.phpExec.addEventListener('change', function(event) {
 			updateCurrentSectionField('phpExec', !!event.target.checked);
+		});
+		dom.cssFile.addEventListener('change', function(event) {
+			updateCurrentSectionField('cssOutput', event.target.checked ? 'file' : 'inline');
 		});
 
 		// Keyboard shortcuts
@@ -4669,6 +4715,7 @@
 
 		// Listen for inline text edits from the preview iframe
 		window.addEventListener('message', function(e) {
+			if (!dom.previewFrame || e.source !== dom.previewFrame.contentWindow) return;
 			var data = e.data;
 
 			if (data && 'md_pb_section_focus' === data.type) {
@@ -4696,13 +4743,31 @@
 				return;
 			}
 
-			// Replace the first occurrence of oldText in the section HTML
+			// Match the selected element, so identical text in another part
+			// of the same section is never edited by accident.
 			var html = section.content;
-			var pos = html.indexOf(oldText);
-
-			if (pos !== -1) {
-				section.content = html.substring(0, pos) + newText + html.substring(pos + oldText.length);
-
+			var changed = false;
+			if (Array.isArray(data.path) && typeof data.oldHtml === 'string' && typeof data.newHtml === 'string') {
+				var template = document.createElement('template');
+				template.innerHTML = html;
+				var node = template.content;
+				data.path.forEach(function(index) {
+					node = node && Number.isInteger(index) && index >= 0 ? node.children[index] : null;
+				});
+				if (node && node.nodeType === 1 && node.innerHTML === data.oldHtml) {
+					node.innerHTML = data.newHtml;
+					section.content = template.innerHTML;
+					changed = true;
+				}
+			}
+			if (!changed && typeof oldText === 'string' && oldText && typeof newText === 'string') {
+				var pos = html.indexOf(oldText);
+				if (pos !== -1 && html.indexOf(oldText, pos + oldText.length) === -1) {
+					section.content = html.substring(0, pos) + escapeHtml(newText) + html.substring(pos + oldText.length);
+					changed = true;
+				}
+			}
+			if (changed) {
 				// Sync to CodeMirror if this is the selected section
 				if (idx === state.selectedIndex) {
 					if (state.hasCodeMirror && state.editors.html) {
@@ -4730,5 +4795,11 @@
 		});
 	}
 
-	initialize();
+	// WordPress may print the code-editor lint libraries later in the footer.
+	// Wait until all dependencies and theme/plugin footer output are present.
+	if (document.readyState === 'loading') {
+		document.addEventListener('DOMContentLoaded', initialize, { once: true });
+	} else {
+		initialize();
+	}
 })();
