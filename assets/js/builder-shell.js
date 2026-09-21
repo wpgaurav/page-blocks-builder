@@ -2453,6 +2453,8 @@
 				// Waiting for blur matters: adding an id on every keystroke
 				// would fire while the opening tag is still half typed.
 				editor.codemirror.on('blur', function() {
+					window.clearTimeout(cursorScrollTimer);
+					cursorScrollTimer = null;
 					commitRootIdForCurrentSection();
 				});
 
@@ -2460,7 +2462,15 @@
 					if (cursorScrollTimer) {
 						window.clearTimeout(cursorScrollTimer);
 					}
+					cursorScrollTimer = null;
+					// Inline edits and section selection also move CodeMirror's
+					// cursor via setValue. Only an active HTML editor may steer
+					// the preview; otherwise typing on the canvas scrolls it away.
+					if (state.syncingEditors || !instance.hasFocus()) return;
 					cursorScrollTimer = window.setTimeout(function() {
+						cursorScrollTimer = null;
+						// Focus can move to the canvas during the debounce delay.
+						if (state.syncingEditors || !instance.hasFocus()) return;
 						scrollPreviewToHtmlCursor(instance);
 					}, 400);
 				});

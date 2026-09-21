@@ -4,7 +4,7 @@ Tags: page builder, html blocks, css sections, gutenberg, visual builder
 Requires at least: 6.0
 Tested up to: 6.9.1
 Requires PHP: 8.1
-Stable tag: 3.0.2
+Stable tag: 3.0.3
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -65,6 +65,9 @@ Check **Load CSS from a file** to give a section its own stylesheet in `wp-conte
 
 == Upgrade Notice ==
 
+= 3.0.3 =
+Fixes the preview jumping to other sections while you edit text directly on the canvas. HTML cursor scrolling now runs only while the HTML code editor has focus.
+
 = 3.0.2 =
 Fixes the 3.0.1 preview regression that left later sections unstyled when a shared container opened in one section and closed in another. Shared CSS can remain in the first section; no page-content changes are needed.
 
@@ -78,6 +81,12 @@ Major release. Back up your database first: the schema change is one-way. Requir
 Security release. Fixes privilege escalation in the block preview (any Author could execute PHP on sites with PHP blocks enabled) and restores certificate verification on the update channel. If you have PHP blocks turned on, update now. Requires PHP 8.1.
 
 == Changelog ==
+
+= 3.0.3 =
+
+* Fixed preview scrolling away from text being edited inline. Synchronizing that text to the HTML code panel no longer triggers cursor-based preview scrolling.
+* Cancel pending cursor scrolling when the HTML editor loses focus, and check focus again before a delayed scroll runs. Intentional cursor navigation in the HTML editor still follows the selected code.
+* Added regression coverage for inline edits, editor synchronization, focus changes, and intentional HTML cursor scrolling.
 
 = 3.0.2 =
 
