@@ -27,6 +27,7 @@ final class SectionCssTest extends TestCase {
 		$this->assertEmpty( get_post_meta( $id, gt_pb_section_css::META_KEY, true ) );
 		foreach ( array( GT_Page_Blocks_Builder::BLOCK_NAME, GT_Page_Blocks_Builder::LEGACY_BLOCK_NAME ) as $name ) {
 			$this->assertArrayHasKey( 'cssOutput', WP_Block_Type_Registry::get_instance()->get_registered( $name )->attributes );
+			$this->assertSame( false, WP_Block_Type_Registry::get_instance()->get_registered( $name )->attributes['cssDefer']['default'] );
 		}
 	}
 
@@ -86,6 +87,66 @@ final class SectionCssTest extends TestCase {
 		$this->assertStringContainsString( 'Core paragraph', $payload['html'] );
 		$this->assertStringNotContainsString( 'Hidden', $payload['html'] );
 		$this->assertStringNotContainsString( '.hidden', $payload['css'] );
+	}
+
+	public function test_deferred_and_blocking_sections_with_identical_css_keep_their_loading_mode(): void {
+		$attrs = array( 'content' => '<p>Shared CSS</p>', 'css' => '.shared{color:red}', 'cssOutput' => 'file' );
+		$id = $this->post( $this->block( $attrs ) . $this->block( array_merge( $attrs, array( 'cssDefer' => true ) ) ) );
+		$assets = get_post_meta( $id, gt_pb_section_css::META_KEY, true );
+		$blocking = gt_pb_section_css::render( $attrs['css'], $id );
+		$deferred = gt_pb_section_css::render( $attrs['css'], $id, true );
+		$this->assertStringContainsString( $assets[0]['file'], $blocking );
+		$this->assertStringNotContainsString( 'onload', $blocking );
+		$this->assertStringContainsString( 'media="all"', $blocking );
+		$this->assertStringContainsString( 'media="print" onload="this.onload=null;this.media=\'all\'"', $deferred );
+		$this->assertStringContainsString( '<noscript><link rel="stylesheet"', $deferred );
+		$this->assertSame( 2, substr_count( $deferred, $assets[1]['file'] ) );
+		$this->assertSame( '', gt_pb_section_css::render( $attrs['css'], $id, true ), 'Repeated rendering must not duplicate the link or its fallback.' );
+	}
+
+	public function test_head_uses_saved_loading_modes_without_duplicate_body_styles(): void {
+		$blocking = array( 'css' => '.critical{color:blue}', 'cssOutput' => 'file' );
+		$deferred = array( 'css' => '.later{color:green}', 'cssOutput' => 'file', 'cssDefer' => true );
+		$id = $this->post( $this->block( $blocking ) . $this->block( $deferred ) );
+		$previous_query = $GLOBALS['wp_query'];
+		$previous_post = $GLOBALS['post'] ?? null;
+		try {
+			$GLOBALS['wp_query'] = new WP_Query( array( 'page_id' => $id, 'post_status' => 'draft' ) );
+			$GLOBALS['post'] = get_post( $id );
+			ob_start();
+			gt_pb_section_css::print_head();
+			$html = ob_get_clean();
+			$this->assertSame( 1, substr_count( $html, 'media="print"' ) );
+			$this->assertSame( 1, substr_count( $html, '<noscript>' ) );
+			$this->assertStringNotContainsString( '<link', $GLOBALS['gt_page_blocks_builder']->render_block( $deferred ) );
+		} finally {
+			$GLOBALS['wp_query'] = $previous_query;
+			$GLOBALS['post'] = $previous_post;
+		}
+	}
+
+	public function test_defer_survives_builder_read_and_normalization_and_preview_stays_inline(): void {
+		$attrs = array( 'css' => '.preview-defer{color:red}', 'content' => '<p>Preview</p>', 'cssOutput' => 'file', 'cssDefer' => true );
+		$id = $this->post( $this->block( $attrs ) );
+		$plugin = $GLOBALS['gt_page_blocks_builder'];
+		$reader = new ReflectionMethod( GT_Page_Blocks_Builder::class, 'get_builder_sections_from_post' );
+		$normalizer = new ReflectionMethod( GT_Page_Blocks_Builder::class, 'normalize_builder_section' );
+		$section = $normalizer->invoke( $plugin, $reader->invoke( $plugin, $id )[0] );
+		$this->assertTrue( $section['cssDefer'] );
+		$this->assertSame( 'file', $section['cssOutput'] );
+		$preview = new ReflectionMethod( GT_Page_Blocks_Builder::class, 'build_preview_payload' );
+		$payload = $preview->invoke( $plugin, array( $section ) );
+		$this->assertSame( $attrs['css'], $payload['css'] );
+		$this->assertStringNotContainsString( '<link', $payload['html'] );
+	}
+
+	public function test_defer_flag_does_not_disable_inline_fallback(): void {
+		$css = '.fallback-defer{color:blue}';
+		$this->assertSame( '<style>' . $css . '</style>' . "\n", gt_pb_section_css::render( $css, 0, true ) );
+		$attrs = array( 'css' => $css, 'cssOutput' => 'inline', 'cssDefer' => true );
+		$id = $this->post( $this->block( $attrs ) );
+		$this->assertEmpty( get_post_meta( $id, gt_pb_section_css::META_KEY, true ) );
+		$this->assertStringContainsString( '<style>', $GLOBALS['gt_page_blocks_builder']->render_block( $attrs ) );
 	}
 
 	public function test_server_preview_preserves_cross_section_container(): void {

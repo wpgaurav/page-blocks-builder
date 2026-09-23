@@ -798,6 +798,10 @@ html.dark body.md-page-blocks-builder-shell {
 	transition: color 0.15s ease, border-color 0.15s ease, background 0.15s ease;
 }
 
+.md-pb-chip[hidden] {
+	display: none;
+}
+
 .md-pb-chip:hover {
 	border-color: var(--pb-border-strong);
 	color: var(--pb-text);

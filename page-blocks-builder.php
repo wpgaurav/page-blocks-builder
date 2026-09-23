@@ -4,7 +4,7 @@
  * Plugin URI: https://gauravtiwari.org/product/gt-page-blocks-builder/
  * Update URI: https://gauravtiwari.org/product/gt-page-blocks-builder/
  * Description: Standalone visual Page Blocks builder with HTML/CSS/JS sections synced to Gutenberg block content.
- * Version: 3.0.3
+ * Version: 3.0.4
  * Author: Gaurav Tiwari
  * Author URI: https://gauravtiwari.org
  * Text Domain: page-blocks-builder
@@ -20,7 +20,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 if ( ! defined( 'GT_PB_BUILDER_VERSION' ) ) {
-	define( 'GT_PB_BUILDER_VERSION', '3.0.3' );
+	define( 'GT_PB_BUILDER_VERSION', '3.0.4' );
 }
 
 if ( ! defined( 'GT_PB_BUILDER_FILE' ) ) {
@@ -713,6 +713,7 @@ class GT_Page_Blocks_Builder {
 				'phpExec'    => array( 'type' => 'boolean', 'default' => false ),
 				'output'     => array( 'type' => 'string', 'default' => 'inline' ),
 				'cssOutput'  => array( 'type' => 'string', 'default' => '' ),
+				'cssDefer'   => array( 'type' => 'boolean', 'default' => false ),
 
 				// Added together in 3.0.0, deliberately. Each defaults to a
 				// falsy value, so existing post_content parses unchanged and
@@ -920,7 +921,7 @@ class GT_Page_Blocks_Builder {
 		// earlier placement — rather than on a request-global flag, which would
 		// drop the styles of any block that scan never saw.
 		if ( $css !== '' && 'file' === $css_output ) {
-			$output .= gt_pb_section_css::render( $css, get_the_ID() );
+			$output .= gt_pb_section_css::render( $css, get_the_ID(), ! empty( $attributes['cssDefer'] ) );
 		} elseif ( $css !== '' && ( 'inline' === $css_output || ! $is_file_mode ) ) {
 			$css_key = md5( $css );
 			if ( ! isset( $this->inline_css_done[ $css_key ] ) ) {
@@ -1490,6 +1491,7 @@ class GT_Page_Blocks_Builder {
 			'jsLocation' => $js_location,
 			'output'     => $output,
 			'cssOutput'  => isset( $section['cssOutput'] ) && in_array( $section['cssOutput'], array( 'inline', 'file' ), true ) ? $section['cssOutput'] : '',
+			'cssDefer'   => ! empty( $section['cssDefer'] ),
 			'format'     => ! empty( $section['format'] ),
 			'phpExec'    => ! empty( $section['phpExec'] ),
 		);
@@ -1883,7 +1885,7 @@ class GT_Page_Blocks_Builder {
 			// carries a value, so a page of ordinary sections serializes
 			// exactly as it did before and the upgrade diff stays limited to
 			// blocks that actually gained something.
-			foreach ( array( 'name', 'blockSlug', 'cssOutput' ) as $optional ) {
+			foreach ( array( 'name', 'blockSlug', 'cssOutput', 'cssDefer' ) as $optional ) {
 				if ( empty( $attrs[ $optional ] ) ) {
 					unset( $attrs[ $optional ] );
 				}

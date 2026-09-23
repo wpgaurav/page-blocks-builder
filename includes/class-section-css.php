@@ -26,7 +26,7 @@ class gt_pb_section_css {
 			if ( 'file' !== ( $attrs['cssOutput'] ?? '' ) || ! empty( $attrs['blockId'] ) || ! empty( $attrs['blockSlug'] ) || empty( $attrs['css'] ) ) {
 				continue;
 			}
-			$sections[ $index ] = (string) $attrs['css'];
+			$sections[ $index ] = array( 'css' => (string) $attrs['css'], 'defer' => ! empty( $attrs['cssDefer'] ) );
 		}
 		return $sections;
 	}
@@ -49,7 +49,8 @@ class gt_pb_section_css {
 		$previous = get_post_meta( $post->ID, self::META_KEY, true );
 		$previous = is_array( $previous ) ? $previous : array();
 		$assets = array();
-		foreach ( self::sections( $post ) as $index => $css ) {
+		foreach ( self::sections( $post ) as $index => $section ) {
+			$css = $section['css'];
 			$hash = hash( 'sha256', $css );
 			$old = $previous[ $index ] ?? array();
 			$name = $old['file'] ?? '';
@@ -79,7 +80,7 @@ class gt_pb_section_css {
 				}
 				@chmod( $path, defined( 'FS_CHMOD_FILE' ) ? FS_CHMOD_FILE : 0644 );
 			}
-			$assets[ $index ] = array( 'hash' => $hash, 'file' => $name );
+			$assets[ $index ] = array( 'hash' => $hash, 'file' => $name, 'defer' => $section['defer'] );
 		}
 		if ( $assets !== $previous ) {
 			update_post_meta( $post->ID, self::META_KEY, $assets );
@@ -96,13 +97,21 @@ class gt_pb_section_css {
 		return $assets;
 	}
 
-	private static function tag( $file ) {
+	private static function tag( $file, $defer = false ) {
 		if ( isset( self::$printed[ $file ] ) ) {
 			return '';
 		}
 		self::$printed[ $file ] = true;
 		$directory = self::directory();
-		return '<link rel="stylesheet" href="' . esc_url( $directory['url'] . '/' . $file ) . '" media="all">' . "\n";
+		$url = esc_url( $directory['url'] . '/' . $file );
+		$stylesheet = '<link rel="stylesheet" href="' . $url . '" media="all">';
+		if ( $defer ) {
+			// Non-matching media downloads without blocking screen rendering.
+			// Keep the link in place so the authored cascade order is retained.
+			return '<link rel="stylesheet" href="' . $url . '" media="print" onload="this.onload=null;this.media=\'all\'">' . "\n"
+				. '<noscript>' . $stylesheet . '</noscript>' . "\n";
+		}
+		return $stylesheet . "\n";
 	}
 
 	public static function print_head() {
@@ -114,17 +123,17 @@ class gt_pb_section_css {
 			return;
 		}
 		foreach ( self::generate( $post ) as $asset ) {
-			echo self::tag( $asset['file'] ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
+			echo self::tag( $asset['file'], $asset['defer'] ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
 		}
 	}
 
 	/** Covers rendering outside the main loop and unavailable upload storage. */
-	public static function render( $css, $post_id ) {
+	public static function render( $css, $post_id, $defer = false ) {
 		$post = get_post( $post_id );
 		if ( $post ) {
 			foreach ( self::generate( $post ) as $asset ) {
-				if ( hash( 'sha256', $css ) === $asset['hash'] ) {
-					return self::tag( $asset['file'] );
+				if ( hash( 'sha256', $css ) === $asset['hash'] && (bool) $defer === $asset['defer'] ) {
+					return self::tag( $asset['file'], $asset['defer'] );
 				}
 			}
 		}

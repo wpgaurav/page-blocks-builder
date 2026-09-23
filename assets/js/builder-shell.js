@@ -146,6 +146,7 @@
 			jsLocation: 'footer',
 			output: 'inline',
 			cssOutput: '',
+			cssDefer: false,
 			format: false,
 			phpExec: false,
 			collapsed: false
@@ -177,6 +178,7 @@
 		section.output = source.output === 'file' ? 'file' : 'inline';
 		section.cssOutput = source.cssOutput === 'file' || source.cssOutput === 'inline'
 			? source.cssOutput : (source.output === 'file' ? 'file' : '');
+		section.cssDefer = !!source.cssDefer;
 		section.format = !!source.format;
 		section.phpExec = !!source.phpExec;
 		section.collapsed = !!source.collapsed;
@@ -533,6 +535,7 @@
 				jsLocation: n.jsLocation,
 				output: n.output,
 				cssOutput: n.cssOutput,
+				cssDefer: n.cssDefer,
 				format: n.format,
 				phpExec: n.phpExec,
 				collapsed: n.collapsed
@@ -1240,6 +1243,7 @@
 				jsLocation: normalized.jsLocation,
 				output: normalized.output,
 				cssOutput: normalized.cssOutput,
+				cssDefer: normalized.cssDefer,
 				format: normalized.format,
 				phpExec: normalized.phpExec
 			};
@@ -1725,6 +1729,8 @@
 		dom.format.checked = !!section.format;
 		dom.phpExec.checked = !!section.phpExec;
 		dom.cssFile.checked = section.cssOutput === 'file' || (!section.cssOutput && section.output === 'file');
+		dom.cssDefer.checked = !!section.cssDefer;
+		dom.cssDefer.closest('label').hidden = !dom.cssFile.checked;
 		applyLinkedSectionLock(section);
 		renderDetachControl(section);
 		renderActiveSectionMeta();
@@ -1769,7 +1775,7 @@
 			}
 		});
 
-		[dom.jsLocation, dom.format, dom.phpExec, dom.cssFile].forEach(function(node) {
+		[dom.jsLocation, dom.format, dom.phpExec, dom.cssFile, dom.cssDefer].forEach(function(node) {
 			if (node) {
 				node.disabled = locked;
 				node.title = reason;
@@ -3309,6 +3315,8 @@
 							'<input type="checkbox" data-role="php-exec"><span>Run PHP</span></label>' +
 						'<label class="md-pb-chip" title="Save this section\u2019s CSS in its own file. The filename changes each time the page is saved.">' +
 							'<input type="checkbox" data-role="css-file"><span>Load CSS from a file</span></label>' +
+						'<label class="md-pb-chip" hidden title="Load without blocking the first render. Use for below-the-fold sections; keep hero and layout styles inline or non-deferred to avoid flashes and layout shifts.">' +
+							'<input type="checkbox" data-role="css-defer"><span>Defer CSS</span></label>' +
 						'<label class="md-pb-select-wrap" title="Where this section\u2019s JavaScript is placed on the page.">' +
 							'<span class="md-pb-select-label">Script</span>' +
 							'<select data-role="js-location"><option value="footer">In footer</option><option value="inline">Inline</option></select>' +
@@ -3374,6 +3382,7 @@
 		dom.format = shell.querySelector('[data-role="format"]');
 		dom.phpExec = shell.querySelector('[data-role="php-exec"]');
 		dom.cssFile = shell.querySelector('[data-role="css-file"]');
+		dom.cssDefer = shell.querySelector('[data-role="css-defer"]');
 		dom.applyButton = shell.querySelector('[data-role="apply"]');
 		dom.previewFrontendButton = shell.querySelector('[data-role="preview-frontend"]');
 		dom.cancelButton = shell.querySelector('[data-role="cancel"]');
@@ -3877,6 +3886,10 @@
 		});
 		dom.cssFile.addEventListener('change', function(event) {
 			updateCurrentSectionField('cssOutput', event.target.checked ? 'file' : 'inline');
+			dom.cssDefer.closest('label').hidden = !event.target.checked;
+		});
+		dom.cssDefer.addEventListener('change', function(event) {
+			updateCurrentSectionField('cssDefer', !!event.target.checked);
 		});
 
 		// Keyboard shortcuts

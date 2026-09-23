@@ -4,7 +4,7 @@ Tags: page builder, html blocks, css sections, gutenberg, visual builder
 Requires at least: 6.0
 Tested up to: 6.9.1
 Requires PHP: 8.1
-Stable tag: 3.0.3
+Stable tag: 3.0.4
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -65,6 +65,9 @@ Check **Load CSS from a file** to give a section its own stylesheet in `wp-conte
 
 == Upgrade Notice ==
 
+= 3.0.4 =
+Adds an optional Defer CSS setting for section stylesheets. Existing sections keep their current loading behavior. Enable it for below-the-fold sections; keep hero and shared layout styles inline or non-deferred.
+
 = 3.0.3 =
 Fixes the preview jumping to other sections while you edit text directly on the canvas. HTML cursor scrolling now runs only while the HTML code editor has focus.
 
@@ -81,6 +84,13 @@ Major release. Back up your database first: the schema change is one-way. Requir
 Security release. Fixes privilege escalation in the block preview (any Author could execute PHP on sites with PHP blocks enabled) and restores certificate verification on the update channel. If you have PHP blocks turned on, update now. Requires PHP 8.1.
 
 == Changelog ==
+
+= 3.0.4 =
+
+* Added a per-section Defer CSS option beside Load CSS from a file in both the visual builder and Block Editor. Off by default.
+* Deferred files use non-blocking print media and switch to all media on load, with a noscript stylesheet fallback for visitors without JavaScript.
+* Preserve deferred loading through saves and draft recovery. Builder previews continue to apply section CSS immediately, and failed file generation retains the inline fallback.
+* Added regression coverage for mixed loading modes, duplicate CSS, head/body deduplication, preview behavior, and editor save payloads.
 
 = 3.0.3 =
 
