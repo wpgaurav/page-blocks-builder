@@ -6,7 +6,7 @@ Build, reuse, and place custom HTML/CSS/JS sections anywhere in WordPress — th
 
 Originally part of Marketers Delight's Page Blocks dropin (2018–2026, © Kolakube), now a standalone plugin.
 
-**Requires:** WordPress 6.0+, PHP 8.1+ · **Current version:** 3.0.4
+**Requires:** WordPress 6.0+, PHP 8.1+ · **Current version:** 3.1.0
 
 ---
 
@@ -221,7 +221,8 @@ Inline blocks live in `post_content` with no separately stored checksum, so a da
 - **AI**: OpenAI / Anthropic / Gemini API keys, default model, optional terminal tool.
 - **Preview assets**: optional reset/typography/utilities stylesheets, custom preview CSS, `<head>` HTML, and footer JS for the builder preview.
 - **Section CSS**: leave **Load CSS from a file** unchecked for inline CSS. Checked sections each get a stylesheet named `page-{pageId}-{abc12}.css`. The five-character ID changes on every page save, including title-only updates. Old files remain available for seven days for cached pages; unavailable storage falls back to inline CSS. JavaScript placement is independent.
-- **Deferred section CSS**: enable **Defer CSS** beside the file option in the builder or Block Editor to download a section's stylesheet without blocking the first render. It uses `media="print"` and an `onload` switch to `all`, with a `<noscript>` stylesheet fallback. Off by default. Use it for below-the-fold sections; keep hero and shared layout CSS inline or non-deferred to avoid unstyled content and layout shifts. Sites whose Content Security Policy blocks inline event handlers should leave it off. Builder previews still apply all section CSS immediately.
+- **Deferred section CSS**: enable **Defer CSS** beside the file option in the builder or Block Editor to download a section's stylesheet without blocking the first render. It uses `media="print"` and one small external loader that switches loaded styles to `all`, with a `<noscript>` stylesheet fallback. Off by default. Use it for below-the-fold sections; keep hero and shared layout CSS inline or non-deferred to avoid unstyled content and layout shifts. The loader works with CSP policies that allow same-origin scripts; nonce-based policies can authorize it through WordPress's `wp_script_attributes` filter. No inline event handler is required. Builder previews still apply all section CSS immediately.
+- **Performance analysis**: open **Performance** in the full-page builder, or **Performance > Analyze section** in the Block Editor inspector. Inspect source/minified CSS and JavaScript sizes, expected CSS requests, duplicate CSS, image dimensions, lazy hero images, blocking HTML script tags, and repeated font preloads. Analysis includes unsaved code and resolves linked library sources without executing authored PHP or shortcodes. Sizes are before compression and do not predict a PageSpeed score.
 - **Functionalities compatibility**: enabled fonts and their assignments, component CSS, header/body/footer snippets, frontend output, content filters, and opted-in editor helpers such as Prism are carried into the builder preview automatically. Module settings and filters remain authoritative. Unsaved preview content is processed through an authenticated frontend POST, with the same permission and nonce checks as the AJAX preview. Functionalities administrative tools, login/redirect rules, and save-time checks continue in their normal WordPress contexts.
 - **Editing workflow**: clicking, focusing, or selecting preview text selects its section without refreshing the canvas. Saving keeps the selected section and preserves newer edits made while the save was in progress.
 - **Tools**: block-name migration and dropin library import (see above).

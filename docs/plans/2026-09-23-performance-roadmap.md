@@ -1,7 +1,15 @@
 # Page Blocks Builder performance plan
 
 Date: September 23, 2026
-Status: proposed follow-up work; only the 3.0.4 deferred CSS option is implemented.
+Status: the following improvements are included in the 3.1.0 release candidate:
+
+- Request-local CSS manifest reuse with invalidation on post/meta changes, separate blog/upload contexts, and missing-file recovery.
+- A filterable external deferred-CSS loader that works without inline event handlers and supports cached/early stylesheet loads.
+- Wrapping mobile controls and an editor-only Performance panel for source/minified sizes, loading modes, duplicate CSS, and media/script hints.
+
+The remaining bundling, critical-CSS splitting, JavaScript scheduling, automated resource hints, and content-visibility items below remain proposals. They need explicit dependency/ownership rules and their own measurements; no automatic content transformations are implemented.
+
+The blank Gutenberg canvas was reproduced with a standalone blob iframe outside WordPress; srcdoc rendered normally. This is a limitation of the current test browser, not evidence of a Page Blocks rendering defect.
 
 ## Starting evidence
 

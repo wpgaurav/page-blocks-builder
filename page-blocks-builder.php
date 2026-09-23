@@ -4,7 +4,7 @@
  * Plugin URI: https://gauravtiwari.org/product/gt-page-blocks-builder/
  * Update URI: https://gauravtiwari.org/product/gt-page-blocks-builder/
  * Description: Standalone visual Page Blocks builder with HTML/CSS/JS sections synced to Gutenberg block content.
- * Version: 3.0.4
+ * Version: 3.1.0
  * Author: Gaurav Tiwari
  * Author URI: https://gauravtiwari.org
  * Text Domain: page-blocks-builder
@@ -20,7 +20,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 if ( ! defined( 'GT_PB_BUILDER_VERSION' ) ) {
-	define( 'GT_PB_BUILDER_VERSION', '3.0.4' );
+	define( 'GT_PB_BUILDER_VERSION', '3.1.0' );
 }
 
 if ( ! defined( 'GT_PB_BUILDER_FILE' ) ) {
@@ -511,6 +511,7 @@ class GT_Page_Blocks_Builder {
 		require_once GT_PB_BUILDER_DIR . 'includes/class-migration.php';
 		require_once GT_PB_BUILDER_DIR . 'includes/class-functionalities-compat.php';
 		require_once GT_PB_BUILDER_DIR . 'includes/class-section-css.php';
+		require_once GT_PB_BUILDER_DIR . 'includes/class-performance.php';
 
 		$this->db = new gt_pb_db();
 		gt_pb_css_loader::init();
@@ -538,6 +539,7 @@ class GT_Page_Blocks_Builder {
 
 		add_action( 'wp_ajax_md_page_blocks_builder_apply', array( $this, 'ajax_builder_apply' ) );
 		add_action( 'wp_ajax_md_page_blocks_builder_preview', array( $this, 'ajax_builder_preview' ) );
+		add_action( 'wp_ajax_gt_pb_performance', array( $this, 'ajax_performance' ) );
 		add_action( 'wp_ajax_md_page_blocks_ai_generate', array( $this, 'ajax_ai_generate' ) );
 
 		// Reusable blocks AJAX (admin edit page)
@@ -761,6 +763,7 @@ class GT_Page_Blocks_Builder {
 		if ( ! current_user_can( 'edit_posts' ) ) {
 			return;
 		}
+		$this->enqueue_performance_assets();
 
 		$post_id       = isset( $_GET['post'] ) ? absint( $_GET['post'] ) : 0;
 		$preview_nonce = $post_id > 0 ? wp_create_nonce( gt_page_blocks_preview_nonce_action( $post_id ) ) : '';
@@ -780,7 +783,7 @@ class GT_Page_Blocks_Builder {
 			wp_enqueue_script(
 				'gt-page-block-editor',
 				GT_PB_BUILDER_URL . 'assets/js/block-editor.js',
-				array( 'wp-blocks', 'wp-element', 'wp-block-editor', 'wp-components', 'wp-i18n', 'wp-data', 'wp-api-fetch', 'wp-plugins', 'wp-editor', 'code-editor', 'wp-codemirror' ),
+				array( 'wp-blocks', 'wp-element', 'wp-block-editor', 'wp-components', 'wp-i18n', 'wp-data', 'wp-api-fetch', 'wp-plugins', 'wp-editor', 'code-editor', 'wp-codemirror', 'gt-pb-performance' ),
 				filemtime( $script_path ),
 				true
 			);
@@ -1105,6 +1108,7 @@ class GT_Page_Blocks_Builder {
 		if ( ! $this->can_access_builder( $post_id, $nonce ) ) {
 			return;
 		}
+		$this->enqueue_performance_assets();
 
 		$editor_settings = array(
 			'html' => wp_enqueue_code_editor( array( 'type' => 'application/x-httpd-php', 'codemirror' => array( 'lint' => false ) ) ),
@@ -1140,7 +1144,7 @@ class GT_Page_Blocks_Builder {
 			wp_enqueue_script(
 				'gt-page-block-builder-shell',
 				GT_PB_BUILDER_URL . 'assets/js/builder-shell.js',
-				array( 'code-editor', 'wp-codemirror', 'gt-page-block-preview-dom' ),
+				array( 'code-editor', 'wp-codemirror', 'gt-page-block-preview-dom', 'gt-pb-performance' ),
 				filemtime( $js_path ),
 				true
 			);
@@ -2016,6 +2020,29 @@ class GT_Page_Blocks_Builder {
 		// Same authentication, nonce, post-type and PHP capability checks as
 		// AJAX, in a frontend request where content plugins register their hooks.
 		$this->ajax_builder_preview();
+	}
+
+	/** Diagnostics never execute authored code or change the saved post. */
+	public function ajax_performance() {
+		$post_id = isset( $_POST['post_id'] ) ? absint( $_POST['post_id'] ) : 0;
+		$nonce = isset( $_POST['pb_nonce'] ) && is_string( $_POST['pb_nonce'] ) ? sanitize_text_field( wp_unslash( $_POST['pb_nonce'] ) ) : '';
+		if ( ! is_user_logged_in() || ! $this->can_access_preview( $post_id, $nonce ) ) {
+			wp_send_json_error( array( 'message' => __( 'You do not have permission to analyze this page.', 'page-blocks-builder' ) ), 403 );
+		}
+		$raw = isset( $_POST['sections'] ) && is_string( $_POST['sections'] ) ? wp_unslash( $_POST['sections'] ) : '';
+		if ( strlen( $raw ) > 2 * MB_IN_BYTES ) {
+			wp_send_json_error( array( 'message' => __( 'Analyze fewer than 2 MB of section code at a time.', 'page-blocks-builder' ) ), 413 );
+		}
+		$sections = json_decode( $raw, true );
+		if ( ! is_array( $sections ) || count( $sections ) > 250 ) {
+			wp_send_json_error( array( 'message' => __( 'Expected an array of up to 250 sections.', 'page-blocks-builder' ) ), 400 );
+		}
+		wp_send_json_success( gt_pb_performance::analyze( $sections, $this->db, 'section' !== ( $_POST['scope'] ?? '' ) ) );
+	}
+
+	private function enqueue_performance_assets() {
+		wp_enqueue_script( 'gt-pb-performance', GT_PB_BUILDER_URL . 'assets/js/performance.js', array( 'wp-i18n' ), filemtime( GT_PB_BUILDER_DIR . 'assets/js/performance.js' ), true );
+		wp_enqueue_style( 'gt-pb-performance', GT_PB_BUILDER_URL . 'assets/css/performance.css', array(), filemtime( GT_PB_BUILDER_DIR . 'assets/css/performance.css' ) );
 	}
 
 	public function ajax_builder_preview() {

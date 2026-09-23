@@ -754,12 +754,14 @@ html.dark body.md-page-blocks-builder-shell {
 }
 
 .md-pb-bottom-toolbar {
-	height: 32px;
+	min-height: 32px;
+	flex: 0 0 auto;
 	display: flex;
+	flex-wrap: wrap;
 	align-items: center;
 	justify-content: space-between;
 	gap: 10px;
-	padding: 0 10px;
+	padding: 4px 10px;
 	border-bottom: 1px solid var(--pb-border);
 }
 
@@ -772,6 +774,9 @@ html.dark body.md-page-blocks-builder-shell {
 
 .md-pb-options {
 	display: inline-flex;
+	flex-wrap: wrap;
+	min-width: 0;
+	max-width: 100%;
 	align-items: center;
 	gap: 6px;
 	font-size: 11px;

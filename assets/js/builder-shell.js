@@ -3244,6 +3244,7 @@
 					'<button type="button" class="md-pb-button md-pb-button-preview" data-role="preview-frontend">Preview</button>' +
 				'</div>' +
 				'<div class="md-pb-topbar-right">' +
+					'<button type="button" class="md-pb-button" data-role="performance">Performance</button>' +
 					(config.libraryEnabled && config.restUrl ? '<button type="button" class="md-pb-button" data-role="library" title="Section library">\u2261 Library</button>' : '') +
 					'<button type="button" class="md-pb-button" data-role="page-settings" title="Page settings, template, import and export">' + GEAR_ICON + 'Page Settings</button>' +
 					'<button type="button" class="md-pb-button" data-role="shortcuts" title="Keyboard shortcuts">?</button>' +
@@ -3412,6 +3413,7 @@
 		dom.aiMessages = shell.querySelector('[data-role="ai-messages"]');
 		dom.libraryButton = shell.querySelector('[data-role="library"]');
 		dom.pageSettingsButton = shell.querySelector('[data-role="page-settings"]');
+		dom.performanceButton = shell.querySelector('[data-role="performance"]');
 		dom.shortcutsButton = shell.querySelector('[data-role="shortcuts"]');
 		dom.htmlSnippets = shell.querySelector('[data-role="html-snippets"]');
 
@@ -3737,6 +3739,9 @@
 	}
 
 	function setupEvents() {
+		dom.performanceButton.addEventListener('click', function() {
+			if (window.gtPbPerformance) window.gtPbPerformance.open({ endpoint: config.saveEndpoint, postId: config.postId, nonce: config.saveNonce }, getApplyPayloadSections(), dom.performanceButton);
+		});
 		dom.addSectionButton.addEventListener('click', function() {
 			addSection(state.selectedIndex);
 		});

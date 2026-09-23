@@ -7,11 +7,31 @@ if ( ! defined( 'ABSPATH' ) ) {
 class gt_pb_section_css {
 	const META_KEY = '_gt_pb_section_css_files';
 	private static $printed = array();
+	private static $manifests = array();
+	private static $loader_printed = false;
 
 	public static function init() {
 		add_action( 'save_post', array( __CLASS__, 'on_save' ), 15, 2 );
 		add_action( 'delete_post', array( __CLASS__, 'on_delete' ) );
 		add_action( 'wp_head', array( __CLASS__, 'print_head' ), 99 );
+		add_action( 'clean_post_cache', array( __CLASS__, 'invalidate' ) );
+		foreach ( array( 'added_post_meta', 'updated_post_meta', 'deleted_post_meta' ) as $hook ) {
+			add_action( $hook, array( __CLASS__, 'metadata_changed' ), 10, 3 );
+		}
+	}
+
+	private static function cache_key( $post_id ) {
+		return get_current_blog_id() . ':' . (int) $post_id;
+	}
+
+	public static function invalidate( $post_id ) {
+		unset( self::$manifests[ self::cache_key( $post_id ) ] );
+	}
+
+	public static function metadata_changed( $meta_id, $post_id, $meta_key ) {
+		if ( self::META_KEY === $meta_key ) {
+			self::invalidate( $post_id );
+		}
 	}
 
 	private static function directory() {
@@ -46,6 +66,11 @@ class gt_pb_section_css {
 	/** Failed writes leave the section available for inline fallback. */
 	private static function generate( $post, $rotate = false ) {
 		$directory = self::directory();
+		$key = self::cache_key( $post->ID );
+		$cached = self::$manifests[ $key ] ?? null;
+		if ( ! $rotate && $cached && $cached['content'] === $post->post_content && $cached['directory'] === $directory ) {
+			return $cached['assets'];
+		}
 		$previous = get_post_meta( $post->ID, self::META_KEY, true );
 		$previous = is_array( $previous ) ? $previous : array();
 		$assets = array();
@@ -94,22 +119,41 @@ class gt_pb_section_css {
 				}
 			}
 		}
+		$lookup = array();
+		foreach ( $assets as $asset ) {
+			$css_key = $asset['hash'] . ':' . (int) $asset['defer'];
+			if ( ! isset( $lookup[ $css_key ] ) ) {
+				$lookup[ $css_key ] = $asset;
+			}
+		}
+		self::$manifests[ $key ] = array( 'content' => $post->post_content, 'directory' => $directory, 'assets' => $assets, 'lookup' => $lookup );
 		return $assets;
 	}
 
 	private static function tag( $file, $defer = false ) {
-		if ( isset( self::$printed[ $file ] ) ) {
-			return '';
-		}
-		self::$printed[ $file ] = true;
 		$directory = self::directory();
 		$url = esc_url( $directory['url'] . '/' . $file );
+		if ( isset( self::$printed[ $url ] ) ) {
+			return '';
+		}
+		self::$printed[ $url ] = true;
 		$stylesheet = '<link rel="stylesheet" href="' . $url . '" media="all">';
 		if ( $defer ) {
 			// Non-matching media downloads without blocking screen rendering.
 			// Keep the link in place so the authored cascade order is retained.
-			return '<link rel="stylesheet" href="' . $url . '" media="print" onload="this.onload=null;this.media=\'all\'">' . "\n"
-				. '<noscript>' . $stylesheet . '</noscript>' . "\n";
+			$loader = '';
+			if ( ! self::$loader_printed ) {
+				self::$loader_printed = true;
+				// The WordPress attributes filter lets nonce-based CSPs authorize
+				// this file. No inline event handler or unsafe-inline is required.
+				$loader = wp_get_script_tag( array(
+					'id' => 'gt-pb-deferred-css',
+					'src' => GT_PB_BUILDER_URL . 'assets/js/deferred-css.js?ver=' . filemtime( GT_PB_BUILDER_DIR . 'assets/js/deferred-css.js' ),
+					'defer' => true,
+				) );
+			}
+			return '<link rel="stylesheet" href="' . $url . '" media="print" data-gt-pb-deferred>' . "\n"
+				. '<noscript>' . $stylesheet . '</noscript>' . "\n" . $loader;
 		}
 		return $stylesheet . "\n";
 	}
@@ -122,7 +166,17 @@ class gt_pb_section_css {
 		if ( ! $post instanceof WP_Post ) {
 			return;
 		}
-		foreach ( self::generate( $post ) as $asset ) {
+		$assets = self::generate( $post );
+		$directory = self::directory();
+		foreach ( $assets as $asset ) {
+			clearstatcache( true, $directory['path'] . '/' . $asset['file'] );
+			if ( ! is_file( $directory['path'] . '/' . $asset['file'] ) ) {
+				self::invalidate( $post->ID );
+				$assets = self::generate( $post );
+				break;
+			}
+		}
+		foreach ( $assets as $asset ) {
 			echo self::tag( $asset['file'], $asset['defer'] ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
 		}
 	}
@@ -131,16 +185,26 @@ class gt_pb_section_css {
 	public static function render( $css, $post_id, $defer = false ) {
 		$post = get_post( $post_id );
 		if ( $post ) {
-			foreach ( self::generate( $post ) as $asset ) {
-				if ( hash( 'sha256', $css ) === $asset['hash'] && (bool) $defer === $asset['defer'] ) {
-					return self::tag( $asset['file'], $asset['defer'] );
+			self::generate( $post );
+			$key = self::cache_key( $post_id );
+			$css_key = hash( 'sha256', $css ) . ':' . (int) (bool) $defer;
+			$asset = self::$manifests[ $key ]['lookup'][ $css_key ] ?? null;
+			if ( $asset ) {
+				$path = self::directory()['path'] . '/' . $asset['file'];
+				clearstatcache( true, $path );
+				if ( ! is_file( $path ) ) {
+					self::invalidate( $post_id );
+					self::generate( $post );
+					$asset = self::$manifests[ $key ]['lookup'][ $css_key ] ?? null;
 				}
+				if ( $asset ) return self::tag( $asset['file'], $asset['defer'] );
 			}
 		}
 		return '<style>' . GT_Page_Blocks_Builder::minify_css( GT_Page_Blocks_Builder::sanitize_css( $css ) ) . '</style>' . "\n";
 	}
 
 	public static function on_delete( $post_id ) {
+		self::invalidate( $post_id );
 		$directory = self::directory();
 		foreach ( (array) glob( $directory['path'] . '/page-' . (int) $post_id . '-*.css' ) as $path ) {
 			if ( self::valid_name( basename( $path ), $post_id ) ) {

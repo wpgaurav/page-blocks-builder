@@ -1421,6 +1421,12 @@
 				: undefined;
 
 			var inspector = el( InspectorControls, null,
+				el( PanelBody, { title: __( 'Performance' ), initialOpen: false },
+					el( 'p', {}, __( 'Inspect code sizes, CSS loading, and authored image markup for this section.' ) ),
+					el( 'button', { type: 'button', className: 'button button-secondary', onClick: function(event) {
+						if (window.gtPbPerformance) window.gtPbPerformance.open({ endpoint: config.ajaxUrl, postId: config.postId, nonce: config.previewNonce, scope: 'section' }, [attributes], event.currentTarget);
+					} }, __( 'Analyze section' ) )
+				),
 				isLinked && el( PanelBody, { title: __( 'Library link' ) },
 					el( 'p', { className: 'md-page-block-linked-help' },
 						linkedMissing

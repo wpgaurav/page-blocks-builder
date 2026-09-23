@@ -4,7 +4,7 @@ Tags: page builder, html blocks, css sections, gutenberg, visual builder
 Requires at least: 6.0
 Tested up to: 6.9.1
 Requires PHP: 8.1
-Stable tag: 3.0.4
+Stable tag: 3.1.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -65,6 +65,9 @@ Check **Load CSS from a file** to give a section its own stylesheet in `wp-conte
 
 == Upgrade Notice ==
 
+= 3.1.0 =
+Adds Performance analysis, faster section CSS processing, CSP-compatible deferred stylesheets, and responsive loading controls. Existing content and loading choices remain unchanged.
+
 = 3.0.4 =
 Adds an optional Defer CSS setting for section stylesheets. Existing sections keep their current loading behavior. Enable it for below-the-fold sections; keep hero and shared layout styles inline or non-deferred.
 
@@ -84,6 +87,14 @@ Major release. Back up your database first: the schema change is one-way. Requir
 Security release. Fixes privilege escalation in the block preview (any Author could execute PHP on sites with PHP blocks enabled) and restores certificate verification on the update channel. If you have PHP blocks turned on, update now. Requires PHP 8.1.
 
 == Changelog ==
+
+= 3.1.0 =
+
+* Added a read-only Performance panel in the full-page builder and Block Editor inspector. Analyze unsaved code sizes, expected stylesheet requests, duplicate CSS, image dimensions, loading hints, HTML scripts, and font preloads.
+* Reuse the section CSS manifest within each request instead of reparsing the page for every section. Invalidate it when posts or asset metadata change, and rebuild missing files while retaining inline fallback on storage failure.
+* Deferred CSS now uses one small external loader instead of inline event handlers. It supports same-origin script CSP policies, nonce authorization through WordPress's script-attributes filter, early/cached stylesheet loads, and the existing noscript fallback.
+* Fixed loading controls overflowing narrow screens by allowing the toolbar to wrap.
+* Expanded regression coverage for save races, draft recovery, failed saves, cache invalidation, diagnostics permissions, and dialog behavior. Added repeatable CSS scaling and delayed-network browser fixtures.
 
 = 3.0.4 =
 

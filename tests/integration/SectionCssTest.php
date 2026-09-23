@@ -98,7 +98,8 @@ final class SectionCssTest extends TestCase {
 		$this->assertStringContainsString( $assets[0]['file'], $blocking );
 		$this->assertStringNotContainsString( 'onload', $blocking );
 		$this->assertStringContainsString( 'media="all"', $blocking );
-		$this->assertStringContainsString( 'media="print" onload="this.onload=null;this.media=\'all\'"', $deferred );
+		$this->assertStringContainsString( 'media="print" data-gt-pb-deferred', $deferred );
+		$this->assertStringNotContainsString( ' onload=', $deferred );
 		$this->assertStringContainsString( '<noscript><link rel="stylesheet"', $deferred );
 		$this->assertSame( 2, substr_count( $deferred, $assets[1]['file'] ) );
 		$this->assertSame( '', gt_pb_section_css::render( $attrs['css'], $id, true ), 'Repeated rendering must not duplicate the link or its fallback.' );

@@ -2,7 +2,10 @@
   "name": "page-blocks-builder-tests",
   "private": true,
   "scripts": {
-    "test": "node --test tests/js/*.test.js"
+    "test": "node --test tests/js/*.test.js",
+    "test:ux": "node --test tests/js/builder-workflows.test.js tests/js/deferred-css.test.js tests/js/builder-cursor-scroll.test.js",
+    "test:performance": "php tests/performance/section-css-benchmark.php",
+    "test:performance:browser": "node tests/performance/browser-server.cjs"
   },
   "devDependencies": {
     "jsdom": "30.0.1"

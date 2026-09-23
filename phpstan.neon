@@ -21,6 +21,7 @@ parameters:
         - includes/class-migration.php
         - includes/class-functionalities-compat.php
         - includes/class-section-css.php
+        - includes/class-performance.php
 
     excludePaths:
         - templates/*
