@@ -1692,6 +1692,137 @@ html.dark body.md-page-blocks-builder-shell {
 	}
 }
 
+/* Structured visual sections use the existing section navigator and a real
+   element inspector in the same sidebar. Code sections retain the old width. */
+.md-pb-shell.is-visual-section .md-pb-main {
+	grid-template-columns: minmax(0, 1fr) 320px;
+}
+
+.md-pb-shell.is-visual-section .md-pb-index {
+	width: 320px;
+}
+
+.md-pb-shell.is-visual-section .md-pb-index-list {
+	flex: 0 0 auto;
+	max-height: 28%;
+}
+
+.md-pb-add-visual-btn {
+	background: var(--pb-accent-dim);
+	color: var(--pb-accent);
+}
+
+.md-pb-index-badge.is-visual {
+	color: var(--pb-accent);
+}
+
+[data-role="visual-mount"] {
+	min-height: 0;
+	flex: 1 1 auto;
+	overflow: auto;
+}
+
+.md-pb-v-panel {
+	padding: 12px;
+	font: 12px/1.4 var(--pb-font-ui);
+}
+
+.md-pb-v-panel[hidden] { display: none; }
+
+.md-pb-v-header {
+	display: grid;
+	gap: 3px;
+	padding-bottom: 9px;
+	border-bottom: 1px solid var(--pb-border);
+}
+
+.md-pb-v-header strong { font-size: 14px; }
+.md-pb-v-header small { color: var(--pb-muted); }
+
+.md-pb-v-panel h3 {
+	font-size: 11px;
+	text-transform: uppercase;
+	letter-spacing: .08em;
+	margin: 16px 0 7px;
+	color: var(--pb-muted);
+}
+
+.md-pb-v-palette {
+	display: grid;
+	grid-template-columns: repeat(2, minmax(0, 1fr));
+	gap: 5px;
+}
+
+.md-pb-v-button,
+.md-pb-v-layer {
+	border: 1px solid var(--pb-border);
+	background: var(--pb-surface);
+	color: var(--pb-text);
+	border-radius: var(--pb-radius);
+	padding: 6px 8px;
+	font: inherit;
+	text-align: left;
+	cursor: pointer;
+}
+
+.md-pb-v-button:hover,
+.md-pb-v-layer:hover,
+.md-pb-v-layer.is-drop-target {
+	border-color: var(--pb-accent);
+	background: var(--pb-accent-dim);
+}
+
+.md-pb-v-layers {
+	display: grid;
+	gap: 3px;
+	max-height: 180px;
+	overflow: auto;
+}
+
+.md-pb-v-layer {
+	width: 100%;
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+.md-pb-v-layer.is-selected {
+	border-color: var(--pb-accent);
+	color: var(--pb-accent);
+}
+
+.md-pb-v-actions { display: flex; gap: 5px; margin-bottom: 8px; }
+
+.md-pb-v-field {
+	display: grid;
+	gap: 4px;
+	margin: 8px 0 !important;
+}
+
+.md-pb-v-field span { color: var(--pb-muted); font-weight: 600; }
+
+.md-pb-v-field input,
+.md-pb-v-field select,
+.md-pb-v-field textarea {
+	width: 100%;
+	min-height: 30px;
+	border: 1px solid var(--pb-border);
+	border-radius: var(--pb-radius);
+	padding: 5px 7px;
+	font: inherit;
+}
+
+.md-pb-v-field textarea { min-height: 76px; resize: vertical; }
+
+@media (max-width: 980px) {
+	.md-pb-shell.is-visual-section .md-pb-main { display: flex; }
+	.md-pb-shell.is-visual-section .md-pb-index {
+		width: auto;
+		max-height: 48%;
+	}
+	.md-pb-shell.is-visual-section .md-pb-index-list { max-height: 90px; }
+}
+
 /* ─────────────────────────────────────────────────────────────────────────
    Dialogs
 

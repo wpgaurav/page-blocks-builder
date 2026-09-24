@@ -520,6 +520,7 @@
 			output:     { type: 'string', default: 'inline' },
 			cssOutput:  { type: 'string', default: '' },
 			cssDefer:   { type: 'boolean', default: false },
+			visualData: { type: 'object', default: {} },
 			// Added in 3.0.0. These must mirror the PHP registration for the
 			// same reason the comment above gives.
 			name:              { type: 'string', default: '' },
@@ -539,6 +540,7 @@
 			// nothing here, so an id-only test showed it as unlinked and
 			// offered to edit code that render_block() would ignore.
 			var isLinked   = linkedId > 0 || '' !== linkedSlug;
+			var isVisual   = !! ( attributes.visualData && attributes.visualData.version === 1 && attributes.visualData.root );
 
 			var activeTabState = useState( 'html' );
 			var activeTab = activeTabState[0];
@@ -619,7 +621,7 @@
 			// Linked blocks have no editable code here, so they never leave
 			// preview — the editor tabs would write attributes render_block()
 			// throws away.
-			var viewMode = isLinked ? 'preview' : mode;
+			var viewMode = isLinked || isVisual ? 'preview' : mode;
 
 			var phpDetected = /<\?(?:php|=)/.test( source.content || '' );
 			var notices = wp.data && wp.data.dispatch ? wp.data.dispatch( 'core/notices' ) : null;
@@ -1399,11 +1401,13 @@
 					} ),
 					el( ToolbarButton, {
 						icon: 'editor-code',
-						label: isLinked
+						label: isVisual
+							? __( 'Edit this section in the Visual builder' )
+							: isLinked
 							? __( 'Code lives in the library — unlink to edit it here' )
 							: __( 'Edit code' ),
 						isPressed: viewMode === 'editor',
-						disabled: isLinked,
+						disabled: isLinked || isVisual,
 						onClick: function() { setMode( 'editor' ); }
 					} ),
 					el( ToolbarButton, {
@@ -1520,6 +1524,27 @@
 
 			// Linked mode: the library row is the subject, and there is no
 			// inline code to edit here.
+			if ( isVisual ) {
+				return el( Fragment, null,
+					toolbar,
+					el( InspectorControls, null,
+						el( PanelBody, { title: __( 'Visual section' ) },
+							el( 'p', {}, __( 'Edit text, images, layout, and responsive styles in the Page Blocks visual builder.' ) ),
+							config.builderUrl && el( 'a', { className: 'button button-primary', href: config.builderUrl }, __( 'Open Visual builder' ) )
+						)
+					),
+					el( 'div', { className: 'md-page-block-preview-wrap' },
+						el( 'div', { className: 'md-page-block-bar' },
+							el( 'span', { className: 'md-page-block-bar-title' }, __( 'Visual Page Block' ) ),
+							el( 'span', { className: 'md-page-block-bar-spacer' } ),
+							previewControls(),
+							config.builderUrl && el( 'a', { className: 'md-page-block-bar-btn md-page-block-bar-btn--primary', href: config.builderUrl }, __( 'Edit visually' ) )
+						),
+						viewportFrame()
+					)
+				);
+			}
+
 			if ( isLinked ) {
 				return el( Fragment, null,
 					toolbar,

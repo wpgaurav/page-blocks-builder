@@ -11,6 +11,8 @@
 
 	var config = window.mdPbBuilder || {};
 	var previewDom = window.gtPbPreviewDom;
+	var visualBuilder = window.gtPbVisualBuilder;
+	var visualEditor = null;
 
 	// Enter sends, so the button is an affordance rather than the instruction.
 	// Same reasoning as Claude's own composer: an arrow, not a word.
@@ -149,6 +151,7 @@
 			cssDefer: false,
 			format: false,
 			phpExec: false,
+			visualData: null,
 			collapsed: false
 		};
 	}
@@ -181,6 +184,8 @@
 		section.cssDefer = !!source.cssDefer;
 		section.format = !!source.format;
 		section.phpExec = !!source.phpExec;
+		section.visualData = source.visualData && source.visualData.version === 1 && source.visualData.root
+			? (visualBuilder ? visualBuilder.normalizeData(source.visualData) : source.visualData) : null;
 		section.collapsed = !!source.collapsed;
 
 		return section;
@@ -289,7 +294,7 @@
 	 * @return {boolean} Whether the content changed.
 	 */
 	function ensureSectionRootId(section) {
-		if (!section || isForeign(section) || isLinked(section)) {
+		if (!section || isForeign(section) || isLinked(section) || section.visualData) {
 			return false;
 		}
 
@@ -538,6 +543,7 @@
 				cssDefer: n.cssDefer,
 				format: n.format,
 				phpExec: n.phpExec,
+				visualData: n.visualData,
 				collapsed: n.collapsed
 			};
 		});
@@ -588,7 +594,7 @@
 		}
 
 		return state.sections.some(function(section) {
-			return !!(section && (section.phpExec || section.format));
+			return !!(section && (section.phpExec || section.format || section.visualData));
 		});
 	}
 
@@ -770,7 +776,7 @@
 			'document.addEventListener("mouseout",function(e){var el=e.target.closest(SEL);if(el)el.removeAttribute("data-pb-editable-hover");});' +
 			'document.addEventListener("click",function(e){' +
 			'var el=e.target.closest(SEL);' +
-			'if(!el||el.contentEditable==="true"||el.closest("[data-pb-foreign],[data-pb-linked]"))return;' +
+			'if(!el||el.contentEditable==="true"||el.closest("[data-pb-foreign],[data-pb-linked],[data-pb-v-id]"))return;' +
 			'if(el.querySelector("div,section,article,ul,ol,table,form,header,footer,nav,aside"))return;' +
 			'e.preventDefault();e.stopPropagation();' +
 			'el.removeAttribute("data-pb-editable-hover");' +
@@ -799,6 +805,7 @@
 			'})();'
 		);
 
+		if (visualBuilder) scripts.push(visualBuilder.bridgeScript());
 		return { html: docHtml, scripts: scripts };
 	}
 
@@ -865,6 +872,7 @@
 						script.textContent = code;
 						doc.body.appendChild(script);
 					});
+					if (visualEditor) visualEditor.syncSelection();
 					dom.previewFrame.contentWindow.scrollTo(scrollX, scrollY);
 				} catch (error) {}
 			};
@@ -962,6 +970,9 @@
 	function extractSectionMeta(section, index) {
 		var fallbackId = 'section-' + (index + 1);
 		var classes = [];
+		if (section && section.visualData && section.visualData.root) {
+			return { id: 'gt-pb-v-' + section.visualData.root.id, classes: ['gt-pb-v-root-' + section.visualData.root.id] };
+		}
 
 		if (!section || typeof section.content !== 'string' || !section.content.trim()) {
 			return { id: fallbackId, classes: classes };
@@ -1150,6 +1161,7 @@
 		form.set('post_title', state.pageTitle || '');
 		form.set('post_slug', state.pageSlug || '');
 		form.set('removed_foreign', String(state.removedForeign || 0));
+		form.set('content_hash', config.contentHash || '');
 
 		window.fetch(config.saveEndpoint, {
 			method: 'POST',
@@ -1190,6 +1202,9 @@
 				}
 				if (payload.data && payload.data.viewPostUrl) {
 					config.viewPostUrl = payload.data.viewPostUrl;
+				}
+				if (payload.data && payload.data.contentHash) {
+					config.contentHash = payload.data.contentHash;
 				}
 
 				// Those blocks are gone from the page now, so they are no
@@ -1245,7 +1260,8 @@
 				cssOutput: normalized.cssOutput,
 				cssDefer: normalized.cssDefer,
 				format: normalized.format,
-				phpExec: normalized.phpExec
+				phpExec: normalized.phpExec,
+				visualData: normalized.visualData || undefined
 			};
 		});
 	}
@@ -1378,6 +1394,25 @@
 		renderAll();
 	}
 
+	function addVisualSection() {
+		if (!visualBuilder) {
+			window.alert('The visual editor did not load. Reload the builder and try again.');
+			return;
+		}
+		pushHistory();
+		var section = createDefaultSection();
+		section.name = 'Visual Section';
+		section.visualData = visualBuilder.createData();
+		var insertAt = Math.min(state.selectedIndex + 1, state.sections.length);
+		state.sections.splice(insertAt, 0, section);
+		state.selectedIndex = insertAt;
+		state.showCode = false;
+		state.showSidebar = true;
+		renderAll();
+		updatePanelVisibility();
+		queueAutosave();
+	}
+
 	function duplicateSection(index) {
 		if (index < 0 || index >= state.sections.length) {
 			return;
@@ -1385,6 +1420,12 @@
 		pushHistory();
 		var copy = normalizeSection(state.sections[index]);
 		copy.uid = mintUid();
+		if (copy.visualData && visualBuilder) {
+			copy.visualData = JSON.parse(JSON.stringify(copy.visualData));
+			visualBuilder.regenerateIds(copy.visualData.root);
+			copy.content = '';
+			copy.css = '';
+		}
 		if (copy.content) {
 			copy.content = copy.content.replace(/id=(["'])([^"']+)\1/i, function(match, quote, idValue) {
 				// A one-shot '-copy' suffix meant duplicating twice produced two
@@ -1504,8 +1545,11 @@
 		}
 
 		state.selectedIndex = index;
+		state.showCode = !state.sections[index].visualData;
+		if (state.sections[index].visualData) state.showSidebar = true;
 		renderIndexList();
 		renderCurrentSectionToEditors();
+		updatePanelVisibility();
 		refreshCodeEditors();
 		ensureSelectedIndexVisible();
 	}
@@ -1565,6 +1609,8 @@
 					: 'Edit this content in the WordPress editor';
 			} else if (isLinked(section)) {
 				item.classList.add('is-linked');
+			} else if (section.visualData) {
+				item.classList.add('is-visual');
 			}
 
 			var nameButton = document.createElement('button');
@@ -1664,6 +1710,11 @@
 					linkBadge.textContent = '#' + section.blockId;
 					linkBadge.title = 'Renders Page Blocks library block #' + section.blockId;
 					actions.appendChild(linkBadge);
+				} else if (section.visualData) {
+					var visualBadge = document.createElement('span');
+					visualBadge.className = 'md-pb-index-badge is-visual';
+					visualBadge.textContent = 'Visual';
+					actions.appendChild(visualBadge);
 				}
 				actions.appendChild(collapse);
 				actions.appendChild(duplicate);
@@ -1732,7 +1783,17 @@
 		dom.cssDefer.checked = !!section.cssDefer;
 		dom.cssDefer.closest('label').hidden = !dom.cssFile.checked;
 		applyLinkedSectionLock(section);
+		if (dom.shell) dom.shell.classList.toggle('is-visual-section', !!section.visualData);
+		if (dom.visualMount) dom.visualMount.hidden = !section.visualData;
 		renderDetachControl(section);
+		if (visualEditor) {
+			visualEditor.render();
+			visualEditor.syncSelection();
+		}
+		if (dom.toggleVisualButton) {
+			dom.toggleVisualButton.classList.toggle('is-active', !!section.visualData);
+			dom.toggleVisualButton.setAttribute('aria-pressed', section.visualData ? 'true' : 'false');
+		}
 		renderActiveSectionMeta();
 		updateStatusBar();
 	}
@@ -1745,7 +1806,8 @@
 	function applyLinkedSectionLock(section) {
 		var foreign = isForeign(section);
 		var linked  = isLinked(section);
-		var locked  = foreign || linked;
+		var visual  = !!section.visualData;
+		var locked  = foreign || linked || visual;
 		var reason  = '';
 
 		if (foreign) {
@@ -1758,6 +1820,8 @@
 		} else if (linked) {
 			reason = 'This section renders Page Blocks library block #' + section.blockId +
 				'. Edit it in the library, or detach a copy to edit it here.';
+		} else if (visual) {
+			reason = 'This section is built in Visual mode. Select its elements on the page or in Layers to edit it.';
 		}
 
 		if (state.hasCodeMirror) {
@@ -1910,8 +1974,10 @@
 
 	function renderAll() {
 		clampSelectedIndex();
+		state.showCode = !getCurrentSection().visualData;
 		renderIndexList();
 		renderCurrentSectionToEditors();
+		updatePanelVisibility();
 		refreshCodeEditors();
 		queuePreviewRender(0, true); // force full render on structural changes
 	}
@@ -3229,12 +3295,13 @@
 
 		var shell = document.createElement('div');
 		shell.className = 'md-pb-shell';
-		shell.innerHTML = '' +
+			shell.innerHTML = '' +
 			'<div class="md-pb-topbar">' +
 				'<div class="md-pb-topbar-left">' +
 					'<div class="md-pb-brand">Page Blocks</div>' +
 					'<span class="md-pb-divider" aria-hidden="true"></span>' +
 					'<button type="button" class="md-pb-toggle-btn is-active" data-role="toggle-sections" aria-pressed="true">\u2630 Sections</button>' +
+					'<button type="button" class="md-pb-toggle-btn" data-role="toggle-visual" aria-pressed="false">Visual</button>' +
 					'<button type="button" class="md-pb-toggle-btn is-active" data-role="toggle-code" aria-pressed="true">&lt;/&gt; Code</button>' +
 					'<button type="button" class="md-pb-toggle-btn is-active" data-role="toggle-preview" aria-pressed="true">&#9655; Preview</button>' +
 					'<button type="button" class="md-pb-toggle-btn" data-role="toggle-ai" aria-pressed="false">AI</button>' +
@@ -3294,6 +3361,8 @@
 					'</div>' +
 					'<ul class="md-pb-index-list" data-role="index-list"></ul>' +
 					'<button type="button" class="md-pb-add-section-btn" data-role="add-section">+ Add Section</button>' +
+					'<button type="button" class="md-pb-add-section-btn md-pb-add-visual-btn" data-role="add-visual-section">+ Add Visual Section</button>' +
+					'<div data-role="visual-mount"></div>' +
 					'<div class="md-pb-meta">' +
 						'<div class="md-pb-meta-title">Active Section</div>' +
 						'<input type="text" class="md-pb-meta-id" data-role="active-section-id" readonly>' +
@@ -3388,6 +3457,9 @@
 		dom.previewFrontendButton = shell.querySelector('[data-role="preview-frontend"]');
 		dom.cancelButton = shell.querySelector('[data-role="cancel"]');
 		dom.addSectionButton = shell.querySelector('[data-role="add-section"]');
+		dom.addVisualSectionButton = shell.querySelector('[data-role="add-visual-section"]');
+		dom.visualMount = shell.querySelector('[data-role="visual-mount"]');
+		dom.toggleVisualButton = shell.querySelector('[data-role="toggle-visual"]');
 		dom.toggleCodeButton = shell.querySelector('[data-role="toggle-code"]');
 		dom.togglePreviewButton = shell.querySelector('[data-role="toggle-preview"]');
 		dom.toggleSectionsButton = shell.querySelector('[data-role="toggle-sections"]');
@@ -3744,6 +3816,16 @@
 		});
 		dom.addSectionButton.addEventListener('click', function() {
 			addSection(state.selectedIndex);
+		});
+		dom.addVisualSectionButton.addEventListener('click', addVisualSection);
+		dom.toggleVisualButton.addEventListener('click', function() {
+			if (!getCurrentSection().visualData) {
+				addVisualSection();
+				return;
+			}
+			state.showCode = false;
+			state.showSidebar = true;
+			updatePanelVisibility();
 		});
 
 		bindButtonActivation(dom.cancelButton, activateCancel);
@@ -4706,6 +4788,21 @@
 
 	function initialize() {
 		setupLayout();
+		if (visualBuilder && dom.visualMount) {
+			visualEditor = visualBuilder.createEditor({
+				container: dom.visualMount,
+				getSection: getCurrentSection,
+				getFrame: function() { return dom.previewFrame; },
+				onChange: function(next, checkpoint) {
+					var section = getCurrentSection();
+					if (!section || !section.visualData) return;
+					if (checkpoint) pushHistory();
+					section.visualData = next;
+					queuePreviewRender(0, true);
+					queueAutosave();
+				}
+			});
+		}
 		collectPreviewAssets();
 		setupEvents();
 		setupCodeEditors();
@@ -4729,6 +4826,20 @@
 
 			if (data && 'md_pb_section_focus' === data.type) {
 				selectSectionFromPreview(indexOfUid(data.sectionUid));
+				return;
+			}
+			if (data && data.type === 'md_pb_section_move') {
+				var from = indexOfUid(data.sourceUid);
+				var target = indexOfUid(data.targetUid);
+				if (from >= 0 && target >= 0 && from !== target) {
+					var to = data.placement === 'after' ? target + (from > target ? 1 : 0) : target - (from < target ? 1 : 0);
+					reorderSections(from, Math.max(0, Math.min(state.sections.length - 1, to)));
+				}
+				return;
+			}
+			if (data && data.type && data.type.indexOf('md_pb_visual_') === 0 && visualEditor) {
+				if (data.sectionUid) selectSectionFromPreview(indexOfUid(data.sectionUid));
+				visualEditor.handleMessage(data);
 				return;
 			}
 

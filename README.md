@@ -75,6 +75,10 @@ A full-page frontend builder for editing all Page Block sections of a post in on
 
 - Launch from the admin bar on any enabled post type, or directly: `/?build=page-blocks&post_id={ID}&pb_nonce={nonce}`.
 - Sections map 1:1 to `gt-page-block/page-block` blocks in `post_content` — Gutenberg remains the source of truth; other blocks are preserved in place.
+- **Add Visual Section** creates a structured section. Select elements on the canvas or in Layers, edit text directly, choose images from the WordPress media library, and set content and responsive styles in the inspector.
+- The Visual palette has containers, columns, headings, text, images, and buttons. Drag elements on the canvas or in Layers; the existing Sections list continues to reorder complete sections. Move up/down controls offer a keyboard-accessible alternative.
+- Visual sections save a versioned element tree and generated HTML/CSS in the same Page Block. The element tree controls future visual edits; the generated fields preserve rendering if an older plugin version is restored.
+- Existing hand-coded sections stay in Code mode with their original HTML/CSS/JS and inline text editing. Linked library blocks and other Gutenberg blocks retain their existing editing boundaries. Saving does not convert old code into visual elements.
 - CodeMirror editors with Emmet expansion, live preview with your theme's CSS, page-template switching, and frontend-preview handoff.
 - Sections linked to a library block round-trip their link and render through it; their editors are locked, since edits there would never reach the front end.
 - **AI generation** (optional): bring your own OpenAI / Anthropic / Gemini API key (Settings page); generate or edit a section's HTML — bundled `<style id="ai-generated">` / `<script id="ai-generated">` tags are split into the CSS/JS editors automatically.
