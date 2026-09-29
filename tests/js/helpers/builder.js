@@ -3,7 +3,6 @@ const path = require('node:path');
 const { JSDOM } = require('jsdom');
 const shell = fs.readFileSync(path.join(__dirname, '../../../assets/js/builder-shell.js'), 'utf8');
 const preview = fs.readFileSync(path.join(__dirname, '../../../assets/js/preview-dom.js'), 'utf8');
-const visual = fs.readFileSync(path.join(__dirname, '../../../assets/js/visual-builder.js'), 'utf8');
 
 // Exercise the shipped UI via DOM events; never expose its private state/functions.
 module.exports = function builder(t, sections = [{}], options = {}) {
@@ -34,7 +33,6 @@ module.exports = function builder(t, sections = [{}], options = {}) {
 			invalidJSON: () => resolve({ json: () => Promise.reject(new SyntaxError('bad JSON')) }) });
 	});
 	window.eval(preview);
-	window.eval(visual);
 	window.eval(shell);
 	window.document.dispatchEvent(new window.Event('DOMContentLoaded'));
 	const flush = delay => {

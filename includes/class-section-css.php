@@ -43,12 +43,6 @@ class gt_pb_section_css {
 		$sections = array();
 		foreach ( GT_Page_Blocks_Builder::find_page_blocks( parse_blocks( $post->post_content ) ) as $index => $block ) {
 			$attrs = $block['attrs'];
-			if ( ! empty( $attrs['visualData'] ) ) {
-				$visual = GT_PB_Visual_Builder::compile( $attrs['visualData'] );
-				if ( is_array( $visual ) ) {
-					$attrs['css'] = $visual['css'];
-				}
-			}
 			if ( 'file' !== ( $attrs['cssOutput'] ?? '' ) || ! empty( $attrs['blockId'] ) || ! empty( $attrs['blockSlug'] ) || empty( $attrs['css'] ) ) {
 				continue;
 			}

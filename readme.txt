@@ -18,9 +18,9 @@ GT Page Blocks Builder lets you create section-based pages with full control ove
 
 * **Gutenberg block** with tabbed code editors and live preview
 * **Frontend visual builder** launched from the admin bar on any singular post/page
-* **Visual sections** — add containers, columns, headings, text, images, and buttons; select and rearrange elements on the canvas or in Layers
-* **Visual inspector** — edit text, button links, media-library images and alt text, spacing, colors, typography, and responsive styles
-* **Code sections preserved** — existing HTML/CSS/JS sections remain editable without conversion
+* **Native Visual mode** — WordPress's block editor, inserter, patterns, List View, inspector, rich text, media, undo, and revisions
+* **Visual/Code switch** — save your page and move between native blocks and the Page Blocks code workspace
+* **Standard block storage** — new visual layouts use WordPress blocks in post content
 * **AI chat sidebar** with multi-turn conversation (OpenAI, Anthropic, Gemini)
 * **Inline text editing in preview** — click any heading, paragraph, link, or list item to edit it directly
 * **Live preview patching** with debounced server rendering when enabled integrations need it
@@ -58,9 +58,9 @@ No. GT Page Blocks Builder works with any WordPress theme.
 
 Visit any singular post or page on the frontend while logged in. Click "Page Blocks Builder" in the admin bar.
 
-= Can existing code sections be edited visually? =
+= How does Visual mode save layouts? =
 
-Add a Visual Section to use element selection, drag-and-drop layout, and the style inspector. Existing hand-coded sections keep their code editors and safe inline text editing. They are not automatically converted, so their HTML, CSS, JavaScript, and cross-section markup stay intact.
+Visual mode uses WordPress's own post editor and saves standard blocks to the page. Code mode edits Page Blocks' HTML/CSS/JS sections. Each mode saves before switching. The unreleased visual prototype has an undoable Convert to WordPress blocks action; its existing CSS is retained.
 
 = Can I use PHP in my sections? =
 

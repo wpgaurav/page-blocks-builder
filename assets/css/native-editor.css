@@ -1,0 +1,37 @@
+html:has(.gt-pb-native-workspace), body.md-page-blocks-builder-shell {
+	margin: 0; padding: 0; height: 100%; overflow: hidden;
+}
+.gt-pb-native-workspace {
+	display: flex; flex-direction: column; height: 100vh; height: 100dvh;
+	background: #f0f0f1; color: #1e1e1e; color-scheme: light;
+	font: 13px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+.gt-pb-native-header {
+	display: flex; align-items: center; gap: 20px; flex-shrink: 0;
+	min-height: 56px; padding: 8px 16px; box-sizing: border-box;
+	background: #fff; border-bottom: 1px solid #dcdcde;
+}
+.gt-pb-native-brand { font-weight: 650; white-space: nowrap; }
+.gt-pb-native-title { flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; color: #50575e; }
+.gt-pb-native-modes { display: flex; gap: 4px; padding: 3px; background: #f0f0f1; border-radius: 5px; }
+.gt-pb-native-header button, .gt-pb-native-header a {
+	display: inline-flex; align-items: center; justify-content: center; gap: 7px;
+	min-height: 34px; margin: 0; padding: 5px 10px; border: 0; border-radius: 3px;
+	font: inherit; font-weight: 500; color: #50575e; background: transparent; text-decoration: none; cursor: pointer;
+}
+.gt-pb-native-header button[aria-current="page"] { background: #fff; color: #1e1e1e; box-shadow: 0 1px 3px #00000014; }
+.gt-pb-native-header button:hover, .gt-pb-native-header a:hover { background: #e9edf2; color: #1e1e1e; }
+.gt-pb-native-header button:focus-visible, .gt-pb-native-header a:focus-visible { outline: 2px solid #3858e9; outline-offset: 2px; }
+.gt-pb-native-header button:disabled { opacity: .5; cursor: wait; }
+.gt-pb-native-header svg { width: 18px; height: 18px; flex-shrink: 0; }
+.gt-pb-native-frame { flex: 1; width: 100%; min-height: 0; border: 0; background: #fff; }
+.gt-pb-native-notice { padding: 10px 16px; border-bottom: 1px solid #dba617; background: #fcf9e8; color: #3c434a; }
+.gt-pb-native-loading { position: absolute; inset: 56px 0 0; display: grid; place-items: center; background: #f6f7f7; pointer-events: none; }
+.gt-pb-native-workspace [hidden] { display: none; }
+@media (max-width: 600px) {
+	.gt-pb-native-header { gap: 8px; padding: 6px 8px; flex-wrap: wrap; }
+	.gt-pb-native-title { display: none; }
+	.gt-pb-native-header a { margin-left: auto; }
+	.gt-pb-native-header button, .gt-pb-native-header a { min-height: 44px; }
+}
+@media (max-width: 380px) { .gt-pb-native-brand { display: none; } }

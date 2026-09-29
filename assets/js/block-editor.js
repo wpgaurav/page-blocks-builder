@@ -540,7 +540,7 @@
 			// nothing here, so an id-only test showed it as unlinked and
 			// offered to edit code that render_block() would ignore.
 			var isLinked   = linkedId > 0 || '' !== linkedSlug;
-			var isVisual   = !! ( attributes.visualData && attributes.visualData.version === 1 && attributes.visualData.root );
+			var isPrototype = !! ( attributes.visualData && Object.keys( attributes.visualData ).length );
 
 			var activeTabState = useState( 'html' );
 			var activeTab = activeTabState[0];
@@ -621,7 +621,7 @@
 			// Linked blocks have no editable code here, so they never leave
 			// preview — the editor tabs would write attributes render_block()
 			// throws away.
-			var viewMode = isLinked || isVisual ? 'preview' : mode;
+			var viewMode = isLinked || isPrototype ? 'preview' : mode;
 
 			var phpDetected = /<\?(?:php|=)/.test( source.content || '' );
 			var notices = wp.data && wp.data.dispatch ? wp.data.dispatch( 'core/notices' ) : null;
@@ -1401,18 +1401,17 @@
 					} ),
 					el( ToolbarButton, {
 						icon: 'editor-code',
-						label: isVisual
-							? __( 'Edit this section in the Visual builder' )
-							: isLinked
+						label: isLinked
 							? __( 'Code lives in the library — unlink to edit it here' )
 							: __( 'Edit code' ),
 						isPressed: viewMode === 'editor',
-						disabled: isLinked || isVisual,
+						disabled: isLinked || isPrototype,
 						onClick: function() { setMode( 'editor' ); }
 					} ),
 					el( ToolbarButton, {
 						icon: 'portfolio',
 						label: __( 'Browse library' ),
+						disabled: isPrototype,
 						onClick: openLibrary
 					} )
 				)
@@ -1522,29 +1521,24 @@
 				)
 			);
 
-			// Linked mode: the library row is the subject, and there is no
-			// inline code to edit here.
-			if ( isVisual ) {
-				return el( Fragment, null,
-					toolbar,
-					el( InspectorControls, null,
-						el( PanelBody, { title: __( 'Visual section' ) },
-							el( 'p', {}, __( 'Edit text, images, layout, and responsive styles in the Page Blocks visual builder.' ) ),
-							config.builderUrl && el( 'a', { className: 'button button-primary', href: config.builderUrl }, __( 'Open Visual builder' ) )
-						)
-					),
-					el( 'div', { className: 'md-page-block-preview-wrap' },
-						el( 'div', { className: 'md-page-block-bar' },
-							el( 'span', { className: 'md-page-block-bar-title' }, __( 'Visual Page Block' ) ),
-							el( 'span', { className: 'md-page-block-bar-spacer' } ),
-							previewControls(),
-							config.builderUrl && el( 'a', { className: 'md-page-block-bar-btn md-page-block-bar-btn--primary', href: config.builderUrl }, __( 'Edit visually' ) )
-						),
-						viewportFrame()
-					)
-				);
+			function convertPrototype() {
+				try {
+					var converted = window.gtPbPrototypeConversion.convert( attributes, wp.blocks );
+					wp.data.dispatch( 'core/block-editor' ).replaceBlocks( props.clientId, converted );
+					if ( notices ) notices.createSuccessNotice( __( 'Converted to WordPress blocks. Review and save your page, or use Undo to restore the section.' ), { type: 'snackbar' } );
+				} catch ( error ) {
+					if ( notices ) notices.createErrorNotice( error.message, { type: 'snackbar' } );
+				}
+			}
+			if ( isPrototype ) {
+				inspector = el( InspectorControls, null, el( PanelBody, { title: __( 'Convert prototype section' ) },
+					el( 'p', {}, __( 'Use native WordPress blocks to edit this section. Existing CSS is kept in an Imported section styles Page Block.' ) ),
+					el( 'button', { type: 'button', className: 'button button-secondary', onClick: convertPrototype }, __( 'Convert to WordPress blocks' ) )
+				) );
 			}
 
+			// Linked mode: the library row is the subject, and there is no
+			// inline code to edit here.
 			if ( isLinked ) {
 				return el( Fragment, null,
 					toolbar,
@@ -1606,6 +1600,16 @@
 			}
 
 			// Preview mode
+			if ( viewMode === 'preview' && ! isPrototype && attributes.name === 'Imported section styles' && ! attributes.content && attributes.css && ! attributes.js ) {
+				return el( Fragment, null, toolbar, inspector,
+					el( 'style', null, attributes.css ),
+					el( 'div', { className: 'md-page-block-style-summary' },
+						el( 'span', { className: 'dashicons dashicons-art', 'aria-hidden': true } ),
+						el( 'span', {}, __( 'Section styles' ) ),
+						el( 'button', { type: 'button', className: 'button button-small', onClick: function() { setActiveTab( 'css' ); setMode( 'editor' ); } }, __( 'Edit CSS' ) )
+					)
+				);
+			}
 			if ( viewMode === 'preview' ) {
 				return el( Fragment, null,
 					toolbar,
@@ -1618,7 +1622,7 @@
 							badges(),
 							el( 'span', { className: 'md-page-block-bar-spacer' } ),
 							previewControls(),
-							config.canSave && el( 'button', {
+							config.canSave && ! isPrototype && el( 'button', {
 								type: 'button',
 								className: 'md-page-block-bar-btn',
 								disabled: saving,
@@ -1628,8 +1632,8 @@
 							el( 'button', {
 								type: 'button',
 								className: 'md-page-block-bar-btn md-page-block-bar-btn--primary',
-								onClick: function() { setMode( 'editor' ); }
-							}, __( 'Edit code' ) )
+								onClick: isPrototype ? convertPrototype : function() { setMode( 'editor' ); }
+							}, isPrototype ? __( 'Convert to WordPress blocks' ) : __( 'Edit code' ) )
 						),
 						viewportFrame()
 					)
@@ -1800,45 +1804,29 @@
 		function BuildButton() {
 			var state = useSelect( function( select ) {
 				var editor = select( 'core/editor' );
-				return {
-					saving: editor.isSavingPost() || editor.isAutosavingPost(),
-					dirty: editor.isEditedPostDirty(),
-					isNew: editor.isEditedPostNew()
-				};
+				return { saving: editor.isSavingPost() || editor.isAutosavingPost(), isNew: editor.isEditedPostNew() };
 			}, [] );
 			var savePost = useDispatch( 'core/editor' ).savePost;
-			var pending = useRef( false );
-
-			// The save is asynchronous and there is no promise to await from
-			// every entry point, so the handoff waits for saving to finish.
-			useEffect( function() {
-				if ( pending.current && ! state.saving ) {
-					pending.current = false;
-					window.location.href = settings.builderUrl;
-				}
-			}, [ state.saving ] );
-
-			return el(
-				editPost.PluginPostStatusInfo,
-				{ className: 'md-page-block-build-row' },
-				el(
-					Button,
-					{
-						variant: 'secondary',
-						className: 'md-page-block-build-btn',
-						disabled: state.saving || state.isNew,
-						icon: 'layout',
-						onClick: function() {
-							if ( state.dirty ) {
-								pending.current = true;
-								savePost();
-								return;
+			var busy = useState( false );
+			return el( editPost.PluginPostStatusInfo, { className: 'md-page-block-build-row' },
+				el( Button, {
+					variant: 'secondary', className: 'md-page-block-build-btn', icon: 'layout',
+					disabled: state.saving || state.isNew || busy[0],
+					onClick: async function() {
+						busy[1]( true );
+						try {
+							var editor = wp.data.select( 'core/editor' );
+							if ( editor.hasNonPostEntityChanges && editor.hasNonPostEntityChanges() ) throw new Error( __( 'Save your template or pattern changes before opening Page Blocks.' ) );
+							if ( editor.isEditedPostDirty() ) {
+								await savePost();
+								if ( editor.didPostSaveRequestFail() || editor.isEditedPostDirty() ) throw new Error( __( 'Your page could not be saved. Resolve the editor notice and try again.' ) );
 							}
 							window.location.href = settings.builderUrl;
-						}
-					},
-					state.saving && pending.current ? __( 'Saving…' ) : __( 'Build' )
-				)
+						} catch ( error ) {
+							wp.data.dispatch( 'core/notices' ).createErrorNotice( error.message, { type: 'snackbar' } );
+						} finally { busy[1]( false ); }
+					}
+				}, busy[0] ? __( 'Saving…' ) : __( 'Open Page Blocks' ) )
 			);
 		}
 

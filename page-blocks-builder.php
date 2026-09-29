@@ -344,6 +344,7 @@ if ( ! function_exists( 'gt_page_blocks_builder_url' ) ) {
 	function gt_page_blocks_builder_url( $post_id, $nonce = '' ) {
 		$args = array(
 			'build'   => 'page-blocks',
+			'pb_mode' => 'visual',
 			'post_id' => absint( $post_id ),
 		);
 
@@ -510,9 +511,10 @@ class GT_Page_Blocks_Builder {
 		require_once GT_PB_BUILDER_DIR . 'includes/class-theme-builder.php';
 		require_once GT_PB_BUILDER_DIR . 'includes/class-migration.php';
 		require_once GT_PB_BUILDER_DIR . 'includes/class-functionalities-compat.php';
-		require_once GT_PB_BUILDER_DIR . 'includes/class-visual-builder.php';
 		require_once GT_PB_BUILDER_DIR . 'includes/class-section-css.php';
 		require_once GT_PB_BUILDER_DIR . 'includes/class-performance.php';
+		require_once GT_PB_BUILDER_DIR . 'includes/class-native-editor.php';
+		GT_PB_Native_Editor::init();
 
 		$this->db = new gt_pb_db();
 		gt_pb_css_loader::init();
@@ -717,6 +719,7 @@ class GT_Page_Blocks_Builder {
 				'output'     => array( 'type' => 'string', 'default' => 'inline' ),
 				'cssOutput'  => array( 'type' => 'string', 'default' => '' ),
 				'cssDefer'   => array( 'type' => 'boolean', 'default' => false ),
+				// Read-only compatibility for the unreleased visual prototype.
 				'visualData' => array( 'type' => 'object', 'default' => array() ),
 
 				// Added together in 3.0.0, deliberately. Each defaults to a
@@ -782,10 +785,11 @@ class GT_Page_Blocks_Builder {
 		$style_path  = GT_PB_BUILDER_DIR . 'assets/css/block-editor.css';
 
 		if ( file_exists( $script_path ) ) {
+			wp_enqueue_script( 'gt-pb-prototype-conversion', GT_PB_BUILDER_URL . 'assets/js/prototype-conversion.js', array( 'wp-blocks' ), filemtime( GT_PB_BUILDER_DIR . 'assets/js/prototype-conversion.js' ), true );
 			wp_enqueue_script(
 				'gt-page-block-editor',
 				GT_PB_BUILDER_URL . 'assets/js/block-editor.js',
-				array( 'wp-blocks', 'wp-element', 'wp-block-editor', 'wp-components', 'wp-i18n', 'wp-data', 'wp-api-fetch', 'wp-plugins', 'wp-editor', 'code-editor', 'wp-codemirror', 'gt-pb-performance' ),
+				array( 'gt-pb-prototype-conversion', 'wp-blocks', 'wp-element', 'wp-block-editor', 'wp-components', 'wp-i18n', 'wp-data', 'wp-api-fetch', 'wp-plugins', 'wp-editor', 'code-editor', 'wp-codemirror', 'gt-pb-performance' ),
 				filemtime( $script_path ),
 				true
 			);
@@ -910,14 +914,13 @@ class GT_Page_Blocks_Builder {
 			return $this->render_library_block( $row );
 		}
 
-		$visual       = ! empty( $attributes['visualData'] ) ? GT_PB_Visual_Builder::compile( $attributes['visualData'] ) : null;
-		$content      = is_array( $visual ) ? $visual['content'] : ( isset( $attributes['content'] ) ? (string) $attributes['content'] : '' );
-		$css          = is_array( $visual ) ? $visual['css'] : ( isset( $attributes['css'] ) ? (string) $attributes['css'] : '' );
-		$js           = is_array( $visual ) ? '' : ( isset( $attributes['js'] ) ? (string) $attributes['js'] : '' );
+		$content      = isset( $attributes['content'] ) ? (string) $attributes['content'] : '';
+		$css          = isset( $attributes['css'] ) ? (string) $attributes['css'] : '';
+		$js           = isset( $attributes['js'] ) ? (string) $attributes['js'] : '';
 		$js_loc       = isset( $attributes['jsLocation'] ) && $attributes['jsLocation'] === 'inline' ? 'inline' : 'footer';
 		$output_mode  = isset( $attributes['output'] ) ? $attributes['output'] : 'inline';
-		$format       = is_array( $visual ) ? false : ! empty( $attributes['format'] );
-		$php_exec     = is_array( $visual ) ? false : ! empty( $attributes['phpExec'] );
+		$format       = ! empty( $attributes['format'] );
+		$php_exec     = ! empty( $attributes['phpExec'] );
 		$is_file_mode = $output_mode === 'file';
 		$css_output   = $attributes['cssOutput'] ?? '';
 		$output       = '';
@@ -1073,7 +1076,9 @@ class GT_Page_Blocks_Builder {
 			);
 		}
 
-		$this->maybe_set_builder_template( $post_id );
+		if ( ! GT_PB_Native_Editor::is_visual_request() ) {
+			$this->maybe_set_builder_template( $post_id );
+		}
 
 		$builder_template = GT_PB_BUILDER_DIR . 'templates/builder-shell.php';
 		return file_exists( $builder_template ) ? $builder_template : $template;
@@ -1111,6 +1116,10 @@ class GT_Page_Blocks_Builder {
 		if ( ! $this->can_access_builder( $post_id, $nonce ) ) {
 			return;
 		}
+		if ( GT_PB_Native_Editor::is_visual_request() ) {
+			GT_PB_Native_Editor::enqueue( $post_id, $nonce );
+			return;
+		}
 		$this->enqueue_performance_assets();
 
 		$editor_settings = array(
@@ -1124,8 +1133,6 @@ class GT_Page_Blocks_Builder {
 
 		$css_path = GT_PB_BUILDER_DIR . 'assets/css/builder-shell.css';
 		$js_path  = GT_PB_BUILDER_DIR . 'assets/js/builder-shell.js';
-		$visual_path = GT_PB_BUILDER_DIR . 'assets/js/visual-builder.js';
-		wp_enqueue_media( array( 'post' => $post_id ) );
 
 		if ( file_exists( $css_path ) ) {
 			wp_enqueue_style(
@@ -1140,13 +1147,6 @@ class GT_Page_Blocks_Builder {
 
 		if ( file_exists( $js_path ) ) {
 			wp_enqueue_script(
-				'gt-pb-visual-builder',
-				GT_PB_BUILDER_URL . 'assets/js/visual-builder.js',
-				array(),
-				filemtime( $visual_path ),
-				true
-			);
-			wp_enqueue_script(
 				'gt-page-block-preview-dom',
 				GT_PB_BUILDER_URL . 'assets/js/preview-dom.js',
 				array(),
@@ -1156,7 +1156,7 @@ class GT_Page_Blocks_Builder {
 			wp_enqueue_script(
 				'gt-page-block-builder-shell',
 				GT_PB_BUILDER_URL . 'assets/js/builder-shell.js',
-				array( 'code-editor', 'wp-codemirror', 'gt-page-block-preview-dom', 'gt-pb-performance', 'gt-pb-visual-builder' ),
+				array( 'code-editor', 'wp-codemirror', 'gt-page-block-preview-dom', 'gt-pb-performance' ),
 				filemtime( $js_path ),
 				true
 			);
@@ -1187,6 +1187,9 @@ class GT_Page_Blocks_Builder {
 				'editPostUrl'        => get_edit_post_link( $post_id, 'raw' ) ?: '',
 				'viewPostUrl'        => get_permalink( $post_id ) ?: '',
 				'initialSections'    => $this->get_builder_sections_from_post( $post_id ),
+				'visualUrl'          => gt_page_blocks_builder_url( $post_id, $nonce ),
+				'icons'              => GT_PB_Native_Editor::icons(),
+				'contentHash'        => hash( 'sha256', (string) get_post_field( 'post_content', $post_id, 'raw' ) ),
 				'postTemplate'       => $this->get_builder_post_template_slug( $post_id ),
 				'availableTemplates' => $this->get_available_page_templates( $post_id ),
 				// Page settings, edited in the builder's own dialog rather than
@@ -1206,7 +1209,6 @@ class GT_Page_Blocks_Builder {
 				// points at, so the builder can copy that code into the page.
 				'restUrl'            => esc_url_raw( rest_url( gt_pb_rest_api::REST_NAMESPACE ) ),
 				'restNonce'          => wp_create_nonce( 'wp_rest' ),
-				'contentHash'        => hash( 'sha256', (string) get_post_field( 'post_content', $post_id, 'raw' ) ),
 				// AI
 				'aiEndpoint'         => admin_url( 'admin-ajax.php' ),
 				'aiAction'           => 'md_page_blocks_ai_generate',
@@ -1496,12 +1498,6 @@ class GT_Page_Blocks_Builder {
 		$block_id    = isset( $section['blockId'] ) ? max( 0, (int) $section['blockId'] ) : 0;
 		$name        = isset( $section['name'] ) ? sanitize_text_field( (string) $section['name'] ) : '';
 		$block_slug  = isset( $section['blockSlug'] ) ? sanitize_title( (string) $section['blockSlug'] ) : '';
-		$visual      = ! empty( $section['visualData'] ) ? GT_PB_Visual_Builder::compile( $section['visualData'] ) : null;
-		if ( is_array( $visual ) ) {
-			$content = $visual['content'];
-			$css     = $visual['css'];
-			$js      = '';
-		}
 
 		$normalized = array(
 			'blockId'           => $block_id,
@@ -1516,11 +1512,10 @@ class GT_Page_Blocks_Builder {
 			'cssOutput'  => isset( $section['cssOutput'] ) && in_array( $section['cssOutput'], array( 'inline', 'file' ), true ) ? $section['cssOutput'] : '',
 			'cssDefer'   => ! empty( $section['cssDefer'] ),
 			'format'     => ! empty( $section['format'] ),
-			'phpExec'    => is_array( $visual ) ? false : ! empty( $section['phpExec'] ),
+			'phpExec'    => ! empty( $section['phpExec'] ),
 		);
-		if ( is_array( $visual ) ) {
-			$normalized['visualData'] = $visual['visualData'];
-			$normalized['format'] = false;
+		if ( ! empty( $section['visualData'] ) ) {
+			$normalized['visualData'] = $section['visualData'];
 		}
 		return $normalized;
 	}
@@ -1733,12 +1728,11 @@ class GT_Page_Blocks_Builder {
 				continue;
 			}
 
-			$visual      = ! empty( $section['visualData'] ) ? GT_PB_Visual_Builder::compile( $section['visualData'] ) : null;
-			$content     = is_array( $visual ) ? $visual['content'] : ( isset( $section['content'] ) ? (string) $section['content'] : '' );
-			$css         = is_array( $visual ) ? $visual['css'] : ( isset( $section['css'] ) ? (string) $section['css'] : '' );
-			$js          = is_array( $visual ) ? '' : ( isset( $section['js'] ) ? (string) $section['js'] : '' );
-			$format      = is_array( $visual ) ? false : ! empty( $section['format'] );
-			$php_exec    = is_array( $visual ) ? false : ! empty( $section['phpExec'] );
+			$content     = isset( $section['content'] ) ? (string) $section['content'] : '';
+			$css         = isset( $section['css'] ) ? (string) $section['css'] : '';
+			$js          = isset( $section['js'] ) ? (string) $section['js'] : '';
+			$format      = ! empty( $section['format'] );
+			$php_exec    = ! empty( $section['phpExec'] );
 			$js_location = isset( $section['jsLocation'] ) && $section['jsLocation'] === 'inline' ? 'inline' : 'footer';
 
 			if ( $content !== '' ) {
@@ -1893,9 +1887,6 @@ class GT_Page_Blocks_Builder {
 		foreach ( $decoded as $section ) {
 			if ( ! is_array( $section ) ) {
 				continue;
-			}
-			if ( ! empty( $section['visualData'] ) && is_wp_error( GT_PB_Visual_Builder::compile( $section['visualData'] ) ) ) {
-				wp_send_json_error( array( 'message' => __( 'A visual section contains invalid elements or styles.', 'page-blocks-builder' ) ), 400 );
 			}
 
 			if ( isset( $section['kind'] ) && 'foreign' === $section['kind'] ) {

@@ -705,3 +705,16 @@
 	font-size: 12px;
 	color: #757575;
 }
+/* Converted section styles stay compact while styling the native canvas. */
+.md-page-block-style-summary {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	padding: 8px 12px;
+	border: 1px dashed #c3c4c7;
+	border-radius: 3px;
+	background: #f6f7f7;
+	color: #50575e;
+	font: 12px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+.md-page-block-style-summary button { margin-left: auto; }
