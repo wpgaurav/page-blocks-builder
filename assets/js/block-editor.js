@@ -1600,7 +1600,7 @@
 			}
 
 			// Preview mode
-			if ( viewMode === 'preview' && ! isPrototype && attributes.name === 'Imported section styles' && ! attributes.content && attributes.css && ! attributes.js ) {
+			if ( viewMode === 'preview' && ! isPrototype && ['Imported section styles','Page Blocks canvas styles'].includes(attributes.name) && ! attributes.content && attributes.css && ! attributes.js ) {
 				return el( Fragment, null, toolbar, inspector,
 					el( 'style', null, attributes.css ),
 					el( 'div', { className: 'md-page-block-style-summary' },

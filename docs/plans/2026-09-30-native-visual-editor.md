@@ -1,5 +1,7 @@
 # Native WordPress Visual mode
 
+Superseded by [the integrated canvas workspace](2026-09-30-canvas-workspace.md). The iframe approach below was implemented locally and rejected during user review; it is retained here as a historical decision record.
+
 The September 30 direction replaces the unreleased structured visual editor with WordPress's actual block editor. Page Blocks provides a compact workspace and a Visual/Code switch; WordPress owns the block tree, inserter, inspector, patterns, media, undo, revisions, and post saves.
 
 ## Implementation

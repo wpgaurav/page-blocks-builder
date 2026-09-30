@@ -51,7 +51,7 @@
 				continue;
 			}
 			var parent = stack[stack.length - 1];
-			var element = { tag: tag, path: parent.path.concat(parent.children++), children: 0, openEnd: tags.lastIndex };
+			var element = { tag: tag, path: parent.path.concat(parent.children++), children: 0, openStart: token.index, openTag: token[0], openEnd: tags.lastIndex };
 			if (element.path.join('.') === path.join('.')) found = element;
 			if (voids.test(tag)) continue;
 			if (raw.test(tag)) {
@@ -93,5 +93,17 @@
 		return html.slice(0, element.openEnd) + edit.newHtml + html.slice(element.closeStart);
 	}
 
-	return { sectionHtml: sectionHtml, markSections: markSections, replaceInnerHtml: replaceInnerHtml };
+	function replaceAttribute(html, edit, name, value, doc) {
+		if (!/^(class|src|alt|href)$/.test(name) || typeof value !== 'string' || !Array.isArray(edit.path) || !edit.path.length || !edit.path.every(function(i) { return Number.isInteger(i) && i >= 0; })) return null;
+		var element = sourceElement(html, edit.path);
+		if (!element || element.tag !== edit.tagName || /<\?/.test(element.openTag)) return null;
+		var probe = doc.createElement('template'); probe.innerHTML = element.openTag + (element.tag === 'img' ? '' : '</' + element.tag + '>');
+		var original = probe.content.firstElementChild;
+		if (!original || (typeof edit.oldValue === 'string' && (original.getAttribute(name) || '') !== edit.oldValue)) return null;
+		var escaped = value.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+		var pattern = new RegExp('\\s' + name + '\\s*=\\s*(?:"[^"]*"|\x27[^\x27]*\x27|[^\\s>]+)', 'i');
+		var opening = pattern.test(element.openTag) ? element.openTag.replace(pattern, ' ' + name + '="' + escaped + '"') : element.openTag.replace(/\s*\/?>$/, function(end) { return ' ' + name + '="' + escaped + '"' + end; });
+		return html.slice(0, element.openStart) + opening + html.slice(element.openEnd);
+	}
+	return { sectionHtml: sectionHtml, markSections: markSections, sourceElement: sourceElement, replaceInnerHtml: replaceInnerHtml, replaceAttribute: replaceAttribute };
 });

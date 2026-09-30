@@ -513,8 +513,7 @@ class GT_Page_Blocks_Builder {
 		require_once GT_PB_BUILDER_DIR . 'includes/class-functionalities-compat.php';
 		require_once GT_PB_BUILDER_DIR . 'includes/class-section-css.php';
 		require_once GT_PB_BUILDER_DIR . 'includes/class-performance.php';
-		require_once GT_PB_BUILDER_DIR . 'includes/class-native-editor.php';
-		GT_PB_Native_Editor::init();
+		require_once GT_PB_BUILDER_DIR . 'includes/class-canvas-editor.php';
 
 		$this->db = new gt_pb_db();
 		gt_pb_css_loader::init();
@@ -524,6 +523,7 @@ class GT_Page_Blocks_Builder {
 		// plugins_loaded, not admin_init: WP-CLI, cron and the REST API never
 		// touch wp-admin, and every one of them needs the table to exist.
 		add_action( 'plugins_loaded', array( $this, 'run_pending_upgrades' ), 5 );
+		add_action( 'admin_action_gt_pb_canvas', array( $this, 'open_canvas' ) );
 		add_action( gt_pb_upgrader::CRON_HOOK, array( $this, 'run_pending_upgrades' ) );
 
 		// init, not plugins_loaded and not the bootstrap. On WordPress 6.7+
@@ -1076,7 +1076,7 @@ class GT_Page_Blocks_Builder {
 			);
 		}
 
-		if ( ! GT_PB_Native_Editor::is_visual_request() ) {
+		if ( ! isset( $_GET['pb_mode'] ) || 'visual' !== $_GET['pb_mode'] ) {
 			$this->maybe_set_builder_template( $post_id );
 		}
 
@@ -1116,10 +1116,6 @@ class GT_Page_Blocks_Builder {
 		if ( ! $this->can_access_builder( $post_id, $nonce ) ) {
 			return;
 		}
-		if ( GT_PB_Native_Editor::is_visual_request() ) {
-			GT_PB_Native_Editor::enqueue( $post_id, $nonce );
-			return;
-		}
 		$this->enqueue_performance_assets();
 
 		$editor_settings = array(
@@ -1131,6 +1127,7 @@ class GT_Page_Blocks_Builder {
 			return array( 'bodyClasses' => get_body_class(), 'languageAttributes' => get_language_attributes() );
 		} );
 
+		GT_PB_Canvas_Editor::enqueue();
 		$css_path = GT_PB_BUILDER_DIR . 'assets/css/builder-shell.css';
 		$js_path  = GT_PB_BUILDER_DIR . 'assets/js/builder-shell.js';
 
@@ -1156,7 +1153,7 @@ class GT_Page_Blocks_Builder {
 			wp_enqueue_script(
 				'gt-page-block-builder-shell',
 				GT_PB_BUILDER_URL . 'assets/js/builder-shell.js',
-				array( 'code-editor', 'wp-codemirror', 'gt-page-block-preview-dom', 'gt-pb-performance' ),
+				array( 'code-editor', 'wp-codemirror', 'gt-page-block-preview-dom', 'gt-pb-performance', 'gt-pb-canvas-editor' ),
 				filemtime( $js_path ),
 				true
 			);
@@ -1187,8 +1184,11 @@ class GT_Page_Blocks_Builder {
 				'editPostUrl'        => get_edit_post_link( $post_id, 'raw' ) ?: '',
 				'viewPostUrl'        => get_permalink( $post_id ) ?: '',
 				'initialSections'    => $this->get_builder_sections_from_post( $post_id ),
-				'visualUrl'          => gt_page_blocks_builder_url( $post_id, $nonce ),
-				'icons'              => GT_PB_Native_Editor::icons(),
+				'builderMode'        => isset( $_GET['pb_mode'] ) && 'visual' === $_GET['pb_mode'] ? 'visual' : 'code',
+				'pageBlockAttributes' => WP_Block_Type_Registry::get_instance()->get_registered( self::BLOCK_NAME )->attributes,
+				'themePalette' => wp_get_global_settings( array( 'color', 'palette' ) ),
+				'themeFontSizes' => wp_get_global_settings( array( 'typography', 'fontSizes' ) ),
+				'icons'              => GT_PB_Canvas_Editor::icons(),
 				'contentHash'        => hash( 'sha256', (string) get_post_field( 'post_content', $post_id, 'raw' ) ),
 				'postTemplate'       => $this->get_builder_post_template_slug( $post_id ),
 				'availableTemplates' => $this->get_available_page_templates( $post_id ),
@@ -1200,7 +1200,8 @@ class GT_Page_Blocks_Builder {
 				'permalinkBase'      => $this->get_builder_permalink_base( $post_id ),
 				'previewInjection'   => $this->get_builder_preview_injection( $post_id ),
 				'codeEditorSettings' => $editor_settings,
-				'themeStyleUrls'     => $this->get_builder_style_urls(),
+				'themeStyleUrls'     => array_merge( array( includes_url( 'css/dist/block-library/style.min.css' ) ), $this->get_builder_style_urls() ),
+				'previewGlobalCss'   => $this->get_preview_global_css(),
 				'cssClasses'         => array_values( array_unique( array_merge(
 					$this->get_theme_css_classes_for_builder(),
 					$this->get_utility_class_names()
@@ -1615,7 +1616,7 @@ class GT_Page_Blocks_Builder {
 			$sections[] = array(
 				'kind'       => 'foreign',
 				'blockName'  => $name,
-				'label'      => $this->builder_block_label( $name ),
+				'label'      => ! empty( $block['attrs']['metadata']['name'] ) ? sanitize_text_field( $block['attrs']['metadata']['name'] ) : $this->builder_block_label( $name ),
 				// Kept verbatim so saving re-emits exactly what was parsed,
 				// including any inner blocks and their attributes.
 				'serialized' => serialize_block( $block ),
@@ -1698,7 +1699,7 @@ class GT_Page_Blocks_Builder {
 			if ( isset( $section['kind'] ) && 'foreign' === $section['kind'] ) {
 				$raw = isset( $section['serialized'] ) ? (string) $section['serialized'] : '';
 				if ( '' !== trim( $raw ) ) {
-					$html_output[] = $this->preview_section_html( (string) do_blocks( $raw ), $section, $post_id );
+					$html_output[] = $this->preview_section_html( (string) GT_PB_Canvas_Editor::preview( $raw, $section['uid'] ?? '' ), $section, $post_id );
 				}
 				continue;
 			}
@@ -1839,6 +1840,17 @@ class GT_Page_Blocks_Builder {
 		}
 
 		wp_send_json_success( array( 'id' => $id, 'title' => $title ) );
+	}
+
+	/** A bookmarkable editor entry; WordPress handles login and mints this session's nonce. */
+	public function open_canvas() {
+		// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- Read-only navigation with the same post capability and post-type checks as the builder.
+		$post_id = isset( $_GET['post'] ) ? absint( $_GET['post'] ) : 0;
+		if ( ! $post_id || ! get_post( $post_id ) || ! $this->is_builder_post_type_allowed( $post_id ) || ! current_user_can( 'edit_post', $post_id ) ) {
+			wp_die( esc_html__( 'You do not have permission to edit this page.', 'page-blocks-builder' ), '', array( 'response' => 403 ) );
+		}
+		wp_safe_redirect( gt_page_blocks_builder_url( $post_id, wp_create_nonce( gt_page_blocks_builder_nonce_action( $post_id ) ) ) );
+		exit;
 	}
 
 	public function ajax_builder_apply() {

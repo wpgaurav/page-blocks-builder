@@ -22,7 +22,7 @@ parameters:
         - includes/class-functionalities-compat.php
         - includes/class-section-css.php
         - includes/class-performance.php
-        - includes/class-native-editor.php
+        - includes/class-canvas-editor.php
 
     excludePaths:
         - templates/*

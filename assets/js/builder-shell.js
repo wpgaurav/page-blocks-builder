@@ -11,6 +11,7 @@
 
 	var config = window.mdPbBuilder || {};
 	var previewDom = window.gtPbPreviewDom;
+	var canvasEditor = null;
 
 	// Enter sends, so the button is an affordance rather than the instruction.
 	// Same reasoning as Claude's own composer: an arrow, not a word.
@@ -52,7 +53,8 @@
 		syncingEditors: false,
 		previewTimer: null,
 		hasCodeMirror: false,
-		showCode: true,
+		showCode: config.builderMode !== 'visual',
+		visualMode: config.builderMode === 'visual',
 		showPreview: true,
 		showSidebar: true,
 		previewViewport: 'desktop',
@@ -585,13 +587,13 @@
 	// -------------------------------------------------------------------------
 
 	function needsServerPreview() {
-		if (config.previewRequiresServer) return true;
+		if (config.previewRequiresServer || state.visualMode) return true;
 		if (!Array.isArray(state.sections) || !state.sections.length) {
 			return false;
 		}
 
 		return state.sections.some(function(section) {
-			return !!(section && (section.phpExec || section.format));
+			return !!(section && (section.phpExec || section.format || (section.kind === 'foreign' && /^core\//.test(section.blockName))));
 		});
 	}
 
@@ -627,7 +629,7 @@
 
 	function collectPreviewAssets() {
 		var styleUrls = [];
-		var inlineStyles = [];
+		var inlineStyles = config.previewGlobalCss ? [config.previewGlobalCss] : [];
 
 		// Use previewCssUrl from dropin's compiled CSS endpoint
 		if (config.previewCssUrl) {
@@ -773,6 +775,7 @@
 			'document.addEventListener("mouseout",function(e){var el=e.target.closest(SEL);if(el)el.removeAttribute("data-pb-editable-hover");});' +
 			'document.addEventListener("click",function(e){' +
 			'var el=e.target.closest(SEL);' +
+			'if(window.__pbCanvasVisual)return;' +
 			'if(!el||el.contentEditable==="true"||el.closest("[data-pb-foreign],[data-pb-linked],[data-pb-v-id]"))return;' +
 			'if(el.querySelector("div,section,article,ul,ol,table,form,header,footer,nav,aside"))return;' +
 			'e.preventDefault();e.stopPropagation();' +
@@ -802,6 +805,10 @@
 			'})();'
 		);
 
+		if (window.gtPbCanvasBridge && window.gtPbCanvasLayout) {
+			scripts.push(window.gtPbCanvasLayout.script());
+			scripts.push(window.gtPbCanvasBridge.script(config.icons, state.visualMode));
+		}
 		return { html: docHtml, scripts: scripts };
 	}
 
@@ -843,6 +850,7 @@
 	function fullPreviewRender() {
 		if (!dom.previewFrame) return;
 
+		var canvasSnapshot = state.sections.map(function(section) { return { uid: section.uid, source: section.kind === 'foreign' ? section.serialized : section.content }; });
 		var requestId = state.previewRequestId + 1;
 		state.previewRequestId = requestId;
 		var structure = previewStructureSignature();
@@ -868,6 +876,7 @@
 						script.textContent = code;
 						doc.body.appendChild(script);
 					});
+					if (canvasEditor) canvasEditor.sync(canvasSnapshot);
 					dom.previewFrame.contentWindow.scrollTo(scrollX, scrollY);
 				} catch (error) {}
 			};
@@ -1075,6 +1084,9 @@
 		}
 
 		var foreign = isForeign(getCurrentSection());
+		dom.shell.classList.toggle('is-visual-mode', state.visualMode);
+		if (dom.addSectionButton) dom.addSectionButton.textContent = state.visualMode ? '+ Add code section' : '+ Add Section';
+		if (dom.openVisualButton) { dom.openVisualButton.classList.toggle('is-active', state.visualMode); dom.openVisualButton.setAttribute('aria-pressed', state.visualMode ? 'true' : 'false'); }
 		dom.shell.classList.toggle('is-code-hidden', !state.showCode || foreign);
 		dom.shell.classList.toggle('is-preview-hidden', !state.showPreview);
 		dom.shell.classList.toggle('is-sidebar-hidden', !state.showSidebar);
@@ -1087,7 +1099,7 @@
 		if (dom.toggleCodeButton) {
 			dom.toggleCodeButton.classList.toggle('is-active', state.showCode && !foreign);
 			dom.toggleCodeButton.setAttribute('aria-pressed', state.showCode && !foreign ? 'true' : 'false');
-			dom.toggleCodeButton.disabled = foreign;
+			dom.toggleCodeButton.disabled = false;
 		}
 
 		if (dom.toggleSectionsButton) {
@@ -1356,6 +1368,7 @@
 	}
 
 	function restoreSnapshot(snap) {
+		if (canvasEditor) canvasEditor.clearSelection();
 		state.sections = snap.sections.map(normalizeSection);
 		var idx = indexOfUid(snap.selectedUid);
 		state.selectedIndex = idx >= 0 ? idx : Math.min(state.selectedIndex, state.sections.length - 1);
@@ -1384,6 +1397,7 @@
 	function updateHistoryButtons() {
 		if (dom.undoButton) dom.undoButton.disabled = !history.undo.length;
 		if (dom.redoButton) dom.redoButton.disabled = !history.redo.length;
+		if (canvasEditor) canvasEditor.updateHistory();
 	}
 
 	function addSection(afterIndex) {
@@ -1433,13 +1447,11 @@
 
 		var section = state.sections[index];
 
-		// The builder cannot rebuild a block it does not own, so removing one
-		// is not undoable from here — say so before doing it.
+		// Ask before removing a complete native or third-party block section.
 		if (isForeign(section)) {
 			if (!window.confirm(
 				'Delete ' + (section.label || section.blockName || 'this block') + ' from the page?\n\n' +
-				'The builder cannot recreate it. To get it back you would have to add it again ' +
-				'in the WordPress editor.'
+				'You can undo this in the current workspace.'
 			)) {
 				return;
 			}
@@ -1577,7 +1589,7 @@
 			if (isForeign(section)) {
 				item.classList.add('is-foreign');
 				item.title = section.blockName
-					? section.blockName + ' — edit this block in the WordPress editor'
+					? section.blockName + ' — select content in Visual mode'
 					: 'Edit this content in the WordPress editor';
 			} else if (isLinked(section)) {
 				item.classList.add('is-linked');
@@ -1664,8 +1676,9 @@
 				// Short label: the panel is ~200px and a sentence here left the
 				// section name about 36px to render in. The full explanation
 				// lives in the tooltip and in the note above the code panes.
-				badge.textContent = 'Locked';
-				badge.title = (section.label || section.blockName || 'This block') +
+				var nativeEditable = /^core\/(group|columns|column|heading|paragraph|buttons|button|image)$/.test(section.blockName);
+				badge.textContent = nativeEditable ? 'Block' : 'Locked';
+				badge.title = nativeEditable ? 'Edit directly in Visual mode.' : (section.label || section.blockName || 'This block') +
 					' is not a Page Block — edit it in the WordPress editor.';
 				actions.appendChild(badge);
 				// Locked means the builder will not rewrite its markup, not
@@ -1750,6 +1763,7 @@
 		applyLinkedSectionLock(section);
 		updatePanelVisibility();
 		renderDetachControl(section);
+		if (canvasEditor) canvasEditor.render();
 		renderActiveSectionMeta();
 		updateStatusBar();
 	}
@@ -1777,7 +1791,7 @@
 				'. Edit it in the library, or detach a copy to edit it here.';
 		}
 
-		if (section.visualData) reason = 'Open Visual mode to convert this prototype section to WordPress blocks.';
+		if (section.visualData) reason = 'Use the canvas conversion action, or the WordPress editor, to convert this prototype section to native blocks.';
 
 		if (state.hasCodeMirror) {
 			['html', 'css', 'js'].forEach(function(key) {
@@ -3313,6 +3327,7 @@
 						'</div>' +
 					'</div>' +
 					'<ul class="md-pb-index-list" data-role="index-list"></ul>' +
+					'<div class="pb-canvas-inspector-mount" data-role="canvas-inspector"></div>' +
 					'<button type="button" class="md-pb-add-section-btn" data-role="add-section">+ Add Section</button>' +
 					'<div class="md-pb-meta">' +
 						'<div class="md-pb-meta-title">Active Section</div>' +
@@ -3392,6 +3407,8 @@
 
 		dom.shell = shell;
 		dom.previewFrame = shell.querySelector('.md-pb-preview-frame');
+		dom.canvasWrap = shell.querySelector('.md-pb-canvas-wrap');
+		dom.canvasInspector = shell.querySelector('[data-role="canvas-inspector"]');
 		dom.indexList = shell.querySelector('[data-role="index-list"]');
 		dom.sectionCount = shell.querySelector('[data-role="section-count"]');
 		dom.textareaHtml = shell.querySelector('[data-role="textarea-html"]');
@@ -3767,12 +3784,8 @@
 
 	function setupEvents() {
 		dom.openVisualButton.addEventListener('click', function() {
-			if (!config.visualUrl) return;
-			dom.openVisualButton.disabled = true;
-			activateApply().then(function(saved) {
-				if (saved) window.location.href = config.visualUrl;
-				dom.openVisualButton.disabled = false;
-			});
+			state.visualMode = true; state.showCode = false; state.showPreview = true; state.showSidebar = true;
+			updatePanelVisibility(); if (canvasEditor) canvasEditor.render(); queuePreviewRender(0, true);
 		});
 		dom.performanceButton.addEventListener('click', function() {
 			if (window.gtPbPerformance) window.gtPbPerformance.open({ endpoint: config.saveEndpoint, postId: config.postId, nonce: config.saveNonce }, getApplyPayloadSections(), dom.performanceButton);
@@ -3794,8 +3807,9 @@
 
 		if (dom.toggleCodeButton) {
 			dom.toggleCodeButton.addEventListener('click', function() {
-				state.showCode = !state.showCode;
-				updatePanelVisibility();
+				state.showCode = state.visualMode ? true : !state.showCode;
+				state.visualMode = false;
+				updatePanelVisibility(); if (canvasEditor) { canvasEditor.render(); canvasEditor.sync(); }
 			});
 		}
 
@@ -4741,6 +4755,29 @@
 
 	function initialize() {
 		setupLayout();
+		if (window.gtPbCanvasEditor) {
+			canvasEditor = window.gtPbCanvasEditor.mount({
+				container: dom.canvasInspector, canvas: dom.canvasWrap, config: config,
+				getFrame: function() { return dom.previewFrame; }, getSections: function() { return state.sections; }, isEnabled: function() { return state.visualMode; },
+				selectSection: function(uid) { selectSectionFromPreview(indexOfUid(uid)); },
+				onChange: function(uid, patch, checkpoint) {
+					var index = indexOfUid(uid); if (index < 0) return;
+					if (checkpoint) pushHistory(); Object.assign(state.sections[index], patch);
+					if (index === state.selectedIndex) {
+						state.syncingEditors = true;
+						['content','css'].forEach(function(key) { if (typeof patch[key] !== 'string') return; var editorKey = key === 'content' ? 'html' : 'css'; if (state.editors[editorKey]) setEditorValue(state.editors[editorKey],patch[key]); else if (dom[editorKey === 'html' ? 'textareaHtml' : 'textareaCss']) dom[editorKey === 'html' ? 'textareaHtml' : 'textareaCss'].value = patch[key]; });
+						state.syncingEditors = false;
+					}
+					renderIndexList(); queuePreviewRender(0, true); queueAutosave();
+				},
+				addSection: function(serialized) {
+					pushHistory(); var added = normalizeSection({ kind:'foreign',blockName:'core/group',label:'Visual section',serialized:serialized,rendered:'' });
+					state.sections.splice(state.selectedIndex + 1,0,added); state.selectedIndex++; renderAll(); queueAutosave(); return added.uid;
+				},
+				deleteSection: function(uid) { var index=indexOfUid(uid); if (index>=0) deleteSection(index); },
+				undo: undoDocument, redo: redoDocument, save: activateApply, canUndo: function() { return history.undo.length > 0; }, canRedo: function() { return history.redo.length > 0; }
+			});
+		}
 		collectPreviewAssets();
 		setupEvents();
 		setupCodeEditors();
@@ -4761,6 +4798,7 @@
 		window.addEventListener('message', function(e) {
 			if (!dom.previewFrame || e.source !== dom.previewFrame.contentWindow) return;
 			var data = e.data;
+			if (data && /^pb_canvas_/.test(data.type || '') && canvasEditor) { canvasEditor.handleMessage(data); return; }
 
 			if (data && 'md_pb_section_focus' === data.type) {
 				selectSectionFromPreview(indexOfUid(data.sectionUid));

@@ -18,8 +18,9 @@ GT Page Blocks Builder lets you create section-based pages with full control ove
 
 * **Gutenberg block** with tabbed code editors and live preview
 * **Frontend visual builder** launched from the admin bar on any singular post/page
-* **Native Visual mode** — WordPress's block editor, inserter, patterns, List View, inspector, rich text, media, undo, and revisions
-* **Visual/Code switch** — save your page and move between native blocks and the Page Blocks code workspace
+* **Direct Visual canvas** — text, links, media, styles, native layers, and undo/redo
+* **Native freeform sections** — desktop drag/resize and snapping; mobile stacks in reading order
+* **Visual/Code switch** — switch in place while keeping the original Page Blocks tools
 * **Standard block storage** — new visual layouts use WordPress blocks in post content
 * **AI chat sidebar** with multi-turn conversation (OpenAI, Anthropic, Gemini)
 * **Inline text editing in preview** — click any heading, paragraph, link, or list item to edit it directly
@@ -60,7 +61,7 @@ Visit any singular post or page on the frontend while logged in. Click "Page Blo
 
 = How does Visual mode save layouts? =
 
-Visual mode uses WordPress's own post editor and saves standard blocks to the page. Code mode edits Page Blocks' HTML/CSS/JS sections. Each mode saves before switching. The unreleased visual prototype has an undoable Convert to WordPress blocks action; its existing CSS is retained.
+Visual mode edits the rendered page and saves native WordPress blocks, with scoped CSS in an ordinary Page Block. Code mode retains the HTML/CSS/JS editors. Switching modes keeps unsaved changes in the same workspace; use Save to write the page. The unreleased visual prototype has an explicit undoable Convert to WordPress blocks action that retains existing CSS. Complex generated output and unsupported blocks retain their Code or WordPress editing workflow.
 
 = Can I use PHP in my sections? =
 

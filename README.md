@@ -15,7 +15,7 @@ Originally part of Marketers Delight's Page Blocks dropin (2018–2026, © Kolak
 | Area | What you get |
 |---|---|
 | **Gutenberg block** | `gt-page-block/page-block` — an HTML/CSS/JS section with a live, theme-styled preview right in the editor |
-| **Visual builder** | Native WordPress visual editor with a Visual/Code switch; Code mode includes CodeMirror, live preview, and AI |
+| **Visual builder** | Direct canvas editing with native WordPress blocks, drag/resize, snapping, and an in-place Visual/Code switch |
 | **Library** | Reusable blocks stored in a custom table, managed in a card-grid admin panel |
 | **Theme building** | Assign library blocks to theme regions/hooks; themes render them with one function call |
 | **Shortcode** | `[page_block id="…"]` / `[page_block slug="…"]` |
@@ -73,16 +73,17 @@ On a linked block these mirror the library row and are disabled — unlink to co
 
 Page Blocks has two editing modes for the same WordPress page:
 
-- **Visual** opens WordPress's actual post editor inside the Page Blocks workspace. Use the native inserter, patterns, List View, block inspector, rich text tools, Media Library, undo, revisions, and installed third-party blocks. New layouts are ordinary WordPress blocks in `post_content`.
-- **Code** opens the section navigator and HTML/CSS/JS editors for Page Blocks. Other WordPress blocks remain in document order and can be viewed or rearranged as complete sections. Edit their contents in Visual mode.
-- Switching modes saves pending changes first. Failed saves and newer edits keep the current editor open. Code mode also rejects a save if the stored page changed in another editor.
+- **Visual** edits the rendered page directly. Click to select, double-click to edit text, and use the floating formatting toolbar or Design inspector for text, links, images, theme colors, spacing, and responsive style overrides. Layers follow the native block tree.
+- Add native Group, Columns, Heading, Paragraph, Image, and Button layouts. Freeform sections support drag, resize, alignment guides, snapping, duplication, and keyboard nudges in desktop previews. Shift locks an axis, Ctrl/Cmd bypasses snapping, and Alt-drag duplicates. At 768px and below, freeform sections stack in block reading order; content and style editing remain available.
+- **Code** opens the existing CodeMirror HTML/CSS/JS editors. Source-backed canvas edits change the selected code element while preserving the rest of the section. Linked, PHP-generated, formatted, and unsupported block output stays protected; use its existing Code or WordPress editing workflow.
+- Switching modes happens in place without saving or navigating. **Save** uses the existing draft recovery, retry, and content-conflict checks. New visual sections save as native WordPress blocks in `post_content`; scoped layout CSS lives in an ordinary Page Block inside the Group. No separate saved visual tree is introduced.
 - Open the workspace from the frontend admin bar or the **Open Page Blocks** button in the WordPress editor. New links select Visual mode. Existing builder links without a `pb_mode` keep opening Code mode.
-- The workspace uses a small bundled set of Tabler SVGs from the local icon library. WordPress keeps its own native controls and icons.
-- **AI generation** remains available in Code mode with your configured OpenAI, Anthropic, or Gemini key.
+- The workspace uses a small bundled set of Tabler SVGs from the local icon library. Canvas snapping and grid solving adapt GPL-compatible routines from [Gogh Editor](https://github.com/jamiemarsland/gogh-editor); see [attribution](docs/third-party/gogh-editor.md).
+- **AI generation**, the reusable library, section tools, page settings, templates, import/export, and performance controls remain available in the workspace.
 
 ### Compatibility with the visual prototype
 
-Sections saved by the unreleased `visualData` prototype keep rendering from their saved HTML/CSS. In Visual mode, **Convert to WordPress blocks** replaces a prototype section with native Group, Columns, Heading, Paragraph, Image, and Button blocks. Existing CSS stays in a compact **Section styles** Page Block, including responsive rules. Conversion is undoable in WordPress and takes effect on the saved page only after saving. Unsupported prototype data is left untouched.
+Sections saved by the unreleased `visualData` prototype keep rendering from their saved HTML/CSS. **Convert to WordPress blocks** is available in the canvas and ordinary WordPress editor. It replaces a supported prototype section with native Group, Columns, Heading, Paragraph, Image, and Button blocks. Existing CSS stays in a compact **Section styles** Page Block, including responsive rules. Conversion is undoable and takes effect on the saved page only after saving. Unsupported prototype data is left untouched.
 
 No new visual layouts use the prototype schema or compiler. Existing hand-coded sections keep their current code workflow.
 

@@ -1,0 +1,395 @@
+/* Native WordPress blocks are the document. Canvas controls edit that document. */
+(function(root, factory) {
+	if (typeof module === 'object' && module.exports) module.exports = factory();
+	else root.gtPbCanvasEditor = factory();
+})(typeof window !== 'undefined' ? window : this, function() {
+	'use strict';
+	var SUPPORTED = ['core/group','core/columns','core/column','core/heading','core/paragraph','core/buttons','core/button','core/image'];
+	var LABELS = { 'core/group':'Section', 'core/columns':'Columns', 'core/column':'Column', 'core/heading':'Heading', 'core/paragraph':'Text', 'core/buttons':'Buttons', 'core/button':'Button', 'core/image':'Image' };
+	function token(prefix) { return prefix + Math.random().toString(36).slice(2, 12); }
+	function copy(value) { return JSON.parse(JSON.stringify(value)); }
+	function escape(value) { return String(value || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
+	function pathArray(path) { return typeof path === 'string' && /^\d+(?:\.\d+)*$/.test(path) ? path.split('.').map(Number) : null; }
+	function safeURL(value, image) {
+		if (!value) return true;
+		try { return (image ? ['http:','https:'] : ['http:','https:','mailto:','tel:']).includes(new URL(value,'https://page-blocks.invalid/').protocol); } catch (error) { return false; }
+	}
+	function locate(blocks, path) {
+		var parts = pathArray(path); if (!parts) return null;
+		var list = blocks, found = null;
+		for (var i = 0; i < parts.length; i++) {
+			if (!Array.isArray(list) || !list[parts[i]]) return null;
+			found = { block: list[parts[i]], list: list, index: parts[i], parent: found ? found.block : null };
+			list = found.block.innerBlocks;
+		}
+		return found;
+	}
+	function helper(root, api) {
+		var item = root.innerBlocks.find(function(b) { return b.name === 'gt-page-block/page-block' && b.attributes.name === 'Page Blocks canvas styles'; });
+		if (!item) { item = api.createBlock('gt-page-block/page-block', { name: 'Page Blocks canvas styles', cssOutput: 'inline' }); root.innerBlocks.unshift(item); }
+		return item;
+	}
+	function nodeKey(block) {
+		var classes = String(block.attributes.className || '').split(/\s+/), key = classes.find(function(c) { return /^pb-node-[a-z0-9]+$/.test(c); });
+		if (!key) { key = token('pb-node-'); block.attributes.className = classes.filter(Boolean).concat(key).join(' '); }
+		return key;
+	}
+	function layoutKey(block) {
+		var classes = String(block.attributes.className || '').split(/\s+/), key = classes.find(function(c) { return /^pb-layout-[a-z0-9]+$/.test(c); });
+		if (!key) key = token('pb-layout-');
+		block.attributes.className = classes.filter(function(c) { return c && c !== 'pb-freeform' && !/^pb-layout-/.test(c); }).concat('pb-freeform',key).join(' ');
+		return key;
+	}
+	function cloneNative(block, api, replacements) {
+		replacements = replacements || {};
+		function clone(b) {
+			var attrs = copy(b.attributes); delete attrs.anchor;
+			attrs.className = String(attrs.className || '').replace(/\bpb-(?:node|layout)-[a-z0-9]+\b/g,function(key) { return replacements[key] || (replacements[key] = token(key.startsWith('pb-node-') ? 'pb-node-' : 'pb-layout-')); });
+			return api.cloneBlock(b,attrs,(b.innerBlocks || []).map(clone));
+		}
+		var result = clone(block);
+		function rewrite(b) { if (b.name === 'gt-page-block/page-block' && typeof b.attributes.css === 'string') Object.keys(replacements).forEach(function(key) { b.attributes.css = b.attributes.css.replace(new RegExp('\\b' + key + '\\b','g'),replacements[key]); }); (b.innerBlocks || []).forEach(rewrite); }
+		rewrite(result); return result;
+	}
+	function duplicateWithin(block, blocks, api) {
+		var keys = {}, owned = new Set(), duplicate = cloneNative(block,api,keys);
+		function collect(b) { owned.add(b.clientId); (b.innerBlocks || []).forEach(collect); }
+		collect(block);
+		function append(b) {
+			if (!owned.has(b.clientId) && b.name === 'gt-page-block/page-block' && typeof b.attributes.css === 'string') {
+				var snippets = b.attributes.css.match(/\/\* pb-visual:[a-z0-9-]+:start \*\/[\s\S]*?\/\* pb-visual:[a-z0-9-]+:end \*\//g) || [];
+				snippets.forEach(function(snippet) { if (!Object.keys(keys).some(function(key) { return snippet.startsWith('/* pb-visual:' + key + '-'); })) return; Object.keys(keys).forEach(function(key) { snippet = snippet.replace(new RegExp('\\b' + key + '\\b','g'),keys[key]); }); b.attributes.css += '\n' + snippet; });
+			}
+			(b.innerBlocks || []).forEach(append);
+		}
+		blocks.forEach(append); return duplicate;
+	}
+	function ruleValue(css, key, property, viewport) {
+		if (!key) return '';
+		var start = '/* pb-visual:' + key + '-' + viewport + '-' + property + ':start */', a = css.indexOf(start);
+		if (a < 0) return '';
+		var b = css.indexOf(':end */',a), match = css.slice(a,b).match(new RegExp('\\{' + property + ':([^}]+)\\}'));
+		return match ? match[1] : '';
+	}
+	function replaceLayoutCss(old, compiled) {
+		var marker = '/* Page Blocks canvas layout */', endMarker = '/* Page Blocks canvas layout end */';
+		var a = old.lastIndexOf(marker), b = a < 0 ? -1 : old.indexOf(endMarker,a);
+		return a >= 0 && b >= 0 ? old.slice(0,a) + compiled + old.slice(b + endMarker.length) : old + '\n' + compiled;
+	}
+	function styleValue(property, value) {
+		if (!value) return true;
+		if (value.length > 100 || /[;{}<>\\]/.test(value)) return false;
+		if (property === 'color' || property === 'background-color') return /^(#[a-f0-9]{3,8}|var\(--[a-z0-9_-]+\)|rgba?\([0-9.,%\s]+\)|transparent|currentColor)$/i.test(value);
+		if (property === 'text-align') return /^(left|center|right|start|end)$/.test(value);
+		return /^(auto|0|var\(--[a-z0-9_-]+\)|-?\d+(?:\.\d+)?(?:px|rem|em|%|vw|vh)(?:\s+(?:0|-?\d+(?:\.\d+)?(?:px|rem|em|%|vw|vh))){0,3})$/i.test(value);
+	}
+	function setRule(css, key, selector, property, value, viewport) {
+		if (!/^pb-node-[a-z0-9]+$/.test(key) || !/^(color|background-color|font-size|padding|margin|max-width|border-radius|text-align)$/.test(property) || !styleValue(property, value)) return null;
+		var marker = key + '-' + viewport + '-' + property;
+		var start = '/* pb-visual:' + marker + ':start */', end = '/* pb-visual:' + marker + ':end */';
+		var a = css.indexOf(start), b = a < 0 ? -1 : css.indexOf(end, a);
+		if (a >= 0 && b >= 0) css = css.slice(0, a) + css.slice(b + end.length);
+		if (!value) return css;
+		var rule = selector + '{' + property + ':' + value + '}';
+		if (viewport !== 'desktop') rule = '@media(max-width:' + (viewport === 'tablet' ? '768' : '480') + 'px){' + rule + '}';
+		return css + '\n' + start + '\n' + rule + '\n' + end;
+	}
+	function createSection(api, layout, kind) {
+		var root = api.createBlock('core/group', { tagName:'section', metadata:{name:kind === 'cta' ? 'Call to action' : 'Visual section'}, layout:{type:'default'}, className:'pb-freeform' });
+		var scope = layoutKey(root), styleBlock = helper(root, api);
+		var children = [api.createBlock('core/heading', { content:kind === 'cta' ? 'Ready for the next step?' : 'Build something worth sharing', level:2 }), api.createBlock('core/paragraph', { content:'Start with your message. Select anything on the canvas to edit it.' }), api.createBlock('core/buttons', {}, [api.createBlock('core/button', { text:'Get started', url:'#' })])];
+		root.innerBlocks.push(...children);
+		var positions = [{x:64,y:64,w:800,h:96},{x:64,y:184,w:620,h:80},{x:64,y:304,w:240,h:56}];
+		var geometry = children.map(function(b,i) { return Object.assign({key:nodeKey(b),type:b.name},positions[i]); });
+		styleBlock.attributes.css = layout.css(scope, geometry, 1200, 460);
+		return api.serialize([root]);
+	}
+	function mount(options) {
+		var doc = options.container.ownerDocument, win = doc.defaultView, wp = options.wp || win.wp, api = wp && wp.blocks;
+		if (!api) return null;
+		if (!api.getBlockType('core/group') && wp.blockLibrary) wp.blockLibrary.registerCoreBlocks();
+		if (!api.getBlockType('gt-page-block/page-block')) api.registerBlockType('gt-page-block/page-block', { title:'Page Block', category:'design', attributes:options.config.pageBlockAttributes, save:function() { return null; } });
+		var caches = new Map(), snapshots = new Map(), selection = null, pendingMeasure = null, viewport = 'desktop', grid = false;
+		var panel = doc.createElement('div'); panel.className = 'pb-canvas-inspector'; options.container.appendChild(panel);
+		var rail = doc.createElement('div'); rail.className = 'pb-canvas-rail'; rail.setAttribute('aria-label','Canvas tools'); options.canvas.appendChild(rail);
+		var status = doc.createElement('div'); status.className = 'pb-canvas-notice'; status.setAttribute('role','status'); status.hidden = true; options.canvas.appendChild(status);
+		var palette = doc.createElement('div'); palette.className = 'pb-canvas-palette'; palette.hidden = true; options.canvas.appendChild(palette);
+		function notify(text) { status.textContent = text; status.hidden = false; }
+		function button(label, icon, action, className) {
+			var b = doc.createElement('button'); b.type = 'button'; b.className = className || 'pb-canvas-button'; b.setAttribute('aria-label',label); b.title = label;
+			b.innerHTML = options.config.icons && options.config.icons[icon] || ''; var t = doc.createElement('span'); t.textContent = label; b.appendChild(t); b.addEventListener('click',action); return b;
+		}
+		function frameMessage(message) { var f = options.getFrame(); if (f && f.contentWindow) f.contentWindow.postMessage(message, win.location.origin); }
+		function section(uid) { return options.getSections().find(function(s) { return s.uid === uid; }); }
+		function tree(s) {
+			if (!s || s.kind !== 'foreign') return null;
+			var cache = caches.get(s.uid);
+			if (cache && cache.source === s.serialized) return cache.blocks;
+			try {
+				var blocks = api.parse(s.serialized);
+				function valid(bs) { return bs.every(function(b) { return b.isValid !== false && valid(b.innerBlocks || []); }); }
+				if (!valid(blocks)) return null;
+				caches.set(s.uid,{source:s.serialized,blocks:blocks}); return blocks;
+			} catch (error) { return null; }
+		}
+		function commit(s, blocks, checkpoint, rebuild) {
+			var serialized = api.serialize(blocks); caches.set(s.uid,{source:serialized,blocks:blocks});
+			options.onChange(s.uid,{serialized:serialized},checkpoint !== false);
+			if (rebuild !== false) render();
+		}
+		function fresh(uid) {
+			var s = section(uid), before = snapshots.get(uid);
+			if (s && before && before === (s.kind === 'foreign' ? s.serialized : s.content)) return true;
+			notify('The preview changed while you were editing. Select the element again in the refreshed canvas.'); return false;
+		}
+		function current() {
+			if (!selection) return null;
+			var s = section(selection.sectionUid); if (!s) return null;
+			if (selection.nativePath) {
+				var blocks = tree(s), found = blocks && locate(blocks,selection.nativePath);
+				return found ? { section:s,blocks:blocks,found:found,block:found.block } : null;
+			}
+			if (s.kind === 'foreign' || s.blockId || s.phpExec || s.format || s.visualData) return null;
+			var source = win.gtPbPreviewDom.sourceElement(s.content, selection.sourcePath || []);
+			return source && source.tag === selection.tagName ? {section:s,source:source} : null;
+		}
+		function content(s, text, html) {
+			if (s.block) {
+				if (!['core/heading','core/paragraph','core/button'].includes(s.block.name)) return;
+				s.block.attributes[s.block.name === 'core/button' ? 'text' : 'content'] = html || escape(text).replace(/\n/g,'<br>'); commit(s.section,s.blocks,true,false);
+			} else {
+				var result = win.gtPbPreviewDom.replaceInnerHtml(s.section.content,{path:selection.sourcePath,tagName:selection.tagName,oldHtml:selection.html || '',newHtml:html || escape(text).replace(/\n/g,'<br>')},doc);
+				if (result === null) { notify('This rendered text does not match its source. Use the HTML editor for this element.'); return; }
+				options.onChange(s.section.uid,{content:result},true); selection.html = html || escape(text).replace(/\n/g,'<br>');
+			}
+		}
+		function sourceAttribute(s, name, value) {
+			if ((name === 'src' || name === 'href') && !safeURL(value,name === 'src')) { notify('Use a valid web URL, relative path, or page anchor.'); return false; }
+			var old = (selection.attributes || {})[name] || '';
+			var result = win.gtPbPreviewDom.replaceAttribute(s.section.content,{path:selection.sourcePath,tagName:selection.tagName,oldValue:old},name,value,doc);
+			if (result === null) { notify('This element no longer matches its source. Select it again or use the code editor.'); return; }
+			selection.attributes[name] = value; options.onChange(s.section.uid,{content:result},true);
+		}
+		function setStyle(s, property, value) {
+			if (!styleValue(property,value)) { notify('Use a CSS length such as 24px or 1rem, a hex color, or a theme variable.'); return false; }
+			var support = s.block && api.getBlockType(s.block.name).supports || {};
+			var border = support.border || support.__experimentalBorder || {};
+			var nativeSupport = property === 'color' ? support.color && support.color.text !== false : property === 'background-color' ? support.color && support.color.background !== false : property === 'font-size' ? support.typography && support.typography.fontSize : property === 'padding' ? support.spacing && support.spacing.padding : property === 'margin' ? support.spacing && support.spacing.margin : property === 'border-radius' ? border.radius : property === 'text-align';
+			if (s.block && viewport === 'desktop' && nativeSupport) {
+				var map = {'color':['color','text'],'background-color':['color','background'],'font-size':['typography','fontSize'],'padding':['spacing','padding'],'margin':['spacing','margin'],'border-radius':['border','radius']};
+				if (property === 'text-align') { s.block.attributes[s.block.name === 'core/heading' ? 'textAlign' : 'align'] = value || undefined; }
+				else if (map[property]) { var spec = map[property]; s.block.attributes.style = copy(s.block.attributes.style || {}); s.block.attributes.style[spec[0]] = s.block.attributes.style[spec[0]] || {}; if (value) s.block.attributes.style[spec[0]][spec[1]] = value; else delete s.block.attributes.style[spec[0]][spec[1]]; }
+				commit(s.section,s.blocks,true,false); return true;
+			}
+			if (s.block) {
+				var root = s.blocks[0]; if (root.name !== 'core/group') { notify('Responsive overrides are available inside native Group sections.'); return false; }
+				var key = nodeKey(s.block), styleBlock = helper(root,api), rule = setRule(styleBlock.attributes.css || '',key,'.' + key + '.' + key,property,value,viewport);
+				styleBlock.attributes.css = rule; selection.nativePath = findPath(s.blocks,s.block.clientId); commit(s.section,s.blocks,true,false);
+			} else {
+				var probe = doc.createElement('template'); probe.innerHTML = s.source.openTag; var element = probe.content.firstElementChild;
+				var classes = element ? element.getAttribute('class') || '' : '', key = classes.split(/\s+/).find(function(c) { return /^pb-node-[a-z0-9]+$/.test(c); }) || token('pb-node-');
+				var updated = win.gtPbPreviewDom.replaceAttribute(s.section.content,{path:selection.sourcePath,tagName:selection.tagName,oldValue:classes},'class',classes.split(/\s+/).filter(Boolean).filter(function(c) { return c !== key; }).concat(key).join(' '),doc);
+				if (updated === null) return false;
+				var parsed = new win.DOMParser().parseFromString(updated,'text/html'), rootId = parsed.body.firstElementChild && parsed.body.firstElementChild.id;
+				var selector = '.' + key + '.' + key;
+				if (rootId && /^[a-zA-Z][a-zA-Z0-9_-]*$/.test(rootId)) selector = '#' + rootId + (selection.sourcePath.length === 1 ? '.' : ' .') + key;
+				var css = setRule(s.section.css || '',key,selector,property,value,viewport);
+				options.onChange(s.section.uid,{content:updated,css:css},true);
+			}
+			return true;
+		}
+		function findPath(blocks, id, prefix) {
+			for (var i = 0; i < blocks.length; i++) { var path = prefix ? prefix + '.' + i : String(i); if (blocks[i].clientId === id) return path; var inner = findPath(blocks[i].innerBlocks || [],id,path); if (inner) return inner; }
+			return null;
+		}
+		function requestLayout(s, rootPath, action) { pendingMeasure = {sectionUid:s.section.uid,action:action || 'activate',selectedPath:selection.nativePath}; frameMessage({type:'pb_canvas_measure',sectionUid:s.section.uid,path:rootPath}); }
+		function layoutCommit(message, pending) {
+			var s = section(message.sectionUid), blocks = s && tree(s), found = blocks && locate(blocks,message.rootPath);
+			if (!found || found.block.name !== 'core/group' || !fresh(s.uid) || !Number.isFinite(message.width) || !Number.isFinite(message.height) || message.width <= 0) return;
+			if (message.width <= 768) { notify('Use a desktop preview to arrange or add elements in a freeform section. Text and style editing work in every preview.'); return; }
+			var group = found.block, selected = selection && locate(blocks,selection.nativePath || ''), selectedId = selected && selected.block.clientId;
+			var actual = group.innerBlocks.filter(function(b) { return !(b.name === 'gt-page-block/page-block' && !b.attributes.content && !b.attributes.js && !b.attributes.blockId && b.attributes.css); });
+			if (!message.elements.length || actual.length !== message.elements.length || actual.some(function(b) { return !SUPPORTED.includes(b.name); })) { notify('This section contains blocks the canvas cannot arrange. Its content stays intact; use Code or the WordPress editor for those blocks.'); return; }
+			var geometry = [];
+			for (var i = 0; i < message.elements.length; i++) {
+				var e = copy(message.elements[i]), target = locate(blocks,e.path);
+				if (!target || target.parent !== group || ![e.x,e.y,e.w,e.h].every(Number.isFinite)) return;
+				e.key = nodeKey(target.block); e.type = target.block.name; e.x = Math.max(0,e.x); e.y = Math.max(0,e.y); e.w = Math.max(40,e.w); e.h = Math.max(24,e.h); geometry.push(e);
+			}
+			if (pending && pending.block) {
+				group.innerBlocks.push(pending.block); selectedId = pending.block.clientId;
+				geometry.push({key:nodeKey(pending.block),type:pending.block.name,x:24,y:Math.max(...geometry.map(function(e) { return e.y + e.h; })) + 24,w:Math.min(540,message.width - 48),h:pending.block.name === 'core/image' ? 240 : 80});
+			}
+			var copyPath = message.duplicate ? message.changedPath : pending && pending.action === 'duplicate' ? pending.selectedPath : null;
+			if (copyPath) {
+				var source = locate(blocks,copyPath), original = geometry.find(function(e) { return e.path === copyPath; });
+				if (!source || !original) return;
+				var duplicate = duplicateWithin(source.block,blocks,api), duplicateGeometry = copy(original); group.innerBlocks.splice(source.index + 1,0,duplicate); selectedId = duplicate.clientId;
+				if (message.duplicate && message.original) { Object.assign(original,message.original,{key:nodeKey(source.block),type:source.block.name}); }
+				else { duplicateGeometry.x = Math.min(message.width - duplicateGeometry.w,duplicateGeometry.x + 24); duplicateGeometry.y += 24; }
+				duplicateGeometry.key = nodeKey(duplicate); geometry.push(duplicateGeometry);
+			}
+			var scope = layoutKey(group), css = win.gtPbCanvasLayout.css(scope,geometry,message.width,Math.max(message.height,...geometry.map(function(e) { return e.y + e.h + 24; })),message.precise);
+			if (!css) return;
+			var styleBlock = helper(group,api); styleBlock.attributes.css = replaceLayoutCss(styleBlock.attributes.css || '',css);
+			if (selection && selectedId) selection.nativePath = findPath(blocks,selectedId);
+			commit(s,blocks,true,true); notify(pending && pending.action === 'activate' ? 'Freeform layout enabled. Drag the Move handle, resize, or use arrow keys. Mobile keeps the block reading order.' : 'Layout updated.');
+		}
+		function action(name) {
+			var s = current(); if (!s || !s.block) return;
+			if (name === 'delete') {
+				if (!s.found.parent) { options.deleteSection(s.section.uid); selection = null; render(); return; }
+				s.found.list.splice(s.found.index,1); selection.nativePath = findPath(s.blocks,s.found.parent.clientId); commit(s.section,s.blocks,true,true); return;
+			}
+			if (name === 'duplicate') {
+				if (s.found.parent && /\bpb-freeform\b/.test(s.found.parent.attributes.className || '')) { requestLayout(s,findPath(s.blocks,s.found.parent.clientId),'duplicate'); return; }
+				var duplicate = duplicateWithin(s.block,s.blocks,api);
+				s.found.list.splice(s.found.index + 1,0,duplicate); selection.nativePath = findPath(s.blocks,duplicate.clientId); commit(s.section,s.blocks,true,true); return;
+			}
+			var target = s.found.index + (name === 'up' ? -1 : 1);
+			if (target < 0 || target >= s.found.list.length) return;
+			s.found.list.splice(s.found.index,1); s.found.list.splice(target,0,s.block); selection.nativePath = findPath(s.blocks,s.block.clientId); commit(s.section,s.blocks,true,true);
+		}
+		function addBlock(type) {
+			var s = current(), blocks = s && s.blocks, group = s && s.block;
+			if (!s || !s.block) { notify('Add a visual section first, then select a section or element inside it.'); return; }
+			if (!['core/group','core/column'].includes(group.name)) group = s.found.parent;
+			if (!group || !['core/group','core/column'].includes(group.name)) { notify('Select a Group or Column to add an element.'); return; }
+			function insert(block) {
+				nodeKey(block); palette.hidden = true;
+				if (/\bpb-freeform\b/.test(group.attributes.className || '')) { pendingMeasure = {sectionUid:s.section.uid,action:'insert',block:block}; frameMessage({type:'pb_canvas_measure',sectionUid:s.section.uid,path:findPath(blocks,group.clientId)}); return; }
+				group.innerBlocks.push(block); selection.nativePath = findPath(blocks,block.clientId); commit(s.section,blocks,true,true);
+			}
+			if (type === 'image') { chooseImage(function(image) { insert(api.createBlock('core/image',{id:image.id,url:image.url,alt:image.alt || ''})); }); return; }
+			if (type === 'heading') insert(api.createBlock('core/heading',{content:'Your heading',level:2}));
+			if (type === 'text') insert(api.createBlock('core/paragraph',{content:'Add your text here.'}));
+			if (type === 'button') insert(api.createBlock('core/buttons',{},[api.createBlock('core/button',{text:'Learn more',url:'#'})]));
+			if (type === 'columns') insert(api.createBlock('core/columns',{},[api.createBlock('core/column',{},[api.createBlock('core/paragraph',{content:'First column'})]),api.createBlock('core/column',{},[api.createBlock('core/paragraph',{content:'Second column'})])]));
+		}
+		function chooseImage(callback) {
+			if (!wp.media) { notify('The WordPress media picker is unavailable. Use the image URL field.'); return; }
+			var media = wp.media({title:'Choose image',library:{type:'image'},multiple:false,button:{text:'Use image'}}); media.on('select',function() { callback(media.state().get('selection').first().toJSON()); }); media.open();
+		}
+		function field(parent,label,value,change,choices) {
+			var wrap = doc.createElement('label'); wrap.className = 'pb-canvas-field'; var caption = doc.createElement('span'); caption.textContent = label; wrap.appendChild(caption);
+			var input = doc.createElement(choices ? 'select' : label === 'Text' ? 'textarea' : 'input');
+			if (!choices && input.tagName === 'INPUT') input.type = 'text'; input.name = 'pb-canvas-' + label.toLowerCase().replace(/\W/g,'-');
+			if (choices) choices.forEach(function(c) { var o = doc.createElement('option'); o.value = c[0]; o.textContent = c[1]; input.appendChild(o); });
+			input.value = value == null ? '' : String(value); input.addEventListener('change',function() { if (change(input.value) === false) input.setAttribute('aria-invalid','true'); else input.removeAttribute('aria-invalid'); }); wrap.appendChild(input); parent.appendChild(wrap); return input;
+		}
+		function group(label) { var block = doc.createElement('section'); block.className = 'pb-canvas-field-group'; var h = doc.createElement('h3'); h.textContent = label; block.appendChild(h); panel.appendChild(block); return block; }
+		function presets(raw) {
+			var all = Array.isArray(raw) ? raw : raw && typeof raw === 'object' ? (raw.theme && raw.theme.length ? (raw.theme || []).concat(raw.custom || []) : Object.values(raw).flatMap(presets)) : [];
+			var unique = new Map(); all.forEach(function(p) { if (p && p.slug) unique.set(p.slug,p); }); return Array.from(unique.values());
+		}
+		function render() {
+			var scroll = options.container.scrollTop; panel.replaceChildren(); rail.hidden = !options.isEnabled(); panel.hidden = !options.isEnabled(); if (!options.isEnabled()) return;
+			updateHistory();
+			var s = current();
+			var header = doc.createElement('div'); header.className = 'pb-canvas-inspector-header'; header.innerHTML = '<strong>Design</strong><span>Click to select · double-click to edit text</span>'; panel.appendChild(header);
+			if (!s) {
+				var empty = doc.createElement('p'); empty.className = 'pb-canvas-empty';
+				var old = selection && section(selection.sectionUid);
+				empty.textContent = !selection ? 'Select an element on the page to edit its content and styles. Add a visual section for a new layout.' : old && old.kind === 'foreign' ? 'This block is preserved. Use the WordPress editor for content the canvas cannot edit.' : 'This output is managed by a library block or generated code. Use Code mode to edit its source.';
+				panel.appendChild(empty);
+				if (old && old.visualData && !old.js && !old.phpExec && !old.format && !old.blockId && win.gtPbPrototypeConversion) {
+					panel.appendChild(button('Convert prototype section','layout',function() {
+						try { var converted = win.gtPbPrototypeConversion.convert(old,api); var serialized = api.serialize(converted); options.onChange(old.uid,{kind:'foreign',blockName:'core/group',label:old.name || 'Visual section',serialized:serialized,rendered:'',content:'',css:'',js:'',visualData:null},true); selection={sectionUid:old.uid,nativePath:'0'}; render(); notify('Converted to native blocks. Save when ready, or use Undo to restore the section.'); }
+						catch(error) { notify(error.message); }
+					}));
+				}
+				if (selection && options.config.editPostUrl) { var link=doc.createElement('a'); link.className='pb-canvas-button'; link.href=options.config.editPostUrl; link.target='_blank'; link.rel='noopener'; link.innerHTML=(options.config.icons['external-link'] || '')+'<span>WordPress editor</span>'; panel.appendChild(link); }
+				panel.appendChild(button('Add visual section','plus',newSection)); return;
+			}
+			var title = doc.createElement('div'); title.className = 'pb-canvas-selection-title'; title.textContent = s.block ? LABELS[s.block.name] || s.block.name : selection.tagName.toUpperCase(); panel.appendChild(title);
+			if (s.block) {
+				var actions = doc.createElement('div'); actions.className = 'pb-canvas-actions'; [['up','Move up in reading order','chevron-up'],['down','Move down in reading order','chevron-down'],['duplicate','Duplicate','copy'],['delete','Delete','trash']].forEach(function(a) { actions.appendChild(button(a[1],a[2],function() { action(a[0]); })); }); panel.appendChild(actions);
+				var layers = group('Layers');
+				function row(bs,prefix,depth) { bs.forEach(function(b,i) { var path = prefix ? prefix + '.' + i : String(i); if (b.name === 'gt-page-block/page-block' && b.attributes.name === 'Page Blocks canvas styles') return;
+					var label = b.attributes.metadata && b.attributes.metadata.name || LABELS[b.name] || b.name, item = button(label,'layout',function() { selection = {sectionUid:s.section.uid,nativePath:path}; render(); frameMessage({type:'pb_canvas_select_native',sectionUid:s.section.uid,path:path}); },'pb-canvas-layer' + (path === selection.nativePath ? ' is-selected' : ''));
+					item.style.paddingLeft = (8 + depth * 12) + 'px'; layers.appendChild(item); row(b.innerBlocks || [],path,depth+1);
+				}); }
+				row(s.blocks,'',0);
+			}
+			var contentGroup = group('Content'), attrs = s.block && s.block.attributes;
+			var texty = s.block ? ['core/heading','core/paragraph','core/button'].includes(s.block.name) : /^(h[1-6]|p|li|a|button)$/.test(selection.tagName);
+			if (texty) { var text = s.block ? attrs.content || attrs.text || '' : selection.html || ''; var probe = doc.createElement('div'); probe.innerHTML = text; field(contentGroup,'Text',probe.textContent,function(v) { content(s,v); }); }
+			if (s.block && s.block.name === 'core/heading') field(contentGroup,'Heading level',attrs.level || 2,function(v) { attrs.level = Number(v); commit(s.section,s.blocks,true,false); },[1,2,3,4,5,6].map(function(n) { return [n,'H'+n]; }));
+			var image = s.block ? s.block.name === 'core/image' : selection.tagName === 'img';
+			if (image) {
+				contentGroup.appendChild(button('Choose image','photo',function() { chooseImage(function(img) { if (s.block) { Object.assign(attrs,{id:img.id,url:img.url,alt:img.alt || ''}); commit(s.section,s.blocks,true,true); } else { sourceAttribute(s,'src',img.url); render(); } }); }));
+				field(contentGroup,'Image URL',s.block ? attrs.url : selection.attributes.src,function(v) { if (!safeURL(v,true)) { notify('Use a valid image URL.'); return false; } if (s.block) { attrs.url = v; delete attrs.id; commit(s.section,s.blocks,true,false); } else return sourceAttribute(s,'src',v); });
+				field(contentGroup,'Alt text',s.block ? attrs.alt : selection.attributes.alt,function(v) { if (s.block) { attrs.alt = v; commit(s.section,s.blocks,true,false); } else sourceAttribute(s,'alt',v); });
+			}
+			if (s.block && s.block.name === 'core/button' || !s.block && selection.tagName === 'a') field(contentGroup,'Link URL',s.block ? attrs.url : selection.attributes.href,function(v) { if (!safeURL(v,false)) { notify('Use a valid link URL.'); return false; } if (s.block) { attrs.url = v; commit(s.section,s.blocks,true,false); } else return sourceAttribute(s,'href',v); });
+			if (!texty && !image && !(s.block && s.block.name === 'core/button')) contentGroup.hidden = true;
+			var styles = group('Style'); field(styles,'Apply to',viewport,function(v) { viewport=v; render(); },[['desktop','All screens'],['tablet','Tablet ≤768px'],['mobile','Mobile ≤480px']]);
+			var map = {'color':['color','text'],'background-color':['color','background'],'font-size':['typography','fontSize'],'padding':['spacing','padding'],'margin':['spacing','margin'],'border-radius':['border','radius']};
+			[['color','Text color'],['background-color','Background'],['font-size','Font size'],['padding','Padding'],['margin','Margin'],['max-width','Max width'],['border-radius','Corner radius']].forEach(function(spec) {
+				var classes = s.block ? attrs.className || '' : s.source.openTag, key = (classes.match(/\bpb-node-[a-z0-9]+\b/) || [])[0];
+				var styleBlock = s.block && s.blocks[0].innerBlocks.find(function(b) { return b.name === 'gt-page-block/page-block' && b.attributes.name === 'Page Blocks canvas styles'; });
+				var value = ruleValue(s.block ? styleBlock && styleBlock.attributes.css || '' : s.section.css || '',key,spec[0],viewport);
+				if (!value && s.block && viewport === 'desktop' && map[spec[0]]) { var m=map[spec[0]], values=attrs.style || {}; value=values[m[0]] && values[m[0]][m[1]] || ''; if (typeof value === 'object') value=''; }
+				var input = field(styles,spec[1],value,function(v) { return setStyle(s,spec[0],v.trim()); }); input.placeholder = spec[0].includes('color') ? 'Inherit from theme' : 'Inherit';
+				if (spec[0].includes('color')) {
+					var list = doc.createElement('datalist'); list.id = token('pb-palette-');
+					presets(options.config.themePalette).filter(function(p) { return /^[a-z0-9-]+$/i.test(p.slug || ''); }).forEach(function(p) { var option=doc.createElement('option'); option.value='var(--wp--preset--color-' + p.slug + ')'; option.label=p.name || p.slug; list.appendChild(option); });
+					input.setAttribute('list',list.id); styles.appendChild(list);
+				}
+			});
+			if (texty) {
+				var fontPresets = presets(options.config.themeFontSizes).filter(function(p) { return /^[a-z0-9-]+$/i.test(p.slug || ''); });
+				if (fontPresets.length) field(styles,'Theme font size',s.block && attrs.fontSize || '',function(value) {
+					if (s.block && viewport === 'desktop') { attrs.fontSize=value || undefined; if (attrs.style && attrs.style.typography) delete attrs.style.typography.fontSize; commit(s.section,s.blocks,true,false); }
+					else return setStyle(s,'font-size',value ? 'var(--wp--preset--font-size-' + value + ')' : '');
+				},[['','Custom / inherit']].concat(fontPresets.map(function(p) { return [p.slug,p.name || p.slug]; })));
+			}
+			if (texty) field(styles,'Text alignment',s.block ? attrs.textAlign || attrs.align || '' : '',function(v) { return setStyle(s,'text-align',v); },[['','Inherit'],['left','Left'],['center','Center'],['right','Right']]);
+			if (s.block && s.block.name === 'core/group') {
+				var layoutGroup = group('Layout'); layoutGroup.appendChild(button('Make freeform','arrows-move',function() { requestLayout(s,selection.nativePath,'activate'); }));
+				var hint = doc.createElement('p'); hint.textContent = 'Arrange this section directly on the page. Shift locks an axis; Ctrl/Cmd bypasses snapping.'; layoutGroup.appendChild(hint);
+			}
+			options.container.scrollTop = scroll;
+		}
+		function newSection() { var serialized = createSection(api,win.gtPbCanvasLayout,'hero'); var uid = options.addSection(serialized); selection = {sectionUid:uid,nativePath:'0'}; palette.hidden = true; render(); }
+		rail.appendChild(button('Add','plus',function() { palette.hidden = !palette.hidden; }));
+		var gridButton = button('Grid','grid-dots',function() { grid = !grid; this.setAttribute('aria-pressed',grid ? 'true' : 'false'); frameMessage({type:'pb_canvas_mode',enabled:options.isEnabled(),grid:grid}); }); gridButton.setAttribute('aria-pressed','false'); rail.appendChild(gridButton);
+		var undoButton = button('Undo','arrow-back-up',function() { options.undo(); render(); }), redoButton = button('Redo','arrow-forward-up',function() { options.redo(); render(); }); rail.append(undoButton,redoButton);
+		function updateHistory() { if (undoButton) undoButton.disabled = !options.canUndo(); if (redoButton) redoButton.disabled = !options.canRedo(); }
+		var paletteTitle = doc.createElement('strong'); paletteTitle.textContent = 'Add to canvas'; palette.appendChild(paletteTitle); palette.appendChild(button('New visual section','layout',newSection));
+		[['heading','Heading','typography'],['text','Text','text-caption'],['image','Image','photo'],['button','Button','click'],['columns','Columns','layout']].forEach(function(a) { palette.appendChild(button(a[1],a[2],function() { addBlock(a[0]); })); });
+		doc.addEventListener('keydown',function(event) { if (event.key === 'Escape' && !palette.hidden) { palette.hidden = true; rail.querySelector('button').focus(); } });
+		function handleMessage(message) {
+			if (!message || !options.isEnabled()) return false;
+			if (message.type === 'pb_canvas_select') { if (!fresh(message.sectionUid)) return true; options.selectSection(message.sectionUid); selection = message; status.hidden = true; palette.hidden = true; render(); return true; }
+			if (message.type === 'pb_canvas_measure_result') { if (pendingMeasure && pendingMeasure.sectionUid === message.sectionUid) { var p=pendingMeasure; pendingMeasure=null; layoutCommit(message,p); } return true; }
+			if (message.type === 'pb_canvas_layout') { layoutCommit(message); return true; }
+			if (message.type === 'pb_canvas_action') { if (!fresh(message.sectionUid)) return true; selection=message; action(message.action); return true; }
+			if (message.type === 'pb_canvas_history') { if (message.redo) options.redo(); else options.undo(); render(); return true; }
+			if (message.type === 'pb_canvas_save') { options.save(); return true; }
+			if (message.type === 'pb_canvas_text') {
+				if (!fresh(message.sectionUid)) return true;
+				selection = Object.assign({},message,{html:message.oldHtml}); var s=current();
+				if (s) content(s,message.text,cleanInline(message.newHtml,doc)); else notify('Use Code mode to edit this generated output.'); render(); return true;
+			}
+			return false;
+		}
+		function sync(snapshot) {
+			if (snapshot) snapshot.forEach(function(s) { snapshots.set(s.uid,s.source); });
+			frameMessage({type:'pb_canvas_mode',enabled:options.isEnabled(),grid:grid});
+			if (selection && selection.nativePath) frameMessage({type:'pb_canvas_select_native',sectionUid:selection.sectionUid,path:selection.nativePath});
+		}
+		return { render:render, handleMessage:handleMessage, sync:sync, notify:notify, updateHistory:updateHistory, clearSelection:function() { selection=null; } };
+	}
+	function cleanInline(html,doc) {
+		var holder = doc.createElement('div'); holder.innerHTML = html;
+		Array.from(holder.querySelectorAll('*')).reverse().forEach(function(node) {
+			if (['SCRIPT','STYLE','IFRAME','OBJECT'].includes(node.tagName)) { node.remove(); return; }
+			if (!['STRONG','B','EM','I','A','BR','CODE'].includes(node.tagName)) { node.replaceWith(...node.childNodes); return; }
+			Array.from(node.attributes).forEach(function(attr) { if (node.tagName !== 'A' || !['href','target','rel'].includes(attr.name)) node.removeAttribute(attr.name); });
+			if (node.tagName === 'A' && !safeURL(node.getAttribute('href') || '',false)) node.removeAttribute('href');
+		});
+		return holder.innerHTML;
+	}
+	return { mount:mount, locate:locate, setRule:setRule, ruleValue:ruleValue, createSection:createSection, cleanInline:cleanInline, cloneNative:cloneNative, duplicateWithin:duplicateWithin, replaceLayoutCss:replaceLayoutCss, safeURL:safeURL };
+});
