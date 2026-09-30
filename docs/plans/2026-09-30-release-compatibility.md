@@ -3,7 +3,7 @@
 ## Verified release inputs
 
 - Current remote default branch: `main`, commit `b629978`, version 3.1.0.
-- GitHub already has published stable `v3.0.0` and `v3.1.0` releases. Reusing 3.0.0 would replace an existing release and downgrade the updater version. Release version selection is pending.
+- GitHub already has published stable `v3.0.0` and `v3.1.0` releases. Reusing 3.0.0 would replace an existing release and downgrade the updater version. The user selected 4.0.0 for this release.
 - FluentCart product 1152523, GT Page Blocks Builder (`gt-page-blocks-builder`), serves 3.1.0 through R2 download 308. Prior rows and files remain intact.
 
 ## Compatibility verification

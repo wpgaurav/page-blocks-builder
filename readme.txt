@@ -4,7 +4,7 @@ Tags: page builder, html blocks, css sections, gutenberg, visual builder
 Requires at least: 6.0
 Tested up to: 6.9.1
 Requires PHP: 8.1
-Stable tag: 3.1.0
+Stable tag: 4.0.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -73,6 +73,9 @@ Check **Load CSS from a file** to give a section its own stylesheet in `wp-conte
 
 == Upgrade Notice ==
 
+= 4.0.0 =
+Adds direct visual editing with native WordPress blocks, Auto and Freeform placement, media drops, and a compact Design inspector. Existing code sections, linked library blocks, and stored page content remain supported. Visual mode does not automatically convert old sections.
+
 = 3.1.0 =
 Adds Performance analysis, faster section CSS processing, CSP-compatible deferred stylesheets, and responsive loading controls. Existing content and loading choices remain unchanged.
 
@@ -95,6 +98,18 @@ Major release. Back up your database first: the schema change is one-way. Requir
 Security release. Fixes privilege escalation in the block preview (any Author could execute PHP on sites with PHP blocks enabled) and restores certificate verification on the update channel. If you have PHP blocks turned on, update now. Requires PHP 8.1.
 
 == Changelog ==
+
+= 4.0.0 =
+
+* Added direct canvas editing using native WordPress blocks within the existing Page Blocks workspace. Preserve HTML/CSS/JS editors, library, AI, performance tools, page settings, draft recovery, and save-conflict protection.
+* Added Fixed / Auto placement for normal block flow and Freeform placement with desktop dragging, resizing, alignment guides, snapping, and keyboard nudges. Mobile Freeform layouts follow block reading order.
+* Added filesystem media drops using WordPress Media Library uploads and native Image, Video, Audio, and File blocks, with upload and stale-edit protection.
+* Added compact property rows, color swatches, responsive scope icons, alignment controls, and accessible layer selection. Keep inspector typography independent of the frontend theme.
+* Respect block-theme template content widths and keep workspace toolbars and the status bar visible while canvas and panels scroll.
+* Selecting visual sections activates Visual mode; selecting ordinary code sections activates Code mode without saving or navigating.
+* Preserve existing code sections, legacy block names, linked library references, nested and third-party blocks, CSS loading settings, and unreleased prototype fallback content. Prototype conversion is explicit and undoable.
+* Fixed library creation returning another database row's ID after cache or integration writes. Added a WordPress 6.0 guard for newer template-style APIs.
+* Added regression coverage for actual legacy saves, media failures, stale saves, responsive controls, and packaged upgrade compatibility.
 
 = 3.1.0 =
 
