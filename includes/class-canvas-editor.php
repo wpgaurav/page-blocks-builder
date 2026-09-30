@@ -7,7 +7,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 final class GT_PB_Canvas_Editor {
 	/** Recover the post-content layout omitted by the standalone editing shell. */
 	public static function template_layout( $post_id, $slug ) {
-		if ( ! wp_is_block_theme() || ! function_exists( 'wp_get_layout_style' ) ) {
+		if ( ! wp_is_block_theme() || ! function_exists( 'wp_get_layout_style' ) || ! function_exists( 'wp_style_engine_get_styles' ) ) {
 			return array();
 		}
 		$post = get_post( $post_id );

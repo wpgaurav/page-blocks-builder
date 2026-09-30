@@ -300,6 +300,9 @@ class gt_pb_db {
 			return false;
 		}
 
+		// Cache invalidation and integrations may insert options or other rows.
+		// Capture our ID before they change wpdb's shared insert_id.
+		$id = (int) $wpdb->insert_id;
 		$this->bump_asset_version();
 
 		/**
@@ -314,9 +317,9 @@ class gt_pb_db {
 		 * @param array $data   Written fields.
 		 * @param bool  $is_new Whether the row was just created.
 		 */
-		do_action( 'gt_pb_block_saved', (int) $wpdb->insert_id, $data, true );
+		do_action( 'gt_pb_block_saved', $id, $data, true );
 
-		return (int) $wpdb->insert_id;
+		return $id;
 	}
 
 	/**
