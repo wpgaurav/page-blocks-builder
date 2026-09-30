@@ -5,9 +5,67 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 final class GT_PB_Canvas_Editor {
+	/** Recover the post-content layout omitted by the standalone editing shell. */
+	public static function template_layout( $post_id, $slug ) {
+		if ( ! wp_is_block_theme() || ! function_exists( 'wp_get_layout_style' ) ) {
+			return array();
+		}
+		$post = get_post( $post_id );
+		if ( ! $post ) {
+			return array();
+		}
+		$slugs = 'default-template' === $slug || 'default' === $slug ? array( 'page-' . $post->post_name, 'page', 'singular', 'index' ) : array( $slug );
+		if ( 'page' !== $post->post_type && count( $slugs ) > 1 ) {
+			$slugs = array( 'single-' . $post->post_type, 'single', 'singular', 'index' );
+		}
+		$find = static function ( $blocks ) use ( &$find ) {
+			foreach ( $blocks as $block ) {
+				if ( 'core/post-content' === $block['blockName'] ) {
+					return $block['attrs'];
+				}
+				if ( 'core/query' !== $block['blockName'] ) {
+					$found = $find( $block['innerBlocks'] );
+					if ( null !== $found ) {
+						return $found;
+					}
+				}
+			}
+			return null;
+		};
+		foreach ( $slugs as $candidate ) {
+			$template = get_block_template( get_stylesheet() . '//' . $candidate, 'wp_template' );
+			if ( ! $template ) {
+				continue;
+			}
+			$attrs = $find( parse_blocks( $template->content ) );
+			if ( null === $attrs ) {
+				return array();
+			}
+			$layout  = $attrs['layout'] ?? array( 'type' => 'constrained' );
+			$css     = wp_get_layout_style( '.pb-preview-content', $layout );
+			$padding = wp_get_global_styles( array( 'spacing', 'padding' ) );
+			$spacing = wp_style_engine_get_styles(
+				array(
+					'spacing' => array(
+						'padding' => array(
+							'left'  => is_array( $padding ) ? ( $padding['left'] ?? '0' ) : '0',
+							'right' => is_array( $padding ) ? ( $padding['right'] ?? '0' ) : '0',
+						),
+					),
+				)
+			);
+			$css    .= '.pb-preview-content{box-sizing:border-box;display:flow-root;' . ( $spacing['css'] ?? '' ) . '}';
+			return array(
+				'css'       => $css,
+				'className' => 'wp-block-post-content pb-preview-content',
+			);
+		}
+		return array();
+	}
+
 	public static function icons() {
 		$icons = array();
-		foreach ( array( 'layout', 'code', 'external-link', 'eye', 'layout-sidebar', 'settings', 'x', 'plus', 'typography', 'text-caption', 'photo', 'click', 'arrows-move', 'arrow-back-up', 'arrow-forward-up', 'copy', 'trash', 'grid-dots', 'chevron-up', 'chevron-down', 'bold', 'italic', 'link' ) as $name ) {
+		foreach ( array( 'layout', 'code', 'external-link', 'eye', 'layout-sidebar', 'settings', 'x', 'plus', 'typography', 'text-caption', 'photo', 'click', 'arrows-move', 'arrow-back-up', 'arrow-forward-up', 'copy', 'trash', 'grid-dots', 'chevron-up', 'chevron-down', 'bold', 'italic', 'link', 'letter-a', 'paint', 'text-size', 'box-padding', 'box-margin', 'arrows-horizontal', 'border-radius', 'align-left', 'align-center', 'align-right', 'device-desktop', 'device-tablet', 'device-mobile', 'info-circle' ) as $name ) {
 			// phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents -- Trusted bundled local SVG, never a remote URL.
 			$icons[ $name ] = str_replace( '<svg', '<svg aria-hidden="true" focusable="false"', (string) file_get_contents( GT_PB_BUILDER_DIR . 'assets/icons/tabler/' . $name . '.svg' ) );
 		}

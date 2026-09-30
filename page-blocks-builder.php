@@ -1126,6 +1126,10 @@ class GT_Page_Blocks_Builder {
 		$preview_context = gt_pb_functionalities_compat::with_post( $post_id, static function() {
 			return array( 'bodyClasses' => array_values( get_body_class() ), 'languageAttributes' => get_language_attributes() );
 		} );
+		$preview_layouts = array();
+		foreach ( $this->get_available_page_templates( $post_id ) as $template ) {
+			$preview_layouts[ $template['slug'] ] = GT_PB_Canvas_Editor::template_layout( $post_id, $template['slug'] );
+		}
 
 		GT_PB_Canvas_Editor::enqueue();
 		$css_path = GT_PB_BUILDER_DIR . 'assets/css/builder-shell.css';
@@ -1195,6 +1199,7 @@ class GT_Page_Blocks_Builder {
 				'icons'              => GT_PB_Canvas_Editor::icons(),
 				'contentHash'        => hash( 'sha256', (string) get_post_field( 'post_content', $post_id, 'raw' ) ),
 				'postTemplate'       => $this->get_builder_post_template_slug( $post_id ),
+				'previewLayouts'     => $preview_layouts,
 				'availableTemplates' => $this->get_available_page_templates( $post_id ),
 				// Page settings, edited in the builder's own dialog rather than
 				// sending the user back to the WordPress editor for a slug.

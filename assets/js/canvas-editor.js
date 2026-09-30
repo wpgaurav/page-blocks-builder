@@ -354,6 +354,10 @@
 			var all = Array.isArray(raw) ? raw : raw && typeof raw === 'object' ? (raw.theme && raw.theme.length ? (raw.theme || []).concat(raw.custom || []) : Object.values(raw).flatMap(presets)) : [];
 			var unique = new Map(); all.forEach(function(p) { if (p && p.slug) unique.set(p.slug,p); }); return Array.from(unique.values());
 		}
+		function iconChoices(parent,input,choices,label) {
+			input.parentElement.hidden=true; var bar=doc.createElement('div'); bar.className='pb-canvas-icon-choices';bar.setAttribute('role','group');bar.setAttribute('aria-label',label);
+			choices.forEach(function(choice) { var b=button(choice[1],choice[2],function() { input.value=choice[0];input.dispatchEvent(new win.Event('change',{bubbles:true})); });b.setAttribute('aria-pressed',String(input.value===choice[0]));bar.appendChild(b); });parent.appendChild(bar);return bar;
+		}
 		function renderLayers(s) {
 			var layers=group('Layers');
 			function row(bs,prefix,depth) { var counts={}; bs.forEach(function(b,i) { var path=prefix ? prefix + '.' + i : String(i); if (b.name === 'gt-page-block/page-block' && ['Page Blocks canvas styles','Imported section styles'].includes(b.attributes.name)) return;
@@ -410,15 +414,29 @@
 			if (s.block && ['core/video','core/audio','core/file'].includes(s.block.name)) { contentGroup.hidden=false; field(contentGroup,'Media URL',attrs.src || attrs.href || '',function(value) { if (!safeURL(value,true)) return false; attrs[s.block.name === 'core/file' ? 'href' : 'src']=value; delete attrs.id; commit(s.section,s.blocks,true,false); }); }
 			if (!texty && !image && !(s.block && s.block.name === 'core/button')) contentGroup.hidden = true;
 			if (s.block && ['core/video','core/audio','core/file'].includes(s.block.name)) contentGroup.hidden=false;
-			var styles = group('Style'); field(styles,'Apply to',viewport,function(v) { viewport=v; if (options.setPreviewViewport) options.setPreviewViewport(v === 'desktop' ? 'desktop' : v === 'tablet' ? '768' : '480'); render(); },[['desktop','All screens'],['tablet','Tablet ≤768px'],['mobile','Mobile ≤480px']]);
-			var styleHint=doc.createElement('p'); styleHint.textContent='Lengths accept px, rem, or a number for pixels. Clear a value to inherit.'; styles.appendChild(styleHint);
+			var styles=group('Style'),scope=field(styles,'Apply to',viewport,function(v) { viewport=v; if (options.setPreviewViewport) options.setPreviewViewport(v === 'desktop' ? 'desktop' : v === 'tablet' ? '768' : '480'); render(); },[['desktop','All screens'],['tablet','Tablet ≤768px'],['mobile','Mobile ≤480px']]);
+			var scopeBar=iconChoices(styles,scope,[['desktop','All screens','device-desktop'],['tablet','Tablet ≤768px','device-tablet'],['mobile','Mobile ≤480px','device-mobile']],'Style viewport');
+			var styleHint=doc.createElement('p'); styleHint.textContent='Lengths accept px, rem, or a number for pixels. Clear a value to inherit.'; styleHint.hidden=true;var help=button('Style help','info-circle',function() { styleHint.hidden=!styleHint.hidden;help.setAttribute('aria-expanded',String(!styleHint.hidden)); });help.setAttribute('aria-expanded','false');help.classList.add('pb-canvas-style-help');scopeBar.appendChild(help);styles.appendChild(styleHint);
+			var layoutGroup=group('Layout'), owner=s.block && insertionGroup(s);
+			if (owner && owner.name === 'core/group') {
+				var freeform=/\bpb-freeform\b/.test(owner.attributes.className || ''),ownerPath=findPath(s.blocks,owner.clientId);
+				var placement=field(layoutGroup,'Placement',freeform ? 'freeform' : 'auto',function(value) { if (value === 'auto') { pendingMeasure=null; autoPlacement(owner); selection.nativePath=findPath(s.blocks,s.block.clientId); commit(s.section,s.blocks,true,true); notify('Auto placement enabled. Drag blocks to reorder them.'); } else { if (frameWidth() <= 768) { notify('Freeform arrangement needs a canvas wider than 768px.',true); return false; } requestLayout(s,ownerPath,'activate'); } },[['auto','Fixed / Auto'],['freeform','Freeform']]);
+				placement.parentElement.classList.add('pb-canvas-property-row'); placement.title=freeform ? 'Drag to place freely. Mobile follows block reading order.' : 'Blocks stay in normal layout flow. Drag to change their order.';
+			}
+			function propertyRow(parent,label) { var row=doc.createElement('div');row.className='pb-canvas-property-row';var caption=doc.createElement('span');caption.className='pb-canvas-property-caption';caption.textContent=label;parent.appendChild(row);row.appendChild(caption);var controls=doc.createElement('div');controls.className='pb-canvas-property-controls';row.appendChild(controls);return controls; }
+			var dimensionRow=propertyRow(layoutGroup,'Size'),spacingRow=propertyRow(layoutGroup,'Spacing'),typographyGroup=group('Typography'),typeRow=propertyRow(typographyGroup,'Size'),appearanceGroup=group('Appearance'),radiusRow=propertyRow(appearanceGroup,'Radius'),fillGroup=group('Fill');
+			var colorRow=propertyRow(fillGroup,'Text'),backgroundRow=propertyRow(fillGroup,'Background');
+			var propertyParents={'max-width':dimensionRow,'border-radius':radiusRow,'padding':spacingRow,'margin':spacingRow,'font-size':typeRow,'color':colorRow,'background-color':backgroundRow};
+			var styleIcons={'color':'letter-a','background-color':'paint','font-size':'text-size','padding':'box-padding','margin':'box-margin','max-width':'arrows-horizontal','border-radius':'border-radius'};
 			var map = {'color':['color','text'],'background-color':['color','background'],'font-size':['typography','fontSize'],'padding':['spacing','padding'],'margin':['spacing','margin'],'border-radius':['border','radius']};
 			[['color','Text color'],['background-color','Background'],['font-size','Font size'],['padding','Padding'],['margin','Margin'],['max-width','Max width'],['border-radius','Corner radius']].forEach(function(spec) {
 				var classes = s.block ? attrs.className || '' : s.source.openTag, key = (classes.match(/\bpb-node-[a-z0-9]+\b/) || [])[0];
 				var styleBlock = s.block && s.blocks[0].innerBlocks.find(function(b) { return b.name === 'gt-page-block/page-block' && b.attributes.name === 'Page Blocks canvas styles'; });
 				var value = ruleValue(s.block ? styleBlock && styleBlock.attributes.css || '' : s.section.css || '',key,spec[0],viewport);
 				if (!value && s.block && viewport === 'desktop' && map[spec[0]]) { var m=map[spec[0]], values=attrs.style || {}; value=values[m[0]] && values[m[0]][m[1]] || ''; if (typeof value === 'object') value=''; }
-				var input = field(styles,spec[1],value,function(v) { return setStyle(s,spec[0],v.trim()); }); input.placeholder = spec[0].includes('color') ? 'Inherit from theme' : 'Inherit';
+				var input=field(propertyParents[spec[0]],spec[1],value,function(v) { return setStyle(s,spec[0],v.trim()); });input.placeholder='Auto';input.setAttribute('aria-label',spec[1]);var label=input.parentElement;label.classList.add('pb-canvas-icon-field');label.title=spec[1];var caption=label.querySelector('span');caption.className='pb-canvas-sr-only';var icon=doc.createElement('span');icon.className='pb-canvas-field-icon';icon.setAttribute('aria-hidden','true');icon.innerHTML=options.config.icons && options.config.icons[styleIcons[spec[0]]] || '';label.insertBefore(icon,input);
+				if (spec[0].includes('color')) { icon.classList.add('pb-canvas-color-swatch');var preset=presets(options.config.themePalette).find(function(p) { return value === 'var(--wp--preset--color-' + p.slug + ')'; });icon.style.backgroundColor=preset ? preset.color : value;icon.innerHTML=''; }
+				else { var shortLabel=doc.createElement('span');shortLabel.className='pb-canvas-field-abbreviation';shortLabel.textContent={'max-width':'Max','border-radius':'R','padding':'P','margin':'M','font-size':''}[spec[0]];shortLabel.setAttribute('aria-hidden','true');label.insertBefore(shortLabel,input); }
 				if (spec[0].includes('color')) {
 					var list = doc.createElement('datalist'); list.id = token('pb-palette-');
 					presets(options.config.themePalette).filter(function(p) { return /^[a-z0-9-]+$/i.test(p.slug || ''); }).forEach(function(p) { var option=doc.createElement('option'); option.value='var(--wp--preset--color-' + p.slug + ')'; option.label=p.name || p.slug; list.appendChild(option); });
@@ -427,17 +445,12 @@
 			});
 			if (texty) {
 				var fontPresets = presets(options.config.themeFontSizes).filter(function(p) { return /^[a-z0-9-]+$/i.test(p.slug || ''); });
-				if (fontPresets.length) field(styles,'Theme font size',s.block && attrs.fontSize || '',function(value) {
+				if (fontPresets.length) { var themeSize=field(typographyGroup,'Theme font size',s.block && attrs.fontSize || '',function(value) {
 					if (s.block && viewport === 'desktop') { attrs.fontSize=value || undefined; if (attrs.style && attrs.style.typography) delete attrs.style.typography.fontSize; commit(s.section,s.blocks,true,false); }
 					else return setStyle(s,'font-size',value ? 'var(--wp--preset--font-size-' + value + ')' : '');
-				},[['','Custom / inherit']].concat(fontPresets.map(function(p) { return [p.slug,p.name || p.slug]; })));
+				},[['','Custom / inherit']].concat(fontPresets.map(function(p) { return [p.slug,p.name || p.slug]; })));themeSize.parentElement.classList.add('pb-canvas-property-row'); }
 			}
-			if (texty) field(styles,'Text alignment',s.block ? attrs.textAlign || attrs.align || '' : '',function(v) { return setStyle(s,'text-align',v); },[['','Inherit'],['left','Left'],['center','Center'],['right','Right']]);
-			var owner=s.block && insertionGroup(s); if (owner && owner.name === 'core/group') {
-				var layoutGroup=group('Layout'),freeform=/\bpb-freeform\b/.test(owner.attributes.className || ''),ownerPath=findPath(s.blocks,owner.clientId);
-				field(layoutGroup,'Placement',freeform ? 'freeform' : 'auto',function(value) { if (value === 'auto') { pendingMeasure=null; autoPlacement(owner); selection.nativePath=findPath(s.blocks,s.block.clientId); commit(s.section,s.blocks,true,true); notify('Auto placement enabled. Drag blocks to reorder them.'); } else { if (frameWidth() <= 768) { notify('Freeform arrangement needs a canvas wider than 768px.',true); return false; } requestLayout(s,ownerPath,'activate'); } },[['auto','Fixed / Auto'],['freeform','Freeform']]);
-				var hint=doc.createElement('p'); hint.textContent=freeform ? 'Drag to place freely. Mobile follows block reading order.' : 'Blocks stay in normal layout flow. Drag to change their order.'; layoutGroup.appendChild(hint);
-			}
+			if (texty) { var alignment=field(typographyGroup,'Text alignment',s.block ? attrs.textAlign || attrs.align || '' : '',function(v) { return setStyle(s,'text-align',v); },[['','Inherit'],['left','Left'],['center','Center'],['right','Right']]);iconChoices(typographyGroup,alignment,[['','Inherit alignment','typography'],['left','Align left','align-left'],['center','Align center','align-center'],['right','Align right','align-right']],'Text alignment'); }
 			options.container.scrollTop = scroll;
 			if (focusedName) { var focused=panel.querySelector('[name="' + focusedName + '"]'); if (focused) focused.focus({preventScroll:true}); }
 		}

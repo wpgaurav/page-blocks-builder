@@ -246,3 +246,23 @@ test('an unavailable saved template is identified without silently choosing a re
 	assert.equal(b.window.document.querySelector('[data-role="setting-template"]').value,'old-template.php');
 	assert.match(b.window.document.querySelector('#md-pb-settings-overlay').textContent,/current template is unavailable/);
 });
+
+test('selecting native and code sections activates their appropriate workspace', t => {
+	const b=builder(t,[{content:'<section id="code">Code</section>'},{kind:'foreign',blockName:'core/group',serialized:'<!-- wp:group --><div class="wp-block-group"></div><!-- /wp:group -->',rendered:'<div>Native</div>'}]);
+	b.select(1);assert.equal(b.window.document.querySelector('.md-pb-shell').classList.contains('is-visual-mode'),true);
+	b.select(0);assert.equal(b.window.document.querySelector('.md-pb-shell').classList.contains('is-visual-mode'),false);
+	b.control('open-visual').click();b.select(0);assert.equal(b.window.document.querySelector('.md-pb-shell').classList.contains('is-visual-mode'),false);
+	assert.equal(b.requests.length,0);
+});
+
+test('template content bounds wrap the complete document without wrapping individual sections', t => {
+	const b=builder(t,[{content:'<main id="shared"><section>First</section>'},{content:'<section>Second</section></main>'}],{config:{postTemplate:'page-wide',previewLayouts:{'page-wide':{className:'wp-block-post-content pb-preview-content',css:'.pb-preview-content>*{max-width:72rem}'}}}});b.flush(0);
+	const html=b.window.document.querySelector('.md-pb-preview-frame').srcdoc,doc=new JSDOM(html).window.document;
+	assert.equal(doc.querySelectorAll('.pb-preview-content').length,1);assert.equal(doc.querySelector('#shared').children.length,2);assert.match(html,/max-width:72rem/);
+});
+
+test('style icon choices keep named fields and accessible state', t => {
+	const b=mount(t);b.select('0.1');const button=b.doc.querySelector('[aria-label="Mobile ≤480px"]');button.click();
+	assert.deepEqual(b.viewports,['480']);assert.equal(b.doc.querySelector('[aria-label="Mobile ≤480px"]').getAttribute('aria-pressed'),'true');
+	assert.equal(b.field('font-size').getAttribute('aria-label'),'Font size');assert.ok(b.field('font-size').parentElement.classList.contains('pb-canvas-icon-field'));
+});

@@ -2,6 +2,25 @@
 use PHPUnit\Framework\TestCase;
 
 final class CanvasEditorTest extends TestCase {
+	public function test_block_template_content_width_is_respected_without_rendering_post_content(): void {
+		$post_id = wp_insert_post( array( 'post_type' => 'page', 'post_title' => 'Preview layout test', 'post_content' => 'Content should not execute' ) );
+		$template_id = wp_insert_post( array( 'post_type' => 'wp_template', 'post_name' => 'pbb-width-qa', 'post_title' => 'Width QA', 'post_status' => 'publish', 'post_content' => '<!-- wp:post-content {"layout":{"type":"constrained","contentSize":"72rem"}} /-->' ) );
+		wp_set_object_terms( $template_id, get_stylesheet(), 'wp_theme' );
+		try {
+			$layout = GT_PB_Canvas_Editor::template_layout( $post_id, 'pbb-width-qa' );
+			if ( ! wp_is_block_theme() ) {
+				$this->assertSame( array(), $layout );
+				return;
+			}
+			$this->assertStringContainsString( 'max-width:72rem', $layout['css'] );
+			$this->assertSame( 'wp-block-post-content pb-preview-content', $layout['className'] );
+			$this->assertSame( 'Content should not execute', get_post_field( 'post_content', $post_id ) );
+		} finally {
+			wp_delete_post( $template_id, true );
+			wp_delete_post( $post_id, true );
+		}
+	}
+
 	public function test_prototype_uses_its_stored_fallback_without_a_custom_compiler(): void {
 		$input = array(
 			'content' => '<section id="kept">Saved prototype</section>',

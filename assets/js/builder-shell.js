@@ -726,6 +726,8 @@
 		// because this comes first.
 		var canvasCss = '<style>html{color-scheme:light;background:#fff;}body{background:#fff;}</style>';
 		var bodyClasses = Array.isArray(config.previewBodyClasses) ? config.previewBodyClasses : config.previewBodyClasses && typeof config.previewBodyClasses === 'object' ? Object.values(config.previewBodyClasses) : typeof config.previewBodyClasses === 'string' ? config.previewBodyClasses.split(/\s+/) : [];
+		var contentLayout=config.previewLayouts && config.previewLayouts[state.pageTemplate],layoutOpen='',layoutClose='',layoutCss='';
+		if (contentLayout && contentLayout.className) { layoutOpen='<div class="' + escapeAttribute(contentLayout.className) + '">';layoutClose='</div>';layoutCss='<style>' + escapeClosingTag(contentLayout.css || '','style') + '</style>'; }
 
 		var docHtml = '<!doctype html>' +
 			'<html ' + (config.previewLanguageAttributes || '') + '><head><meta charset="utf-8">' +
@@ -738,9 +740,10 @@
 			injectedCssTag +
 			customCssTag +
 			inlineEditCss +
+			layoutCss +
 			'</head><body class="' + escapeAttribute(bodyClasses.filter(function(c) { return typeof c === 'string'; }).join(' ')) + '">' +
 			(injection.bodyStartHtml || '') +
-			htmlOutput +
+			layoutOpen + htmlOutput + layoutClose +
 			(injection.bodyEndHtml || '') +
 			'</body></html>';
 
@@ -1534,7 +1537,9 @@
 			return;
 		}
 
-		if (state.selectedIndex === index) {
+		var visual=isForeign(state.sections[index]) || !!state.sections[index].visualData,modeChanged=state.visualMode !== visual;
+		state.visualMode=visual;state.showCode=!visual;state.showPreview=true;
+		if (state.selectedIndex === index && !modeChanged) {
 			return;
 		}
 
@@ -1543,6 +1548,7 @@
 		renderCurrentSectionToEditors();
 		refreshCodeEditors();
 		ensureSelectedIndexVisible();
+		if (canvasEditor) canvasEditor.sync();
 	}
 
 	function scrollPreviewToSection(index) {
@@ -4569,10 +4575,12 @@
 
 		function closeDialog() {
 			var before = JSON.stringify([state.pageTitle,state.pageSlug,state.pageTemplate]);
+			var oldTemplate=state.pageTemplate;
 			commit();
 			overlay.remove();
 			document.removeEventListener('keydown', escHandler);
 			if (before !== JSON.stringify([state.pageTitle,state.pageSlug,state.pageTemplate])) queueAutosave();
+			if (oldTemplate !== state.pageTemplate) queuePreviewRender(0,true);
 		}
 
 		function escHandler(event) {
