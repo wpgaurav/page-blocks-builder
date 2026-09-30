@@ -71,6 +71,22 @@
 		var b = css.indexOf(':end */',a), match = css.slice(a,b).match(new RegExp('\\{' + property + ':([^}]+)\\}'));
 		return match ? match[1] : '';
 	}
+	function editPlainText(html, value, doc) {
+		var holder = doc.createElement('div'); holder.innerHTML = html;
+		var before = holder.textContent, prefix = 0, suffix = 0;
+		if (before === value) return html;
+		while (prefix < before.length && prefix < value.length && before[prefix] === value[prefix]) prefix++;
+		while (suffix < before.length - prefix && suffix < value.length - prefix && before[before.length - suffix - 1] === value[value.length - suffix - 1]) suffix++;
+		var walker = doc.createTreeWalker(holder,4), nodes = [], node, offset = 0;
+		while ((node = walker.nextNode())) { nodes.push({node:node,start:offset,end:offset + node.textContent.length}); offset += node.textContent.length; }
+		if (!nodes.length || holder.querySelector('br')) return escape(value).replace(/\n/g,'<br>');
+		function point(at) { var entry = nodes.find(function(n) { return n.end >= at; }) || nodes[nodes.length - 1]; return [entry.node,Math.max(0,at - entry.start)]; }
+		var range = doc.createRange(), start = point(prefix), end = point(before.length - suffix);
+		range.setStart(start[0],start[1]); range.setEnd(end[0],end[1]); range.deleteContents();
+		var insert = value.slice(prefix,value.length - suffix).split('\n'), fragment = doc.createDocumentFragment();
+		insert.forEach(function(text,i) { if (i) fragment.appendChild(doc.createElement('br')); fragment.appendChild(doc.createTextNode(text)); }); range.insertNode(fragment);
+		return holder.innerHTML;
+	}
 	function replaceLayoutCss(old, compiled) {
 		var marker = '/* Page Blocks canvas layout */', endMarker = '/* Page Blocks canvas layout end */';
 		var a = old.lastIndexOf(marker), b = a < 0 ? -1 : old.indexOf(endMarker,a);
@@ -108,13 +124,16 @@
 		var doc = options.container.ownerDocument, win = doc.defaultView, wp = options.wp || win.wp, api = wp && wp.blocks;
 		if (!api) return null;
 		if (!api.getBlockType('core/group') && wp.blockLibrary) wp.blockLibrary.registerCoreBlocks();
-		if (!api.getBlockType('gt-page-block/page-block')) api.registerBlockType('gt-page-block/page-block', { title:'Page Block', category:'design', attributes:options.config.pageBlockAttributes, save:function() { return null; } });
-		var caches = new Map(), snapshots = new Map(), selection = null, pendingMeasure = null, viewport = 'desktop', grid = false;
+		if (!api.getBlockType('gt-page-block/page-block')) api.registerBlockType('gt-page-block/page-block', { apiVersion:3, title:'Page Block', category:'design', attributes:options.config.pageBlockAttributes, save:function() { return null; } });
+		var caches = new Map(), snapshots = new Map(), selection = null, pendingMeasure = null, viewport = 'desktop', grid = false, noticeTimer = null, activeSectionUid = null, mobilePreview = null, previewReady = false;
 		var panel = doc.createElement('div'); panel.className = 'pb-canvas-inspector'; options.container.appendChild(panel);
-		var rail = doc.createElement('div'); rail.className = 'pb-canvas-rail'; rail.setAttribute('aria-label','Canvas tools'); options.canvas.appendChild(rail);
+		var rail = doc.createElement('div'); rail.className = 'pb-canvas-rail'; rail.setAttribute('aria-label','Canvas tools'); (options.canvas.querySelector('.md-pb-canvas-toolbar') || options.canvas).appendChild(rail);
+		var widthNote=doc.createElement('span'); widthNote.className='pb-canvas-size'; widthNote.title='Actual canvas width. Freeform arrangement needs more than 768px.'; var viewportControls=options.canvas.querySelector('.md-pb-viewport-controls'); if (viewportControls) viewportControls.prepend(widthNote);
 		var status = doc.createElement('div'); status.className = 'pb-canvas-notice'; status.setAttribute('role','status'); status.hidden = true; options.canvas.appendChild(status);
 		var palette = doc.createElement('div'); palette.className = 'pb-canvas-palette'; palette.hidden = true; options.canvas.appendChild(palette);
-		function notify(text) { status.textContent = text; status.hidden = false; }
+		function notify(text, persistent) { if (noticeTimer) win.clearTimeout(noticeTimer); status.replaceChildren(); var copy = doc.createElement('span'); copy.textContent = text; status.append(copy,button('Dismiss notice','x',function() { status.hidden = true; })); status.hidden = false; if (!persistent) noticeTimer = win.setTimeout(function() { status.hidden = true; },6000); }
+		function showPalette(open) { palette.hidden = !open; addButton.setAttribute('aria-expanded',String(open)); if (open) { var header=options.canvas.querySelector('.md-pb-canvas-toolbar'), top=(header ? header.offsetHeight : 44) + 6; palette.style.top=top + 'px'; if (options.canvas.clientHeight) palette.style.maxHeight=Math.max(64,options.canvas.clientHeight - top - 12) + 'px'; updatePalette(); palette.querySelector('button').focus(); } }
+		function frameWidth() { try { return options.getFrame().contentWindow.innerWidth; } catch(error) { return 0; } }
 		function button(label, icon, action, className) {
 			var b = doc.createElement('button'); b.type = 'button'; b.className = className || 'pb-canvas-button'; b.setAttribute('aria-label',label); b.title = label;
 			b.innerHTML = options.config.icons && options.config.icons[icon] || ''; var t = doc.createElement('span'); t.textContent = label; b.appendChild(t); b.addEventListener('click',action); return b;
@@ -147,20 +166,23 @@
 			var s = section(selection.sectionUid); if (!s) return null;
 			if (selection.nativePath) {
 				var blocks = tree(s), found = blocks && locate(blocks,selection.nativePath);
-				return found ? { section:s,blocks:blocks,found:found,block:found.block } : null;
+				return options.config.canEditNativeBlocks !== false && found && SUPPORTED.includes(found.block.name) ? { section:s,blocks:blocks,found:found,block:found.block } : null;
 			}
 			if (s.kind === 'foreign' || s.blockId || s.phpExec || s.format || s.visualData) return null;
 			var source = win.gtPbPreviewDom.sourceElement(s.content, selection.sourcePath || []);
 			return source && source.tag === selection.tagName ? {section:s,source:source} : null;
 		}
 		function content(s, text, html) {
+			var old = s.block ? s.block.attributes[s.block.name === 'core/button' ? 'text' : 'content'] || '' : selection.html || '';
+			if (html === undefined) html = editPlainText(old,text,doc);
+			if (old === html) return;
 			if (s.block) {
 				if (!['core/heading','core/paragraph','core/button'].includes(s.block.name)) return;
-				s.block.attributes[s.block.name === 'core/button' ? 'text' : 'content'] = html || escape(text).replace(/\n/g,'<br>'); commit(s.section,s.blocks,true,false);
+				s.block.attributes[s.block.name === 'core/button' ? 'text' : 'content'] = html; commit(s.section,s.blocks,true,false);
 			} else {
-				var result = win.gtPbPreviewDom.replaceInnerHtml(s.section.content,{path:selection.sourcePath,tagName:selection.tagName,oldHtml:selection.html || '',newHtml:html || escape(text).replace(/\n/g,'<br>')},doc);
+				var result = win.gtPbPreviewDom.replaceInnerHtml(s.section.content,{path:selection.sourcePath,tagName:selection.tagName,oldHtml:selection.html || '',newHtml:html},doc);
 				if (result === null) { notify('This rendered text does not match its source. Use the HTML editor for this element.'); return; }
-				options.onChange(s.section.uid,{content:result},true); selection.html = html || escape(text).replace(/\n/g,'<br>');
+				options.onChange(s.section.uid,{content:result},true); selection.html = html;
 			}
 		}
 		function sourceAttribute(s, name, value) {
@@ -168,14 +190,17 @@
 			var old = (selection.attributes || {})[name] || '';
 			var result = win.gtPbPreviewDom.replaceAttribute(s.section.content,{path:selection.sourcePath,tagName:selection.tagName,oldValue:old},name,value,doc);
 			if (result === null) { notify('This element no longer matches its source. Select it again or use the code editor.'); return; }
+			if (name === 'src') ['srcset','sizes'].forEach(function(attribute) { result = win.gtPbPreviewDom.replaceAttribute(result,{path:selection.sourcePath,tagName:selection.tagName},attribute,'',doc); });
 			selection.attributes[name] = value; options.onChange(s.section.uid,{content:result},true);
 		}
 		function setStyle(s, property, value) {
+			if (!['color','background-color','text-align'].includes(property) && /^-?\d+(?:\.\d+)?$/.test(value) && Number(value) !== 0) value += 'px';
 			if (!styleValue(property,value)) { notify('Use a CSS length such as 24px or 1rem, a hex color, or a theme variable.'); return false; }
 			var support = s.block && api.getBlockType(s.block.name).supports || {};
 			var border = support.border || support.__experimentalBorder || {};
 			var nativeSupport = property === 'color' ? support.color && support.color.text !== false : property === 'background-color' ? support.color && support.color.background !== false : property === 'font-size' ? support.typography && support.typography.fontSize : property === 'padding' ? support.spacing && support.spacing.padding : property === 'margin' ? support.spacing && support.spacing.margin : property === 'border-radius' ? border.radius : property === 'text-align';
 			if (s.block && viewport === 'desktop' && nativeSupport) {
+				if (property === 'font-size' && value) delete s.block.attributes.fontSize;
 				var map = {'color':['color','text'],'background-color':['color','background'],'font-size':['typography','fontSize'],'padding':['spacing','padding'],'margin':['spacing','margin'],'border-radius':['border','radius']};
 				if (property === 'text-align') { s.block.attributes[s.block.name === 'core/heading' ? 'textAlign' : 'align'] = value || undefined; }
 				else if (map[property]) { var spec = map[property]; s.block.attributes.style = copy(s.block.attributes.style || {}); s.block.attributes.style[spec[0]] = s.block.attributes.style[spec[0]] || {}; if (value) s.block.attributes.style[spec[0]][spec[1]] = value; else delete s.block.attributes.style[spec[0]][spec[1]]; }
@@ -204,12 +229,13 @@
 		}
 		function requestLayout(s, rootPath, action) { pendingMeasure = {sectionUid:s.section.uid,action:action || 'activate',selectedPath:selection.nativePath}; frameMessage({type:'pb_canvas_measure',sectionUid:s.section.uid,path:rootPath}); }
 		function layoutCommit(message, pending) {
+			if (options.config.canEditNativeBlocks === false) return;
 			var s = section(message.sectionUid), blocks = s && tree(s), found = blocks && locate(blocks,message.rootPath);
 			if (!found || found.block.name !== 'core/group' || !fresh(s.uid) || !Number.isFinite(message.width) || !Number.isFinite(message.height) || message.width <= 0) return;
-			if (message.width <= 768) { notify('Use a desktop preview to arrange or add elements in a freeform section. Text and style editing work in every preview.'); return; }
+			if ((message.viewportWidth || frameWidth() || message.width) <= 768) { notify('Use a desktop preview to arrange or add elements in a freeform section. Text and style editing work in every preview.'); return; }
 			var group = found.block, selected = selection && locate(blocks,selection.nativePath || ''), selectedId = selected && selected.block.clientId;
 			var actual = group.innerBlocks.filter(function(b) { return !(b.name === 'gt-page-block/page-block' && !b.attributes.content && !b.attributes.js && !b.attributes.blockId && b.attributes.css); });
-			if (!message.elements.length || actual.length !== message.elements.length || actual.some(function(b) { return !SUPPORTED.includes(b.name); })) { notify('This section contains blocks the canvas cannot arrange. Its content stays intact; use Code or the WordPress editor for those blocks.'); return; }
+			if ((!message.elements.length && !(pending && pending.block)) || actual.length !== message.elements.length || actual.some(function(b) { return !SUPPORTED.includes(b.name); })) { notify('This section contains blocks the canvas cannot arrange. Its content stays intact; use Code or the WordPress editor for those blocks.'); return; }
 			var geometry = [];
 			for (var i = 0; i < message.elements.length; i++) {
 				var e = copy(message.elements[i]), target = locate(blocks,e.path);
@@ -218,15 +244,15 @@
 			}
 			if (pending && pending.block) {
 				group.innerBlocks.push(pending.block); selectedId = pending.block.clientId;
-				geometry.push({key:nodeKey(pending.block),type:pending.block.name,x:24,y:Math.max(...geometry.map(function(e) { return e.y + e.h; })) + 24,w:Math.min(540,message.width - 48),h:pending.block.name === 'core/image' ? 240 : 80});
+				geometry.push({key:nodeKey(pending.block),type:pending.block.name,x:24,y:Math.max(0,...geometry.map(function(e) { return e.y + e.h; })) + 24,w:Math.min(540,message.width - 48),h:pending.block.name === 'core/image' ? 240 : 80});
 			}
 			var copyPath = message.duplicate ? message.changedPath : pending && pending.action === 'duplicate' ? pending.selectedPath : null;
 			if (copyPath) {
 				var source = locate(blocks,copyPath), original = geometry.find(function(e) { return e.path === copyPath; });
 				if (!source || !original) return;
-				var duplicate = duplicateWithin(source.block,blocks,api), duplicateGeometry = copy(original); group.innerBlocks.splice(source.index + 1,0,duplicate); selectedId = duplicate.clientId;
+				var duplicate = duplicateWithin(source.block,blocks,api), duplicateGeometry = copy(original); if (message.duplicate) group.innerBlocks.splice(source.index + 1,0,duplicate); else group.innerBlocks.push(duplicate); selectedId = duplicate.clientId;
 				if (message.duplicate && message.original) { Object.assign(original,message.original,{key:nodeKey(source.block),type:source.block.name}); }
-				else { duplicateGeometry.x = Math.min(message.width - duplicateGeometry.w,duplicateGeometry.x + 24); duplicateGeometry.y += 24; }
+				else { duplicateGeometry.y = Math.max(...geometry.map(function(e) { return e.y + e.h; })) + 24; }
 				duplicateGeometry.key = nodeKey(duplicate); geometry.push(duplicateGeometry);
 			}
 			var scope = layoutKey(group), css = win.gtPbCanvasLayout.css(scope,geometry,message.width,Math.max(message.height,...geometry.map(function(e) { return e.y + e.h + 24; })),message.precise);
@@ -246,17 +272,17 @@
 				var duplicate = duplicateWithin(s.block,s.blocks,api);
 				s.found.list.splice(s.found.index + 1,0,duplicate); selection.nativePath = findPath(s.blocks,duplicate.clientId); commit(s.section,s.blocks,true,true); return;
 			}
-			var target = s.found.index + (name === 'up' ? -1 : 1);
+			var target = neighbor(s,name === 'up' ? -1 : 1);
 			if (target < 0 || target >= s.found.list.length) return;
 			s.found.list.splice(s.found.index,1); s.found.list.splice(target,0,s.block); selection.nativePath = findPath(s.blocks,s.block.clientId); commit(s.section,s.blocks,true,true);
 		}
+		function neighbor(s,direction) { var target = s.found.index + direction; while (s.found.list[target] && s.found.list[target].name === 'gt-page-block/page-block' && s.found.list[target].attributes.name === 'Page Blocks canvas styles') target += direction; return target; }
 		function addBlock(type) {
-			var s = current(), blocks = s && s.blocks, group = s && s.block;
+			var s = current(), blocks = s && s.blocks, group = insertionGroup(s);
 			if (!s || !s.block) { notify('Add a visual section first, then select a section or element inside it.'); return; }
-			if (!['core/group','core/column'].includes(group.name)) group = s.found.parent;
 			if (!group || !['core/group','core/column'].includes(group.name)) { notify('Select a Group or Column to add an element.'); return; }
 			function insert(block) {
-				nodeKey(block); palette.hidden = true;
+				nodeKey(block); showPalette(false);
 				if (/\bpb-freeform\b/.test(group.attributes.className || '')) { pendingMeasure = {sectionUid:s.section.uid,action:'insert',block:block}; frameMessage({type:'pb_canvas_measure',sectionUid:s.section.uid,path:findPath(blocks,group.clientId)}); return; }
 				group.innerBlocks.push(block); selection.nativePath = findPath(blocks,block.clientId); commit(s.section,blocks,true,true);
 			}
@@ -266,6 +292,7 @@
 			if (type === 'button') insert(api.createBlock('core/buttons',{},[api.createBlock('core/button',{text:'Learn more',url:'#'})]));
 			if (type === 'columns') insert(api.createBlock('core/columns',{},[api.createBlock('core/column',{},[api.createBlock('core/paragraph',{content:'First column'})]),api.createBlock('core/column',{},[api.createBlock('core/paragraph',{content:'Second column'})])]));
 		}
+		function insertionGroup(s) { if (!s || !s.block) return null; var path=selection.nativePath.split('.'); while (path.length) { var found=locate(s.blocks,path.join('.')); if (found && ['core/group','core/column'].includes(found.block.name)) return found.block; path.pop(); } return null; }
 		function chooseImage(callback) {
 			if (!wp.media) { notify('The WordPress media picker is unavailable. Use the image URL field.'); return; }
 			var media = wp.media({title:'Choose image',library:{type:'image'},multiple:false,button:{text:'Use image'}}); media.on('select',function() { callback(media.state().get('selection').first().toJSON()); }); media.open();
@@ -275,41 +302,50 @@
 			var input = doc.createElement(choices ? 'select' : label === 'Text' ? 'textarea' : 'input');
 			if (!choices && input.tagName === 'INPUT') input.type = 'text'; input.name = 'pb-canvas-' + label.toLowerCase().replace(/\W/g,'-');
 			if (choices) choices.forEach(function(c) { var o = doc.createElement('option'); o.value = c[0]; o.textContent = c[1]; input.appendChild(o); });
-			input.value = value == null ? '' : String(value); input.addEventListener('change',function() { if (change(input.value) === false) input.setAttribute('aria-invalid','true'); else input.removeAttribute('aria-invalid'); }); wrap.appendChild(input); parent.appendChild(wrap); return input;
+			input.value = value == null ? '' : String(value); var applied = input.value;
+			input.addEventListener('change',function() { if (input.value === applied) return; if (change(input.value) === false) { input.setAttribute('aria-invalid','true'); notify(label + ' was not applied. Check the value and try again.',true); } else { input.removeAttribute('aria-invalid'); applied = input.value; } }); wrap.appendChild(input); parent.appendChild(wrap); return input;
 		}
 		function group(label) { var block = doc.createElement('section'); block.className = 'pb-canvas-field-group'; var h = doc.createElement('h3'); h.textContent = label; block.appendChild(h); panel.appendChild(block); return block; }
 		function presets(raw) {
 			var all = Array.isArray(raw) ? raw : raw && typeof raw === 'object' ? (raw.theme && raw.theme.length ? (raw.theme || []).concat(raw.custom || []) : Object.values(raw).flatMap(presets)) : [];
 			var unique = new Map(); all.forEach(function(p) { if (p && p.slug) unique.set(p.slug,p); }); return Array.from(unique.values());
 		}
+		function renderLayers(s) {
+			var layers=group('Layers');
+			function row(bs,prefix,depth) { var counts={}; bs.forEach(function(b,i) { var path=prefix ? prefix + '.' + i : String(i); if (b.name === 'gt-page-block/page-block' && ['Page Blocks canvas styles','Imported section styles'].includes(b.attributes.name)) return;
+				var type=LABELS[b.name] || b.name; counts[type]=(counts[type] || 0) + 1; var probe=doc.createElement('template'); probe.innerHTML=b.attributes.content || b.attributes.text || ''; var excerpt=probe.content.textContent.trim().slice(0,48);
+				var label=b.attributes.metadata && b.attributes.metadata.name || type + (excerpt ? ' ' + counts[type] + ' · ' + excerpt : ''), item=button(label,'layout',function() { selection={sectionUid:s.section.uid,nativePath:path}; render(); frameMessage({type:'pb_canvas_select_native',sectionUid:s.section.uid,path:path}); },'pb-canvas-layer' + (path === selection.nativePath ? ' is-selected' : ''));
+				item.setAttribute('aria-pressed',String(path === selection.nativePath)); item.style.paddingLeft=(8 + depth * 12) + 'px'; layers.appendChild(item); row(b.innerBlocks || [],path,depth+1);
+			}); }
+			row(s.blocks,'',0);
+		}
 		function render() {
-			var scroll = options.container.scrollTop; panel.replaceChildren(); rail.hidden = !options.isEnabled(); panel.hidden = !options.isEnabled(); if (!options.isEnabled()) return;
+			var focusedName = panel.contains(doc.activeElement) && doc.activeElement.getAttribute('name');
+			if (options.getSelectedUid) { var uid=options.getSelectedUid(); if (uid !== activeSectionUid) { activeSectionUid=uid; var selectedSection=section(uid); selection = selectedSection && selectedSection.kind === 'foreign' && SUPPORTED.includes(selectedSection.blockName) ? {sectionUid:uid,nativePath:'0'} : null; } }
+			var scroll = options.container.scrollTop; panel.replaceChildren(); rail.hidden = !options.isEnabled(); panel.hidden = !options.isEnabled(); widthNote.hidden = !options.isEnabled(); if (!options.isEnabled()) { showPalette(false); status.hidden = true; return; }
 			updateHistory();
 			var s = current();
 			var header = doc.createElement('div'); header.className = 'pb-canvas-inspector-header'; header.innerHTML = '<strong>Design</strong><span>Click to select · double-click to edit text</span>'; panel.appendChild(header);
 			if (!s) {
 				var empty = doc.createElement('p'); empty.className = 'pb-canvas-empty';
 				var old = selection && section(selection.sectionUid);
+				if (old && old.kind === 'foreign') { var preserved=tree(old); if (preserved) renderLayers({section:old,blocks:preserved}); }
 				empty.textContent = !selection ? 'Select an element on the page to edit its content and styles. Add a visual section for a new layout.' : old && old.kind === 'foreign' ? 'This block is preserved. Use the WordPress editor for content the canvas cannot edit.' : 'This output is managed by a library block or generated code. Use Code mode to edit its source.';
+				if (options.config.canEditNativeBlocks === false) empty.textContent='With your current permissions, edit native blocks in the WordPress editor. Code sections can still be edited here.';
 				panel.appendChild(empty);
-				if (old && old.visualData && !old.js && !old.phpExec && !old.format && !old.blockId && win.gtPbPrototypeConversion) {
+				if (options.config.canEditNativeBlocks !== false && old && old.visualData && !old.js && !old.phpExec && !old.format && !old.blockId && win.gtPbPrototypeConversion) {
 					panel.appendChild(button('Convert prototype section','layout',function() {
 						try { var converted = win.gtPbPrototypeConversion.convert(old,api); var serialized = api.serialize(converted); options.onChange(old.uid,{kind:'foreign',blockName:'core/group',label:old.name || 'Visual section',serialized:serialized,rendered:'',content:'',css:'',js:'',visualData:null},true); selection={sectionUid:old.uid,nativePath:'0'}; render(); notify('Converted to native blocks. Save when ready, or use Undo to restore the section.'); }
 						catch(error) { notify(error.message); }
 					}));
 				}
-				if (selection && options.config.editPostUrl) { var link=doc.createElement('a'); link.className='pb-canvas-button'; link.href=options.config.editPostUrl; link.target='_blank'; link.rel='noopener'; link.innerHTML=(options.config.icons['external-link'] || '')+'<span>WordPress editor</span>'; panel.appendChild(link); }
-				panel.appendChild(button('Add visual section','plus',newSection)); return;
+				if ((selection || options.config.canEditNativeBlocks === false) && options.config.editPostUrl) { var link=doc.createElement('a'); link.className='pb-canvas-button'; link.href=options.config.editPostUrl; link.target='_blank'; link.rel='noopener'; link.innerHTML=(options.config.icons['external-link'] || '')+'<span>WordPress editor</span>'; panel.appendChild(link); }
+				if (options.config.canEditNativeBlocks !== false) panel.appendChild(button('Add visual section','plus',newSection)); return;
 			}
 			var title = doc.createElement('div'); title.className = 'pb-canvas-selection-title'; title.textContent = s.block ? LABELS[s.block.name] || s.block.name : selection.tagName.toUpperCase(); panel.appendChild(title);
 			if (s.block) {
-				var actions = doc.createElement('div'); actions.className = 'pb-canvas-actions'; [['up','Move up in reading order','chevron-up'],['down','Move down in reading order','chevron-down'],['duplicate','Duplicate','copy'],['delete','Delete','trash']].forEach(function(a) { actions.appendChild(button(a[1],a[2],function() { action(a[0]); })); }); panel.appendChild(actions);
-				var layers = group('Layers');
-				function row(bs,prefix,depth) { bs.forEach(function(b,i) { var path = prefix ? prefix + '.' + i : String(i); if (b.name === 'gt-page-block/page-block' && b.attributes.name === 'Page Blocks canvas styles') return;
-					var label = b.attributes.metadata && b.attributes.metadata.name || LABELS[b.name] || b.name, item = button(label,'layout',function() { selection = {sectionUid:s.section.uid,nativePath:path}; render(); frameMessage({type:'pb_canvas_select_native',sectionUid:s.section.uid,path:path}); },'pb-canvas-layer' + (path === selection.nativePath ? ' is-selected' : ''));
-					item.style.paddingLeft = (8 + depth * 12) + 'px'; layers.appendChild(item); row(b.innerBlocks || [],path,depth+1);
-				}); }
-				row(s.blocks,'',0);
+				var actions = doc.createElement('div'); actions.className = 'pb-canvas-actions'; [['up','Move up in reading order','chevron-up'],['down','Move down in reading order','chevron-down'],['duplicate','Duplicate','copy'],['delete','Delete','trash']].forEach(function(a) { var b=button(a[1],a[2],function() { action(a[0]); }); if (a[0] === 'up' || a[0] === 'down') { var next=neighbor(s,a[0] === 'up' ? -1 : 1); b.disabled = next < 0 || next >= s.found.list.length; } if (a[0] === 'duplicate' && s.found.parent && /\bpb-freeform\b/.test(s.found.parent.attributes.className || '') && frameWidth() <= 768) { b.disabled = true; b.title='Switch to a desktop preview to duplicate this freeform element.'; } actions.appendChild(b); }); panel.appendChild(actions);
+				renderLayers(s);
 			}
 			var contentGroup = group('Content'), attrs = s.block && s.block.attributes;
 			var texty = s.block ? ['core/heading','core/paragraph','core/button'].includes(s.block.name) : /^(h[1-6]|p|li|a|button)$/.test(selection.tagName);
@@ -317,13 +353,19 @@
 			if (s.block && s.block.name === 'core/heading') field(contentGroup,'Heading level',attrs.level || 2,function(v) { attrs.level = Number(v); commit(s.section,s.blocks,true,false); },[1,2,3,4,5,6].map(function(n) { return [n,'H'+n]; }));
 			var image = s.block ? s.block.name === 'core/image' : selection.tagName === 'img';
 			if (image) {
-				contentGroup.appendChild(button('Choose image','photo',function() { chooseImage(function(img) { if (s.block) { Object.assign(attrs,{id:img.id,url:img.url,alt:img.alt || ''}); commit(s.section,s.blocks,true,true); } else { sourceAttribute(s,'src',img.url); render(); } }); }));
-				field(contentGroup,'Image URL',s.block ? attrs.url : selection.attributes.src,function(v) { if (!safeURL(v,true)) { notify('Use a valid image URL.'); return false; } if (s.block) { attrs.url = v; delete attrs.id; commit(s.section,s.blocks,true,false); } else return sourceAttribute(s,'src',v); });
+				contentGroup.appendChild(button('Choose image','photo',function() { chooseImage(function(img) { if (s.block) { Object.assign(attrs,{id:img.id,url:img.url,alt:img.alt || ''}); commit(s.section,s.blocks,true,true); } else {
+					if (!safeURL(img.url,true)) return;
+					var result=win.gtPbPreviewDom.replaceImageSource(s.section.content,{path:selection.sourcePath,tagName:selection.tagName,oldValue:selection.attributes.src || ''},img,doc);
+					if (result === null) { notify('The image changed while the media picker was open. Select it again and retry.',true); return; }
+					Object.assign(selection.attributes,{src:img.url,alt:img.alt || ''}); options.onChange(s.section.uid,{content:result},true); render();
+				} }); }));
+				field(contentGroup,'Image URL',s.block ? attrs.url : selection.attributes.src,function(v) { if (!safeURL(v,true)) { notify('Use a valid image URL.'); return false; } if (s.block) { attrs.url = v; ['id','sizeSlug','width','height','aspectRatio','scale'].forEach(function(key) { delete attrs[key]; }); commit(s.section,s.blocks,true,false); } else return sourceAttribute(s,'src',v); });
 				field(contentGroup,'Alt text',s.block ? attrs.alt : selection.attributes.alt,function(v) { if (s.block) { attrs.alt = v; commit(s.section,s.blocks,true,false); } else sourceAttribute(s,'alt',v); });
 			}
 			if (s.block && s.block.name === 'core/button' || !s.block && selection.tagName === 'a') field(contentGroup,'Link URL',s.block ? attrs.url : selection.attributes.href,function(v) { if (!safeURL(v,false)) { notify('Use a valid link URL.'); return false; } if (s.block) { attrs.url = v; commit(s.section,s.blocks,true,false); } else return sourceAttribute(s,'href',v); });
 			if (!texty && !image && !(s.block && s.block.name === 'core/button')) contentGroup.hidden = true;
-			var styles = group('Style'); field(styles,'Apply to',viewport,function(v) { viewport=v; render(); },[['desktop','All screens'],['tablet','Tablet ≤768px'],['mobile','Mobile ≤480px']]);
+			var styles = group('Style'); field(styles,'Apply to',viewport,function(v) { viewport=v; if (options.setPreviewViewport) options.setPreviewViewport(v === 'desktop' ? 'desktop' : v === 'tablet' ? '768' : '480'); render(); },[['desktop','All screens'],['tablet','Tablet ≤768px'],['mobile','Mobile ≤480px']]);
+			var styleHint=doc.createElement('p'); styleHint.textContent='Lengths accept px, rem, or a number for pixels. Clear a value to inherit.'; styles.appendChild(styleHint);
 			var map = {'color':['color','text'],'background-color':['color','background'],'font-size':['typography','fontSize'],'padding':['spacing','padding'],'margin':['spacing','margin'],'border-radius':['border','radius']};
 			[['color','Text color'],['background-color','Background'],['font-size','Font size'],['padding','Padding'],['margin','Margin'],['max-width','Max width'],['border-radius','Corner radius']].forEach(function(spec) {
 				var classes = s.block ? attrs.className || '' : s.source.openTag, key = (classes.match(/\bpb-node-[a-z0-9]+\b/) || [])[0];
@@ -346,22 +388,29 @@
 			}
 			if (texty) field(styles,'Text alignment',s.block ? attrs.textAlign || attrs.align || '' : '',function(v) { return setStyle(s,'text-align',v); },[['','Inherit'],['left','Left'],['center','Center'],['right','Right']]);
 			if (s.block && s.block.name === 'core/group') {
-				var layoutGroup = group('Layout'); layoutGroup.appendChild(button('Make freeform','arrows-move',function() { requestLayout(s,selection.nativePath,'activate'); }));
-				var hint = doc.createElement('p'); hint.textContent = 'Arrange this section directly on the page. Shift locks an axis; Ctrl/Cmd bypasses snapping.'; layoutGroup.appendChild(hint);
+				var layoutGroup = group('Layout'), freeform = /\bpb-freeform\b/.test(attrs.className || '');
+				if (!freeform) { var arrange = button('Make freeform','arrows-move',function() { requestLayout(s,selection.nativePath,'activate'); }); arrange.disabled = frameWidth() <= 768; layoutGroup.appendChild(arrange); }
+				var hint = doc.createElement('p'); hint.textContent = frameWidth() <= 768 ? 'Mobile stacks blocks in reading order. Arrangement needs a canvas wider than 768px: select Desktop, hide Sections, or enlarge the window.' : 'Drag Move to arrange; resize with the corner handle. Shift locks an axis; Ctrl/Cmd bypasses snapping.'; layoutGroup.appendChild(hint);
 			}
 			options.container.scrollTop = scroll;
+			if (focusedName) { var focused=panel.querySelector('[name="' + focusedName + '"]'); if (focused) focused.focus({preventScroll:true}); }
 		}
-		function newSection() { var serialized = createSection(api,win.gtPbCanvasLayout,'hero'); var uid = options.addSection(serialized); selection = {sectionUid:uid,nativePath:'0'}; palette.hidden = true; render(); }
-		rail.appendChild(button('Add','plus',function() { palette.hidden = !palette.hidden; }));
-		var gridButton = button('Grid','grid-dots',function() { grid = !grid; this.setAttribute('aria-pressed',grid ? 'true' : 'false'); frameMessage({type:'pb_canvas_mode',enabled:options.isEnabled(),grid:grid}); }); gridButton.setAttribute('aria-pressed','false'); rail.appendChild(gridButton);
+		function newSection() { if (options.config.canEditNativeBlocks === false) return; var serialized = createSection(api,win.gtPbCanvasLayout,'hero'); var uid = options.addSection(serialized); selection = {sectionUid:uid,nativePath:'0'}; showPalette(false); render(); }
+		var addButton = button('Add','plus',function() { showPalette(palette.hidden); }); palette.id = token('pb-canvas-add-'); addButton.setAttribute('aria-expanded','false'); addButton.setAttribute('aria-controls',palette.id); rail.appendChild(addButton);
+		var gridButton = button('Grid','grid-dots',function() { grid = !grid; this.setAttribute('aria-pressed',grid ? 'true' : 'false'); sync(); }); gridButton.setAttribute('aria-pressed','false'); rail.appendChild(gridButton);
 		var undoButton = button('Undo','arrow-back-up',function() { options.undo(); render(); }), redoButton = button('Redo','arrow-forward-up',function() { options.redo(); render(); }); rail.append(undoButton,redoButton);
 		function updateHistory() { if (undoButton) undoButton.disabled = !options.canUndo(); if (redoButton) redoButton.disabled = !options.canRedo(); }
-		var paletteTitle = doc.createElement('strong'); paletteTitle.textContent = 'Add to canvas'; palette.appendChild(paletteTitle); palette.appendChild(button('New visual section','layout',newSection));
+		var paletteTitle = doc.createElement('strong'); paletteTitle.textContent = 'Add to canvas'; palette.appendChild(paletteTitle); var paletteHint = doc.createElement('p'); palette.appendChild(paletteHint); var newButton=button('New visual section','layout',newSection); newButton.disabled=options.config.canEditNativeBlocks === false; palette.appendChild(newButton);
 		[['heading','Heading','typography'],['text','Text','text-caption'],['image','Image','photo'],['button','Button','click'],['columns','Columns','layout']].forEach(function(a) { palette.appendChild(button(a[1],a[2],function() { addBlock(a[0]); })); });
-		doc.addEventListener('keydown',function(event) { if (event.key === 'Escape' && !palette.hidden) { palette.hidden = true; rail.querySelector('button').focus(); } });
+		function updatePalette() { var target=insertionGroup(current()), allowed=!!target, mobile=allowed && /\bpb-freeform\b/.test(target.attributes.className || '') && frameWidth() <= 768; paletteHint.textContent = !allowed ? 'Create a visual section, then add elements inside it.' : mobile ? 'Switch to Desktop to add freeform elements. You can edit text and styles here.' : 'Add an element inside the selected Group or Column.'; Array.from(palette.querySelectorAll('button')).slice(1).forEach(function(b) { b.disabled = !allowed || mobile; }); }
+		doc.addEventListener('keydown',function(event) { if (event.key === 'Escape' && !palette.hidden) { event.preventDefault(); showPalette(false); addButton.focus(); } });
+		doc.addEventListener('pointerdown',function(event) { if (!palette.hidden && !palette.contains(event.target) && !addButton.contains(event.target)) showPalette(false); });
 		function handleMessage(message) {
-			if (!message || !options.isEnabled()) return false;
-			if (message.type === 'pb_canvas_select') { if (!fresh(message.sectionUid)) return true; options.selectSection(message.sectionUid); selection = message; status.hidden = true; palette.hidden = true; render(); return true; }
+			if (!message || (!options.isEnabled() && message.type !== 'pb_canvas_text')) return false;
+			if (message.type === 'pb_canvas_clear') { selection = null; showPalette(false); render(); return true; }
+			if (message.type === 'pb_canvas_inspect') { render(); var input=panel.querySelector('input,textarea,select'); if (input) input.focus(); return true; }
+			if (message.type === 'pb_canvas_viewport') { widthNote.textContent=Math.round(message.width) + 'px'; widthNote.setAttribute('aria-label','Canvas width ' + Math.round(message.width) + ' pixels'); var mobile=message.width <= 768; if (mobile !== mobilePreview) { mobilePreview=mobile; render(); if (!palette.hidden) updatePalette(); } return true; }
+			if (message.type === 'pb_canvas_select') { if (!fresh(message.sectionUid)) return true; options.selectSection(message.sectionUid); selection = message; status.hidden = true; showPalette(false); render(); return true; }
 			if (message.type === 'pb_canvas_measure_result') { if (pendingMeasure && pendingMeasure.sectionUid === message.sectionUid) { var p=pendingMeasure; pendingMeasure=null; layoutCommit(message,p); } return true; }
 			if (message.type === 'pb_canvas_layout') { layoutCommit(message); return true; }
 			if (message.type === 'pb_canvas_action') { if (!fresh(message.sectionUid)) return true; selection=message; action(message.action); return true; }
@@ -375,11 +424,13 @@
 			return false;
 		}
 		function sync(snapshot) {
-			if (snapshot) snapshot.forEach(function(s) { snapshots.set(s.uid,s.source); });
-			frameMessage({type:'pb_canvas_mode',enabled:options.isEnabled(),grid:grid});
+			if (snapshot) { previewReady=true; snapshot.forEach(function(s) { snapshots.set(s.uid,s.source); }); }
+			frameMessage({type:'pb_canvas_mode',enabled:options.isEnabled() && previewReady,paused:options.isEnabled() && !previewReady,nativeEditable:options.config.canEditNativeBlocks !== false,grid:grid,editableSections:options.getSections().filter(function(s) { return s.kind !== 'foreign' && !s.blockId && !s.phpExec && !s.format && !s.visualData; }).map(function(s) { return s.uid; })});
 			if (selection && selection.nativePath) frameMessage({type:'pb_canvas_select_native',sectionUid:selection.sectionUid,path:selection.nativePath});
+			else if (selection && selection.sourcePath) frameMessage({type:'pb_canvas_select_source',sectionUid:selection.sectionUid,path:selection.sourcePath,tagName:selection.tagName});
+			else if (!selection) frameMessage({type:'pb_canvas_clear'});
 		}
-		return { render:render, handleMessage:handleMessage, sync:sync, notify:notify, updateHistory:updateHistory, clearSelection:function() { selection=null; } };
+		return { render:render, handleMessage:handleMessage, sync:sync, notify:notify, updateHistory:updateHistory, clearSelection:function() { selection=null; }, invalidate:function() { previewReady=false; snapshots.clear(); selection=null; frameMessage({type:'pb_canvas_clear'}); sync(); render(); } };
 	}
 	function cleanInline(html,doc) {
 		var holder = doc.createElement('div'); holder.innerHTML = html;
@@ -391,5 +442,5 @@
 		});
 		return holder.innerHTML;
 	}
-	return { mount:mount, locate:locate, setRule:setRule, ruleValue:ruleValue, createSection:createSection, cleanInline:cleanInline, cloneNative:cloneNative, duplicateWithin:duplicateWithin, replaceLayoutCss:replaceLayoutCss, safeURL:safeURL };
+	return { mount:mount, locate:locate, setRule:setRule, ruleValue:ruleValue, editPlainText:editPlainText, createSection:createSection, cleanInline:cleanInline, cloneNative:cloneNative, duplicateWithin:duplicateWithin, replaceLayoutCss:replaceLayoutCss, safeURL:safeURL };
 });

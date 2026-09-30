@@ -94,7 +94,7 @@
 	}
 
 	function replaceAttribute(html, edit, name, value, doc) {
-		if (!/^(class|src|alt|href)$/.test(name) || typeof value !== 'string' || !Array.isArray(edit.path) || !edit.path.length || !edit.path.every(function(i) { return Number.isInteger(i) && i >= 0; })) return null;
+		if (!/^(class|src|alt|href|srcset|sizes)$/.test(name) || typeof value !== 'string' || !Array.isArray(edit.path) || !edit.path.length || !edit.path.every(function(i) { return Number.isInteger(i) && i >= 0; })) return null;
 		var element = sourceElement(html, edit.path);
 		if (!element || element.tag !== edit.tagName || /<\?/.test(element.openTag)) return null;
 		var probe = doc.createElement('template'); probe.innerHTML = element.openTag + (element.tag === 'img' ? '' : '</' + element.tag + '>');
@@ -102,8 +102,14 @@
 		if (!original || (typeof edit.oldValue === 'string' && (original.getAttribute(name) || '') !== edit.oldValue)) return null;
 		var escaped = value.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 		var pattern = new RegExp('\\s' + name + '\\s*=\\s*(?:"[^"]*"|\x27[^\x27]*\x27|[^\\s>]+)', 'i');
-		var opening = pattern.test(element.openTag) ? element.openTag.replace(pattern, ' ' + name + '="' + escaped + '"') : element.openTag.replace(/\s*\/?>$/, function(end) { return ' ' + name + '="' + escaped + '"' + end; });
+		var opening = pattern.test(element.openTag) ? element.openTag.replace(pattern, function() { return ' ' + name + '="' + escaped + '"'; }) : element.openTag.replace(/\s*\/?>$/, function(end) { return ' ' + name + '="' + escaped + '"' + end; });
+		if ((name === 'srcset' || name === 'sizes') && value === '') opening = element.openTag.replace(pattern,'');
 		return html.slice(0, element.openStart) + opening + html.slice(element.openEnd);
 	}
-	return { sectionHtml: sectionHtml, markSections: markSections, sourceElement: sourceElement, replaceInnerHtml: replaceInnerHtml, replaceAttribute: replaceAttribute };
+	function replaceImageSource(html, edit, image, doc) {
+		var result=replaceAttribute(html,edit,'src',image.url,doc); if (result === null) return null;
+		for (var pair of [['alt',image.alt || ''],['srcset',''],['sizes','']]) { result=replaceAttribute(result,{path:edit.path,tagName:edit.tagName},pair[0],pair[1],doc); if (result === null) return null; }
+		return result;
+	}
+	return { sectionHtml: sectionHtml, markSections: markSections, sourceElement: sourceElement, replaceInnerHtml: replaceInnerHtml, replaceAttribute: replaceAttribute, replaceImageSource:replaceImageSource };
 });

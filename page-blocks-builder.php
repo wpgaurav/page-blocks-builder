@@ -1124,7 +1124,7 @@ class GT_Page_Blocks_Builder {
 			'js'   => wp_enqueue_code_editor( array( 'type' => 'application/javascript' ) ),
 		);
 		$preview_context = gt_pb_functionalities_compat::with_post( $post_id, static function() {
-			return array( 'bodyClasses' => get_body_class(), 'languageAttributes' => get_language_attributes() );
+			return array( 'bodyClasses' => array_values( get_body_class() ), 'languageAttributes' => get_language_attributes() );
 		} );
 
 		GT_PB_Canvas_Editor::enqueue();
@@ -1185,6 +1185,7 @@ class GT_Page_Blocks_Builder {
 				'viewPostUrl'        => get_permalink( $post_id ) ?: '',
 				'initialSections'    => $this->get_builder_sections_from_post( $post_id ),
 				'builderMode'        => isset( $_GET['pb_mode'] ) && 'visual' === $_GET['pb_mode'] ? 'visual' : 'code',
+				'canEditNativeBlocks' => current_user_can( 'manage_options' ),
 				'pageBlockAttributes' => WP_Block_Type_Registry::get_instance()->get_registered( self::BLOCK_NAME )->attributes,
 				'themePalette' => wp_get_global_settings( array( 'color', 'palette' ) ),
 				'themeFontSizes' => wp_get_global_settings( array( 'typography', 'fontSizes' ) ),

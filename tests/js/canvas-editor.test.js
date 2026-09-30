@@ -75,7 +75,7 @@ test('duplicated native sections have independent layout keys and retained conte
 	assert.notEqual(duplicate.attributes.className,source.attributes.className);
 	assert.equal(duplicate.attributes.anchor,undefined);
 	assert.equal(duplicate.innerBlocks[1].attributes.content,'Keep this heading');
-	assert.equal(duplicate.innerBlocks[0].attributes.css.includes('pb-node-a'),false);
+	assert.doesNotMatch(duplicate.innerBlocks[0].attributes.css,/\bpb-node-a\b/);
 	assert.ok(duplicate.innerBlocks[0].attributes.css.includes(duplicate.innerBlocks[1].attributes.className));
 	assert.equal(source.innerBlocks[1].attributes.className,'pb-node-a');
 });

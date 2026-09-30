@@ -80,6 +80,10 @@ Page Blocks has two editing modes for the same WordPress page:
 - Open the workspace from the frontend admin bar or the **Open Page Blocks** button in the WordPress editor. New links select Visual mode. Existing builder links without a `pb_mode` keep opening Code mode.
 - The workspace uses a small bundled set of Tabler SVGs from the local icon library. Canvas snapping and grid solving adapt GPL-compatible routines from [Gogh Editor](https://github.com/jamiemarsland/gogh-editor); see [attribution](docs/third-party/gogh-editor.md).
 - **AI generation**, the reusable library, section tools, page settings, templates, import/export, and performance controls remain available in the workspace.
+- Canvas tools are docked above the artwork; element controls stay within the viewport. The width indicator shows the actual artboard size. Preview failures pause direct canvas editing and offer Retry; Save shows persistent saved, unsaved, and error states.
+- Native markup editing follows the existing administrator permission policy. Other roles retain code-section editing and can edit native blocks in the regular WordPress editor.
+
+See the [visual and UX audit](docs/plans/2026-09-30-builder-ux-audit.md) for the local findings, fixes, verification, and remaining coverage limits.
 
 ### Compatibility with the visual prototype
 

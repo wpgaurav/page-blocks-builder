@@ -2,11 +2,14 @@
 (function(root) {
 	'use strict';
 	function bridge(icons, enabled) {
-		var selected = null, editing = null, box, toolbar, gesture = null, gx, gy;
+		var selected = null, editing = null, box, toolbar, gesture = null, gx, gy, endEditing = null, positionFrame = null, suppressClickUntil = 0;
+		var editableSections = new Set(), nativeEditable = true;
 		window.__pbCanvasVisual = enabled;
+		window.__pbCanvasWorkspaceVisual = enabled;
 		var style = document.createElement('style');
 		style.textContent = '.pb-canvas-box{position:fixed;z-index:2147483000;pointer-events:none;border:2px solid #3858e9;box-sizing:border-box}.pb-canvas-tools{position:absolute;left:-2px;bottom:calc(100% + 6px);display:flex;gap:2px;background:#fff;border:1px solid #dcdcde;border-radius:5px;box-shadow:0 4px 16px #0002;padding:3px;font:12px/1.4 -apple-system,BlinkMacSystemFont,Segoe UI,sans-serif;white-space:nowrap}.pb-canvas-tools button,.pb-canvas-resize{all:unset;box-sizing:border-box;pointer-events:auto;cursor:pointer;display:flex;align-items:center;gap:5px;color:#1e1e1e;padding:5px 7px;border-radius:3px;font:12px/1.4 -apple-system,BlinkMacSystemFont,Segoe UI,sans-serif}.pb-canvas-tools button:hover{background:#f0f3ff}.pb-canvas-tools svg{width:15px;height:15px;flex-shrink:0}.pb-canvas-tools button:focus-visible{outline:2px solid #3858e9}.pb-canvas-resize{position:absolute;right:-6px;bottom:-6px;width:10px;height:10px;background:#fff;border:2px solid #3858e9;padding:0;cursor:nwse-resize}.pb-canvas-guide{position:absolute;background:#e74b79;pointer-events:none;z-index:2147482000}.pb-canvas-grid .pb-freeform{background-image:linear-gradient(to right,#3858e912 1px,transparent 1px),linear-gradient(to bottom,#3858e912 1px,transparent 1px);background-size:24px 24px}.pb-freeform:empty{min-height:240px}.pb-canvas-box[hidden],.pb-canvas-tools button[hidden],.pb-canvas-resize[hidden]{display:none}';
 		document.head.appendChild(style);
+		style.textContent += '.pb-canvas-tools{max-width:calc(100vw - 16px);flex-wrap:wrap;box-sizing:border-box;pointer-events:auto}.pb-canvas-tools button{min-height:30px}.pb-canvas-resize{right:-12px;bottom:-12px;width:24px;height:24px;background:transparent;border:0;display:grid;place-items:center}.pb-canvas-resize:after{content:"";width:8px;height:8px;background:#fff;border:2px solid #3858e9}.pb-canvas-resize:focus-visible{outline:2px solid #3858e9}.pb-canvas-tools button:disabled{opacity:.45;pointer-events:none}@media(max-width:480px){.pb-canvas-tools button span{display:none}.pb-canvas-tools button{min-width:36px;min-height:36px;justify-content:center}}@media(pointer:coarse){.pb-canvas-tools button{min-width:44px;min-height:44px}.pb-canvas-resize{width:44px;height:44px;right:-22px;bottom:-22px}}';
 		function send(data) { window.parent.postMessage(data, window.parent.location.origin); }
 		function section(node) { return node && node.closest('[data-pb-section]'); }
 		function nativeNode(node) { return node && node.closest('[data-pb-canvas-path]'); }
@@ -19,30 +22,51 @@
 			path.unshift(Number(sec.dataset.pbRootIndex));
 			return { sectionUid: sec.dataset.pbSection, sourcePath: path, tagName: node.tagName.toLowerCase() };
 		}
-		function draggable(node) { return node && node.closest('.pb-freeform > [data-pb-canvas-path]'); }
+		function draggable(node) { return nativeEditable && node && node.closest('.pb-freeform > [data-pb-canvas-path]'); }
+		function editable(node) {
+			if (!node) return null;
+			var native = nativeNode(node), sec = section(node);
+			if (!sec || (native ? !nativeEditable || !['core/heading','core/paragraph','core/button'].includes(native.dataset.pbCanvasType) : !editableSections.has(sec.dataset.pbSection))) return null;
+			var text = /^(H[1-6]|P|LI|A|BUTTON)$/.test(node.tagName) ? node : node.querySelector('h1,h2,h3,h4,h5,h6,p,a,button');
+			return text && !text.querySelector('div,section,article,ul,ol,table,form,header,footer,nav,aside') ? text : null;
+		}
 		function geometry(parent) {
-			var rect = parent.getBoundingClientRect();
-			return { rootPath: parent.dataset.pbCanvasPath, sectionUid: section(parent).dataset.pbSection, width: rect.width, height: rect.height,
+			var rect = parent.getBoundingClientRect(), computed=getComputedStyle(parent);
+			function number(property) { return parseFloat(computed[property]) || 0; }
+			var px=number('paddingLeft'), py=number('paddingTop'), bx=number('borderLeftWidth'), by=number('borderTopWidth');
+			return { rootPath: parent.dataset.pbCanvasPath, sectionUid: section(parent).dataset.pbSection, viewportWidth:innerWidth,
+				width:Math.max(1,rect.width - px - number('paddingRight') - bx - number('borderRightWidth')),
+				height:Math.max(1,rect.height - py - number('paddingBottom') - by - number('borderBottomWidth')), originX:px,originY:py,
 				elements: Array.prototype.filter.call(parent.children, function(n) { return n.dataset.pbCanvasPath && !n.dataset.pbGhost; }).map(function(n) {
-					var r = n.getBoundingClientRect();
-					return { path: n.dataset.pbCanvasPath, key: Array.from(n.classList).find(function(c) { return /^pb-node-[a-z0-9]+$/.test(c); }) || '', type: n.dataset.pbCanvasType, x: r.left - rect.left, y: r.top - rect.top, w: r.width, h: r.height };
+					var r = n.getBoundingClientRect(), c=getComputedStyle(n);
+					return { path: n.dataset.pbCanvasPath, key: Array.from(n.classList).find(function(c) { return /^pb-node-[a-z0-9]+$/.test(c); }) || '', type: n.dataset.pbCanvasType, x: r.left - rect.left - px - bx, y: r.top - rect.top - py - by, w: r.width, h: r.height, ml:parseFloat(c.marginLeft) || 0,mr:parseFloat(c.marginRight) || 0,mt:parseFloat(c.marginTop) || 0,mb:parseFloat(c.marginBottom) || 0 };
 				}) };
 		}
 		function position() {
 			if (!selected || !selected.isConnected || !window.__pbCanvasVisual) { if (box) box.hidden = true; return; }
 			var rect = (gesture ? gesture.ghost : selected).getBoundingClientRect();
+			if (rect.bottom <= 0 || rect.top >= innerHeight || rect.right <= 0 || rect.left >= innerWidth) { box.hidden = true; return; }
 			var canArrange = !!draggable(selected) && window.innerWidth > 768;
 			box.querySelector('[data-pb-move]').hidden = !canArrange; box.querySelector('.pb-canvas-resize').hidden = !canArrange;
+			var duplicate=box.querySelector('[data-pb-action="duplicate"]');
+			if (duplicate) { var desktopOnly=selected.parentElement.classList.contains('pb-freeform') && innerWidth <= 768; duplicate.disabled=!!editing || desktopOnly; duplicate.title=desktopOnly ? 'Switch to Desktop to duplicate this freeform element.' : 'Duplicate'; }
 			box.hidden = false;
 			Object.assign(box.style, { left: rect.left + 'px', top: rect.top + 'px', width: rect.width + 'px', height: rect.height + 'px' });
-			toolbar.style.bottom = rect.top < 42 ? 'auto' : 'calc(100% + 6px)';
-			toolbar.style.top = rect.top < 42 ? 'calc(100% + 6px)' : 'auto';
+			var width = toolbar.offsetWidth, height = toolbar.offsetHeight, gap = 8;
+			var left = Math.max(gap,Math.min(rect.left,innerWidth - width - gap));
+			var top = rect.top - height - gap;
+			if (top < gap) top = rect.bottom + gap;
+			top = Math.max(gap,Math.min(top,innerHeight - height - gap));
+			toolbar.style.bottom = 'auto'; toolbar.style.left = (left - rect.left) + 'px'; toolbar.style.top = (top - rect.top) + 'px';
 		}
+		function queuePosition() { if (positionFrame == null) positionFrame = requestAnimationFrame(function() { positionFrame = null; position(); }); }
+		function formatState() { if (!editing || !box) return; Array.from(box.querySelectorAll('[data-pb-format]')).forEach(function(button) { var command=button.dataset.pbFormat; if (command === 'bold' || command === 'italic') button.setAttribute('aria-pressed',String(document.queryCommandState(command))); }); }
 		function format(command) {
 			if (!editing) return;
 			var value = null;
 			if (command === 'createLink') { value = window.prompt('Link URL', 'https://'); if (!value) return; try { if (!['http:','https:','mailto:','tel:'].includes(new URL(value,window.parent.location.href).protocol)) return; } catch(error) { return; } }
 			document.execCommand('styleWithCSS',false,false); document.execCommand(command,false,value);
+			formatState(); queuePosition();
 		}
 		function select(node, notify) {
 			selected = node;
@@ -54,20 +78,23 @@
 					b.innerHTML = icons[icon] || ''; var text = document.createElement('span'); text.textContent = label; b.appendChild(text);
 					b.addEventListener('click', callback); toolbar.appendChild(b); return b;
 				}
-				[['Bold','bold','bold'],['Italic','italic','italic'],['Link','link','createLink']].forEach(function(f) { var b=button(f[0],f[1],function() { format(f[2]); }); b.dataset.pbFormat='1'; b.addEventListener('mousedown',function(event) { event.preventDefault(); }); });
+				[['Bold','bold','bold'],['Italic','italic','italic'],['Link','link','createLink']].forEach(function(f) { var b=button(f[0],f[1],function() { format(f[2]); }); b.dataset.pbFormat=f[2]; b.addEventListener('mousedown',function(event) { event.preventDefault(); }); });
 				var move = button('Move', 'arrows-move', function() {}); move.dataset.pbMove = '1'; move.addEventListener('pointerdown', function(e) { start(e, false); });
-				button('Edit', 'click', function() { if (selected) send(Object.assign({ type: 'pb_canvas_select' }, ref(selected))); });
-				button('Duplicate', 'copy', function() { if (selected) send(Object.assign({ type: 'pb_canvas_action', action: 'duplicate' }, ref(selected))); }).dataset.pbNativeAction = '1';
+				button('Edit', 'click', function() { if (!startEditing(selected) && selected) send(Object.assign({ type: 'pb_canvas_inspect' }, ref(selected))); }).dataset.pbEdit = '1';
+				var duplicate = button('Duplicate', 'copy', function() { if (selected) send(Object.assign({ type: 'pb_canvas_action', action: 'duplicate' }, ref(selected))); }); duplicate.dataset.pbNativeAction = '1'; duplicate.dataset.pbAction='duplicate';
 				button('Delete', 'trash', function() { if (selected) send(Object.assign({ type: 'pb_canvas_action', action: 'delete' }, ref(selected))); }).dataset.pbNativeAction = '1';
 				var resize = document.createElement('button'); resize.type = 'button'; resize.className = 'pb-canvas-resize'; resize.title = 'Resize element'; resize.setAttribute('aria-label', 'Resize element'); resize.addEventListener('pointerdown', function(e) { start(e, true); });
 				box.append(toolbar, resize); document.body.appendChild(box);
 			}
 			Array.from(box.querySelectorAll('[data-pb-format]')).forEach(function(b) { b.hidden = !editing; });
+			var editButton = box.querySelector('[data-pb-edit]'), editLabel = editable(node) ? 'Edit text' : 'Inspect';
+			editButton.setAttribute('aria-label',editLabel); editButton.title = editLabel; editButton.querySelector('span').textContent = editLabel;
+			Array.from(box.querySelectorAll('[data-pb-native-action]')).forEach(function(b) { b.disabled = !!editing; });
 			var canDrag = !!draggable(node) && window.innerWidth > 768;
 			box.querySelector('[data-pb-move]').hidden = !canDrag;
 			box.querySelector('.pb-canvas-resize').hidden = !canDrag;
-			Array.from(box.querySelectorAll('[data-pb-native-action]')).forEach(function(b) { b.hidden = !nativeNode(node); });
-			position();
+			Array.from(box.querySelectorAll('[data-pb-native-action]')).forEach(function(b) { b.hidden = !nativeEditable || !nativeNode(node); });
+			position(); if (document.queryCommandState) formatState();
 			if (notify && node) send(Object.assign({ type: 'pb_canvas_select', html: node.innerHTML, text: node.textContent, attributes: { src: node.getAttribute('src') || '', alt: node.getAttribute('alt') || '', href: node.getAttribute('href') || '', className: node.getAttribute('class') || '' }, computed: { color: getComputedStyle(node).color, fontSize: getComputedStyle(node).fontSize } }, ref(node)));
 		}
 		function start(event, resize) {
@@ -77,7 +104,7 @@
 			if (index < 0) return;
 			event.preventDefault(); event.stopPropagation();
 			var ghost = node.cloneNode(true); ghost.dataset.pbGhost = '1'; ghost.removeAttribute('id');
-			Object.assign(ghost.style, { position: 'absolute', margin: '0', left: model.elements[index].x + 'px', top: model.elements[index].y + 'px', width: model.elements[index].w + 'px', height: model.elements[index].h + 'px', pointerEvents: 'none', zIndex: '2147481000', opacity: '.85' });
+			Object.assign(ghost.style, { position: 'absolute', gridArea:'auto', boxSizing:'border-box', margin: '0', left: (model.elements[index].x + model.originX) + 'px', top: (model.elements[index].y + model.originY) + 'px', width: model.elements[index].w + 'px', height: model.elements[index].h + 'px', pointerEvents: 'none', zIndex: '2147481000', opacity: '.85' });
 			parent.appendChild(ghost);
 			gesture = { node: node, parent: parent, ghost: ghost, model: model, index: index, initial: Object.assign({}, model.elements[index]), startX: event.clientX, startY: event.clientY, resize: resize, duplicate: event.altKey, oldVisibility: node.style.visibility };
 			if (!event.altKey) node.style.visibility = 'hidden';
@@ -93,12 +120,12 @@
 				next.x = Math.max(0, Math.min(g.model.width - next.w, next.x + dx)); next.y = Math.max(0, next.y + dy);
 				var snapped = window.gtPbCanvasLayout.snap(next, g.model.elements.filter(function(_, i) { return i !== g.index; }), g.model.width, g.model.height, event.ctrlKey || event.metaKey);
 				next.x = Math.max(0, Math.min(g.model.width - next.w, snapped.x)); next.y = Math.max(0, snapped.y);
-				Object.assign(gx.style, { left: (snapped.gx || 0) + 'px', top: '0', width: '1px', height: g.model.height + 'px', display: snapped.gx == null ? 'none' : 'block' });
-				Object.assign(gy.style, { left: '0', top: (snapped.gy || 0) + 'px', height: '1px', width: g.model.width + 'px', display: snapped.gy == null ? 'none' : 'block' });
+				Object.assign(gx.style, { left: ((snapped.gx || 0) + g.model.originX) + 'px', top: g.model.originY + 'px', width: '1px', height: g.model.height + 'px', display: snapped.gx == null ? 'none' : 'block' });
+				Object.assign(gy.style, { left: g.model.originX + 'px', top: ((snapped.gy || 0) + g.model.originY) + 'px', height: '1px', width: g.model.width + 'px', display: snapped.gy == null ? 'none' : 'block' });
 			}
 			g.precise = event.ctrlKey || event.metaKey;
 			g.model.elements[g.index] = next;
-			Object.assign(g.ghost.style, { left: next.x + 'px', top: next.y + 'px', width: next.w + 'px', height: next.h + 'px' }); position();
+			Object.assign(g.ghost.style, { left: (next.x + g.model.originX) + 'px', top: (next.y + g.model.originY) + 'px', width: next.w + 'px', height: next.h + 'px' }); queuePosition();
 		}
 		function cleanup() {
 			if (!gesture) return;
@@ -108,30 +135,39 @@
 		function finish() {
 			if (!gesture) return;
 			var g = gesture;
-			if (JSON.stringify(g.initial) !== JSON.stringify(g.model.elements[g.index])) send(Object.assign({ type: 'pb_canvas_layout', changedPath: g.initial.path, original: g.initial, duplicate: g.duplicate, precise: g.precise }, g.model));
+			if (JSON.stringify(g.initial) !== JSON.stringify(g.model.elements[g.index])) { suppressClickUntil=Date.now() + 250; send(Object.assign({ type: 'pb_canvas_layout', changedPath: g.initial.path, original: g.initial, duplicate: g.duplicate, precise: g.precise }, g.model)); }
 			cleanup();
 		}
 		function cancel() { cleanup(); }
+		function startEditing(node) {
+			var text = editable(node); if (!text) return false;
+			if (editing === text) return true;
+			if (endEditing) endEditing(false);
+			var before = text.innerHTML, reference = ref(nativeNode(text) || text);
+			editing = text; text.contentEditable = 'true'; text.focus(); select(nativeNode(text) || text,false);
+			function key(event) {
+				if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); finishEdit(true); }
+				else if (event.key === 'Enter' && !event.shiftKey && text.tagName !== 'P') { event.preventDefault(); finishEdit(false); }
+			}
+			function blur() { finishEdit(false); }
+			function finishEdit(cancelled) {
+				if (editing !== text) return;
+				if (cancelled) text.innerHTML = before;
+				text.removeEventListener('keydown',key); text.removeEventListener('blur',blur); text.contentEditable = 'false'; editing = null; endEditing = null; text.blur(); select(selected,false);
+				if (!cancelled && text.innerHTML !== before) send(Object.assign({ type:'pb_canvas_text',oldHtml:before,newHtml:text.innerHTML,text:text.textContent },reference));
+			}
+			endEditing = finishEdit; text.addEventListener('keydown',key); text.addEventListener('blur',blur); return true;
+		}
 		document.addEventListener('click', function(event) {
+			if (Date.now() < suppressClickUntil) { suppressClickUntil=0; event.preventDefault(); event.stopPropagation(); return; }
 			if (!window.__pbCanvasVisual || event.target.isContentEditable || event.target.closest('.pb-canvas-box')) return;
 			var node = nativeNode(event.target) || event.target.closest('h1,h2,h3,h4,h5,h6,p,li,a,img,button,section,div');
 			if (node && section(node)) { event.preventDefault(); event.stopPropagation(); select(node, true); }
+			else { select(null,false); send({type:'pb_canvas_clear'}); }
 		}, true);
 		document.addEventListener('dblclick', function(event) {
 			if (!window.__pbCanvasVisual) return;
-			var node = event.target.closest('h1,h2,h3,h4,h5,h6,p,li,a');
-			if (!node || !section(node) || node.querySelector('div,section,article,ul,ol,table,form')) return;
-			event.preventDefault(); event.stopPropagation();
-			var before = node.innerHTML, reference = ref(nativeNode(node) || node);
-			editing = node; node.contentEditable = 'true'; node.focus(); select(nativeNode(node) || node,false);
-			node.addEventListener('blur', function() {
-				node.contentEditable = 'false'; editing = null; select(selected,false);
-				if (node.innerHTML !== before) send(Object.assign({ type: 'pb_canvas_text', oldHtml: before, newHtml: node.innerHTML, text: node.textContent }, reference));
-			}, { once: true });
-			node.addEventListener('keydown', function end(event) {
-				if (event.key === 'Escape') { node.innerHTML = before; node.blur(); node.removeEventListener('keydown', end); }
-				if (event.key === 'Enter' && !event.shiftKey && node.tagName !== 'P') { event.preventDefault(); node.blur(); node.removeEventListener('keydown', end); }
-			});
+			if (editable(event.target)) { event.preventDefault(); event.stopPropagation(); startEditing(event.target); }
 		}, true);
 		document.addEventListener('submit', function(event) { if (window.__pbCanvasVisual) event.preventDefault(); }, true);
 		document.addEventListener('keydown', function(event) {
@@ -140,8 +176,10 @@
 			if (editing && meta && event.key.toLowerCase() === 'k') { event.preventDefault(); format('createLink'); return; }
 			if (meta && event.key.toLowerCase() === 's') { event.preventDefault(); if (event.target.isContentEditable) event.target.blur(); send({ type: 'pb_canvas_save' }); return; }
 			if (event.target.isContentEditable || event.target.closest('input,textarea,select')) return;
+			if (event.key === 'Escape') { event.preventDefault(); if (gesture) cancel(); else { select(null,false); send({type:'pb_canvas_clear'}); } return; }
 			if (meta && event.key.toLowerCase() === 'z') { event.preventDefault(); send({ type: 'pb_canvas_history', redo: event.shiftKey }); return; }
 			if (!selected) return;
+			if (event.key === 'Enter' && !event.target.closest('.pb-canvas-box')) { event.preventDefault(); startEditing(selected); return; }
 			if (event.key === 'Delete' || event.key === 'Backspace') { event.preventDefault(); if (nativeNode(selected)) send(Object.assign({ type: 'pb_canvas_action', action: 'delete' }, ref(selected))); return; }
 			if (!/^Arrow/.test(event.key) || !draggable(selected) || window.innerWidth <= 768) return;
 			event.preventDefault(); var item = draggable(selected), model = geometry(item.parentElement), e = model.elements.find(function(e) { return e.path === item.dataset.pbCanvasPath; }), step = event.shiftKey ? 10 : 1;
@@ -152,7 +190,8 @@
 		window.addEventListener('message', function(event) {
 			if (event.source !== window.parent || event.origin !== window.parent.location.origin || !event.data) return;
 			var m = event.data;
-			if (m.type === 'pb_canvas_mode') { window.__pbCanvasVisual = !!m.enabled; document.body.classList.toggle('pb-canvas-grid', !!m.grid); if (!m.enabled) cancel(); position(); }
+			if (m.type === 'pb_canvas_mode') { window.__pbCanvasVisual = !!m.enabled; window.__pbCanvasWorkspaceVisual = !!m.enabled || !!m.paused; nativeEditable=m.nativeEditable !== false; editableSections = new Set(m.editableSections || []); document.body.classList.toggle('pb-canvas-grid', !!m.grid); if (!m.enabled) { if (endEditing) endEditing(false); cancel(); } position(); }
+			if (m.type === 'pb_canvas_clear') { if (endEditing) endEditing(false); select(null,false); }
 			if (m.type === 'pb_canvas_measure') {
 				var parent = document.querySelector('[data-pb-canvas-section="' + m.sectionUid + '"][data-pb-canvas-path="' + m.path + '"]');
 				if (parent) send(Object.assign({ type: 'pb_canvas_measure_result' }, geometry(parent)));
@@ -161,8 +200,17 @@
 				var found = document.querySelector('[data-pb-canvas-section="' + m.sectionUid + '"][data-pb-canvas-path="' + m.path + '"]');
 				if (found) select(found, false);
 			}
+			if (m.type === 'pb_canvas_select_source' && Array.isArray(m.path) && m.path.length) {
+				var found=document.querySelector('[data-pb-section="' + m.sectionUid + '"][data-pb-root-index="' + m.path[0] + '"]');
+				for (var i=1;found && i<m.path.length;i++) found=found.children[m.path[i]];
+				if (found && found.tagName.toLowerCase() === m.tagName) select(found,window.__pbCanvasVisual);
+				else { select(null,false); send({type:'pb_canvas_clear'}); }
+			}
 		});
-		window.addEventListener('scroll', position, true); window.addEventListener('resize', position);
+		window.addEventListener('scroll', queuePosition, true); window.addEventListener('resize', function() { queuePosition(); send({type:'pb_canvas_viewport',width:innerWidth}); });
+		document.addEventListener('input',function() { if (editing) queuePosition(); });
+		document.addEventListener('selectionchange',function() { if (document.queryCommandState) formatState(); });
+		send({type:'pb_canvas_viewport',width:innerWidth});
 	}
 	root.gtPbCanvasBridge = { script: function(icons, enabled) { return '(' + bridge.toString() + ')(' + JSON.stringify(icons || {}) + ',' + !!enabled + ');'; } };
 })(typeof window !== 'undefined' ? window : this);

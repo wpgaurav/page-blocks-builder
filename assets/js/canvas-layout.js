@@ -55,13 +55,16 @@
 		return { x: sx ? Math.round(sx.value) : Math.round(rect.x / 8) * 8, y: sy ? Math.round(sy.value) : Math.round(rect.y / 8) * 8, gx: sx ? sx.guide : null, gy: sy ? sy.guide : null };
 	}
 	function css(scope, elements, width, height, precise) {
-		if (!/^pb-layout-[a-z0-9]+$/.test(scope) || !elements.length || elements.some(function(e) { return !/^pb-node-[a-z0-9]+$/.test(e.key) || ![e.x,e.y,e.w,e.h].every(Number.isFinite); })) return null;
-		var grid = solve(elements, width, height, precise);
+		if (!/^pb-layout-[a-z0-9]+$/.test(scope) || !elements.length || elements.some(function(e) { return !/^pb-node-[a-z0-9]+$/.test(e.key) || ![e.x,e.y,e.w,e.h].every(Number.isFinite) || ['ml','mr','mt','mb'].some(function(key) { return e[key] != null && !Number.isFinite(e[key]); }); })) return null;
+		var outer=elements.map(function(e) { return Object.assign({},e,{x:e.x - (e.ml || 0),y:e.y - (e.mt || 0),w:Math.max(1,e.w + (e.ml || 0) + (e.mr || 0)),h:Math.max(1,e.h + (e.mt || 0) + (e.mb || 0))}); });
+		var grid = solve(outer, width, height, precise);
 		var base = '.pb-freeform.' + scope;
 		var out = ['/* Page Blocks canvas layout */', base + '{display:grid;position:relative;grid-template-columns:' + grid.columns.join(' ') + ';grid-template-rows:' + grid.rows.join(' ') + ';gap:0;padding:0;min-height:' + Math.round(height) + 'px}', base + '>style{display:none}'];
 		elements.forEach(function(e, i) {
 			var a = grid.areas[i], selector = base + '>.' + e.key;
-			out.push(selector + '{grid-area:' + a.r1 + '/' + a.c1 + '/' + a.r2 + '/' + a.c2 + ';margin:0;min-width:0;width:100%;align-self:start}');
+			var margin=(e.ml || 0) + (e.mr || 0), boxWidth=margin ? 'calc(100% - ' + +margin.toFixed(3) + 'px)' : '100%';
+			var margins=['mt','mr','mb','ml'].map(function(key) { return +(e[key] || 0).toFixed(3) + 'px'; }).join(' ');
+			out.push(selector + '{grid-area:' + a.r1 + '/' + a.c1 + '/' + a.r2 + '/' + a.c2 + ';margin:' + margins + ';box-sizing:border-box;min-width:0;width:' + boxWidth + ';min-height:' + Math.round(e.h) + 'px;align-self:start}');
 			if (e.type === 'core/image') out.push(selector + '{height:100%}' + selector + ' img{width:100%;height:100%;object-fit:cover}');
 		});
 		out.push('@media(max-width:768px){' + base + '{display:block;min-height:0;padding:24px}' + base + '> :not(style){width:auto;height:auto;min-height:0;margin:0 0 24px}' + base + '> :last-child{margin-bottom:0}' + base + '>.wp-block-image img{height:auto}}');

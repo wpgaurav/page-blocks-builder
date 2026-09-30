@@ -575,6 +575,7 @@
 	}
 
 	function queueAutosave() {
+		if (dom.saveStatus && !state.applyBusy) { dom.saveStatus.textContent = 'Unsaved changes'; dom.saveStatus.removeAttribute('data-error'); }
 		if (autosaveTimer) {
 			window.clearTimeout(autosaveTimer);
 		}
@@ -724,6 +725,7 @@
 		// visitor sees; a theme that paints its own background still wins,
 		// because this comes first.
 		var canvasCss = '<style>html{color-scheme:light;background:#fff;}body{background:#fff;}</style>';
+		var bodyClasses = Array.isArray(config.previewBodyClasses) ? config.previewBodyClasses : config.previewBodyClasses && typeof config.previewBodyClasses === 'object' ? Object.values(config.previewBodyClasses) : typeof config.previewBodyClasses === 'string' ? config.previewBodyClasses.split(/\s+/) : [];
 
 		var docHtml = '<!doctype html>' +
 			'<html ' + (config.previewLanguageAttributes || '') + '><head><meta charset="utf-8">' +
@@ -736,7 +738,7 @@
 			injectedCssTag +
 			customCssTag +
 			inlineEditCss +
-			'</head><body class="' + escapeAttribute((config.previewBodyClasses || []).join(' ')) + '">' +
+			'</head><body class="' + escapeAttribute(bodyClasses.filter(function(c) { return typeof c === 'string'; }).join(' ')) + '">' +
 			(injection.bodyStartHtml || '') +
 			htmlOutput +
 			(injection.bodyEndHtml || '') +
@@ -775,7 +777,7 @@
 			'document.addEventListener("mouseout",function(e){var el=e.target.closest(SEL);if(el)el.removeAttribute("data-pb-editable-hover");});' +
 			'document.addEventListener("click",function(e){' +
 			'var el=e.target.closest(SEL);' +
-			'if(window.__pbCanvasVisual)return;' +
+			'if(window.__pbCanvasVisual||window.__pbCanvasWorkspaceVisual)return;' +
 			'if(!el||el.contentEditable==="true"||el.closest("[data-pb-foreign],[data-pb-linked],[data-pb-v-id]"))return;' +
 			'if(el.querySelector("div,section,article,ul,ol,table,form,header,footer,nav,aside"))return;' +
 			'e.preventDefault();e.stopPropagation();' +
@@ -856,7 +858,7 @@
 		var structure = previewStructureSignature();
 		renderedStructure = null;
 
-		function applyPreview(preview) {
+		function applyPreview(preview, fallback) {
 			if (!dom.previewFrame || requestId !== state.previewRequestId) return;
 			var scrollX = 0, scrollY = 0;
 			try {
@@ -876,7 +878,7 @@
 						script.textContent = code;
 						doc.body.appendChild(script);
 					});
-					if (canvasEditor) canvasEditor.sync(canvasSnapshot);
+					if (canvasEditor) { if (fallback) canvasEditor.invalidate(); else canvasEditor.sync(canvasSnapshot); }
 					dom.previewFrame.contentWindow.scrollTo(scrollX, scrollY);
 				} catch (error) {}
 			};
@@ -895,10 +897,14 @@
 			.then(function(renderedData) {
 				if (requestId !== state.previewRequestId || !dom.previewFrame) return;
 				applyPreview(buildPreviewDoc(renderedData));
+				if (dom.previewStatus) dom.previewStatus.hidden = true;
+				if (dom.previewLabel) dom.previewLabel.textContent = 'Live preview';
 			})
 			.catch(function() {
 				if (requestId !== state.previewRequestId || !dom.previewFrame) return;
-				applyPreview(buildPreviewDoc());
+				if (dom.previewStatus) dom.previewStatus.hidden = false;
+				if (dom.previewLabel) dom.previewLabel.textContent = 'Preview unavailable';
+				applyPreview(buildPreviewDoc(),true);
 			});
 	}
 
@@ -1157,6 +1163,7 @@
 		}
 
 		setApplyButtonBusy(true, 'Saving...');
+		if (dom.saveStatus) { dom.saveStatus.textContent = 'Saving…'; dom.saveStatus.removeAttribute('data-error'); }
 		var submittedSections = JSON.stringify(sections);
 		var submittedTitle = state.pageTitle;
 		var submittedSlug = state.pageSlug;
@@ -1226,7 +1233,7 @@
 					if (dom.saveStatus) dom.saveStatus.textContent = 'Saved. Newer edits are still unsaved.';
 				} else {
 					clearAutosaveDraft();
-					if (dom.saveStatus) dom.saveStatus.textContent = '';
+					if (dom.saveStatus) dom.saveStatus.textContent = 'All changes saved';
 				}
 				setApplyButtonBusy(false, hasNewEdits ? 'Save' : 'Saved');
 				window.setTimeout(function() {
@@ -1237,7 +1244,7 @@
 			.catch(function(error) {
 				setApplyButtonBusy(false);
 				resetApplyButtonLabel();
-				window.alert(error && error.message ? error.message : 'Could not save Page Blocks.');
+				if (dom.saveStatus) { dom.saveStatus.textContent = (error && error.message ? error.message : 'Could not save Page Blocks.') + ' Your draft is kept. Use Save to retry.'; dom.saveStatus.setAttribute('data-error','true'); }
 				return false;
 			});
 	}
@@ -1676,7 +1683,7 @@
 				// Short label: the panel is ~200px and a sentence here left the
 				// section name about 36px to render in. The full explanation
 				// lives in the tooltip and in the note above the code panes.
-				var nativeEditable = /^core\/(group|columns|column|heading|paragraph|buttons|button|image)$/.test(section.blockName);
+				var nativeEditable = config.canEditNativeBlocks !== false && /^core\/(group|columns|column|heading|paragraph|buttons|button|image)$/.test(section.blockName);
 				badge.textContent = nativeEditable ? 'Block' : 'Locked';
 				badge.title = nativeEditable ? 'Edit directly in Visual mode.' : (section.label || section.blockName || 'This block') +
 					' is not a Page Block — edit it in the WordPress editor.';
@@ -2433,6 +2440,8 @@
 
 		map.forEach(function(item) {
 			var settings = config.codeEditorSettings && config.codeEditorSettings[item.key] ? config.codeEditorSettings[item.key] : {};
+			settings.codemirror = settings.codemirror || {};
+			settings.codemirror.screenReaderLabel = item.key.toUpperCase() + ' source';
 
 			// Tab in HTML editor = Emmet expansion
 			if (item.key === 'html') {
@@ -3317,6 +3326,7 @@
 							'<button type="button" class="md-pb-viewport-btn" data-role="viewport-button" data-viewport="360" aria-pressed="false">360</button>' +
 						'</div>' +
 					'</div>' +
+					'<div class="md-pb-preview-status" data-role="preview-status" role="status" hidden>Preview could not refresh. Canvas editing is paused until it loads.<button type="button" data-role="retry-preview">Retry preview</button></div>' +
 					'<iframe class="md-pb-preview-frame" sandbox="allow-scripts allow-same-origin" title="Page Blocks Preview"></iframe>' +
 				'</div>' +
 				'<aside class="md-pb-index">' +
@@ -3398,7 +3408,7 @@
 				'</div>' +
 			'</div>' +
 			'<div class="md-pb-statusbar">' +
-				'<div><span class="md-pb-live-dot"></span>Live preview</div>' +
+				'<div><span class="md-pb-live-dot"></span><span data-role="preview-label">Live preview</span></div>' +
 				'<div data-role="save-status" role="status" aria-live="polite"></div>' +
 				'<div data-role="status-count">0/0 sections</div>' +
 			'</div>';
@@ -3407,6 +3417,8 @@
 
 		dom.shell = shell;
 		dom.previewFrame = shell.querySelector('.md-pb-preview-frame');
+		['html','css','js'].forEach(function(key) { var textarea=shell.querySelector('[data-role="textarea-' + key + '"]'); if (textarea) textarea.setAttribute('aria-label',key.toUpperCase() + ' source'); });
+		dom.previewStatus = shell.querySelector('[data-role="preview-status"]'); dom.previewLabel = shell.querySelector('[data-role="preview-label"]');
 		dom.canvasWrap = shell.querySelector('.md-pb-canvas-wrap');
 		dom.canvasInspector = shell.querySelector('[data-role="canvas-inspector"]');
 		dom.indexList = shell.querySelector('[data-role="index-list"]');
@@ -3783,6 +3795,7 @@
 	}
 
 	function setupEvents() {
+		shellPreviewRetry();
 		dom.openVisualButton.addEventListener('click', function() {
 			state.visualMode = true; state.showCode = false; state.showPreview = true; state.showSidebar = true;
 			updatePanelVisibility(); if (canvasEditor) canvasEditor.render(); queuePreviewRender(0, true);
@@ -4143,6 +4156,7 @@
 		setupSectionDragging();
 		setupResizeEvents();
 	}
+	function shellPreviewRetry() { var retry = dom.shell.querySelector('[data-role="retry-preview"]'); if (retry) retry.addEventListener('click',function() { queuePreviewRender(0,true); }); }
 
 
 	// -------------------------------------------------------------------------
@@ -4458,6 +4472,8 @@
 				(tpl.slug === state.pageTemplate ? ' selected' : '') + '>' +
 				escapeHtml(tpl.label) + '</option>';
 		}).join('');
+		var missingTemplate = state.pageTemplate && !templates.some(function(tpl) { return tpl.slug === state.pageTemplate; });
+		if (missingTemplate) templateOptions = '<option value="' + escapeAttribute(state.pageTemplate) + '" selected>Current template unavailable (' + escapeHtml(state.pageTemplate) + ')</option>' + templateOptions;
 
 		overlay.innerHTML =
 			'<div class="md-pb-modal" role="dialog" aria-modal="true" aria-label="Page settings">' +
@@ -4480,6 +4496,7 @@
 						(templates.length
 							? '<select id="md-pb-setting-template" class="md-pb-field-input" data-role="setting-template">' + templateOptions + '</select>'
 							: '<p class="md-pb-field-help">This theme offers no page templates.</p>') +
+						(missingTemplate ? '<p class="md-pb-field-help" role="status">The current template is unavailable with this theme. Choose an available template before saving.</p>' : '') +
 					'</div>' +
 					'<div class="md-pb-field">' +
 						'<span class="md-pb-field-label">Sections</span>' +
@@ -4551,10 +4568,11 @@
 		}
 
 		function closeDialog() {
+			var before = JSON.stringify([state.pageTitle,state.pageSlug,state.pageTemplate]);
 			commit();
 			overlay.remove();
 			document.removeEventListener('keydown', escHandler);
-			queueAutosave();
+			if (before !== JSON.stringify([state.pageTitle,state.pageSlug,state.pageTemplate])) queueAutosave();
 		}
 
 		function escHandler(event) {
@@ -4608,7 +4626,7 @@
 		}
 	}
 
-	/** "6 sections, 3 of them blocks the builder cannot edit." */
+	/** Describe code, WordPress blocks, and reusable links without implying they are all locked. */
 	function sectionSummary() {
 		var total = state.sections.length;
 		var locked = state.sections.filter(isForeign).length;
@@ -4616,7 +4634,7 @@
 		var parts = [ total + ' section' + (1 === total ? '' : 's') + ' on this page' ];
 
 		if (locked) {
-			parts.push(locked + ' the builder cannot edit');
+			parts.push(locked + ' WordPress block section' + (1 === locked ? '' : 's'));
 		}
 		if (linked) {
 			parts.push(linked + ' linked to the library');
@@ -4775,7 +4793,9 @@
 					state.sections.splice(state.selectedIndex + 1,0,added); state.selectedIndex++; renderAll(); queueAutosave(); return added.uid;
 				},
 				deleteSection: function(uid) { var index=indexOfUid(uid); if (index>=0) deleteSection(index); },
-				undo: undoDocument, redo: redoDocument, save: activateApply, canUndo: function() { return history.undo.length > 0; }, canRedo: function() { return history.redo.length > 0; }
+				undo: undoDocument, redo: redoDocument, save: activateApply, canUndo: function() { return history.undo.length > 0; }, canRedo: function() { return history.redo.length > 0; },
+				setPreviewViewport: function(viewport) { state.previewViewport = viewport; applyPreviewViewport(); },
+				getSelectedUid: function() { return (state.sections[state.selectedIndex] || {}).uid; }
 			});
 		}
 		collectPreviewAssets();
@@ -4787,11 +4807,13 @@
 
 		if (draft && window.confirm('An unsaved draft was recovered. Restore it?')) {
 			hydrateSections(draft.sections);
+			if (dom.saveStatus) dom.saveStatus.textContent = 'Recovered draft · unsaved changes';
 		} else {
 			if (draft) {
 				clearAutosaveDraft();
 			}
 			hydrateSections(initial);
+			if (dom.saveStatus) dom.saveStatus.textContent = 'All changes saved';
 		}
 
 		// Listen for inline text edits from the preview iframe

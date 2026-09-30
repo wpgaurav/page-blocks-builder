@@ -49,8 +49,10 @@ for (const failure of ['network', 'permission', 'invalid JSON']) test(failure + 
 	if (failure === 'permission') request.resolve({ success: false, data: { message: 'Permission denied' } });
 	if (failure === 'invalid JSON') request.invalidJSON();
 	await b.settle();
-	assert.equal(b.alerts.length, 1);
-	assert.match(b.alerts[0], /Network offline|Permission denied|Invalid response/);
+	assert.equal(b.alerts.length, 0);
+	assert.match(b.control('save-status').textContent, /Network offline|Permission denied|Invalid response/);
+	assert.match(b.control('save-status').textContent, /draft is kept/);
+	assert.equal(b.control('save-status').getAttribute('data-error'), 'true');
 	assert.equal(b.control('apply').disabled, false);
 	assert.deepEqual(JSON.parse(b.window.localStorage.getItem(b.draftKey)), draft);
 	assert.equal(save(b).sections[0].cssDefer, true);
