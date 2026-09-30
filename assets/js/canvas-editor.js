@@ -4,8 +4,8 @@
 	else root.gtPbCanvasEditor = factory();
 })(typeof window !== 'undefined' ? window : this, function() {
 	'use strict';
-	var SUPPORTED = ['core/group','core/columns','core/column','core/heading','core/paragraph','core/buttons','core/button','core/image'];
-	var LABELS = { 'core/group':'Section', 'core/columns':'Columns', 'core/column':'Column', 'core/heading':'Heading', 'core/paragraph':'Text', 'core/buttons':'Buttons', 'core/button':'Button', 'core/image':'Image' };
+	var SUPPORTED = ['core/group','core/columns','core/column','core/heading','core/paragraph','core/buttons','core/button','core/image','core/video','core/audio','core/file'];
+	var LABELS = { 'core/group':'Section', 'core/columns':'Columns', 'core/column':'Column', 'core/heading':'Heading', 'core/paragraph':'Text', 'core/buttons':'Buttons', 'core/button':'Button', 'core/image':'Image','core/video':'Video','core/audio':'Audio','core/file':'File' };
 	function token(prefix) { return prefix + Math.random().toString(36).slice(2, 12); }
 	function copy(value) { return JSON.parse(JSON.stringify(value)); }
 	function escape(value) { return String(value || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
@@ -92,6 +92,12 @@
 		var a = old.lastIndexOf(marker), b = a < 0 ? -1 : old.indexOf(endMarker,a);
 		return a >= 0 && b >= 0 ? old.slice(0,a) + compiled + old.slice(b + endMarker.length) : old + '\n' + compiled;
 	}
+	function autoPlacement(block) {
+		var scope=(String(block.attributes.className || '').match(/\bpb-layout-[a-z0-9]+\b/) || [])[0];
+		block.attributes.className=String(block.attributes.className || '').split(/\s+/).filter(function(c) { return c && c !== 'pb-freeform' && !/^pb-layout-/.test(c); }).join(' ');
+		if (scope) (block.innerBlocks || []).forEach(function(b) { if (b.name !== 'gt-page-block/page-block' || typeof b.attributes.css !== 'string') return; b.attributes.css=b.attributes.css.replace(/\/\* Page Blocks canvas layout \*\/[\s\S]*?\/\* Page Blocks canvas layout end \*\//g,function(part) { return part.includes('.pb-freeform.' + scope + '{') ? '' : part; }); });
+		block.innerBlocks=block.innerBlocks.filter(function(b) { return !(b.name === 'gt-page-block/page-block' && b.attributes.name === 'Page Blocks canvas styles' && !String(b.attributes.css || '').trim() && !b.attributes.content && !b.attributes.js && !b.attributes.blockId); });
+	}
 	function styleValue(property, value) {
 		if (!value) return true;
 		if (value.length > 100 || /[;{}<>\\]/.test(value)) return false;
@@ -110,14 +116,11 @@
 		if (viewport !== 'desktop') rule = '@media(max-width:' + (viewport === 'tablet' ? '768' : '480') + 'px){' + rule + '}';
 		return css + '\n' + start + '\n' + rule + '\n' + end;
 	}
-	function createSection(api, layout, kind) {
-		var root = api.createBlock('core/group', { tagName:'section', metadata:{name:kind === 'cta' ? 'Call to action' : 'Visual section'}, layout:{type:'default'}, className:'pb-freeform' });
-		var scope = layoutKey(root), styleBlock = helper(root, api);
+	function createSection(api, layout, kind, placement) {
+		var root = api.createBlock('core/group', { tagName:'section', metadata:{name:kind === 'cta' ? 'Call to action' : 'Visual section'}, layout:{type:'default'},style:{spacing:{padding:'48px',blockGap:'24px'}} });
 		var children = [api.createBlock('core/heading', { content:kind === 'cta' ? 'Ready for the next step?' : 'Build something worth sharing', level:2 }), api.createBlock('core/paragraph', { content:'Start with your message. Select anything on the canvas to edit it.' }), api.createBlock('core/buttons', {}, [api.createBlock('core/button', { text:'Get started', url:'#' })])];
 		root.innerBlocks.push(...children);
-		var positions = [{x:64,y:64,w:800,h:96},{x:64,y:184,w:620,h:80},{x:64,y:304,w:240,h:56}];
-		var geometry = children.map(function(b,i) { return Object.assign({key:nodeKey(b),type:b.name},positions[i]); });
-		styleBlock.attributes.css = layout.css(scope, geometry, 1200, 460);
+		if (placement === 'freeform') { var scope=layoutKey(root),styleBlock=helper(root,api),positions=[{x:64,y:64,w:800,h:96},{x:64,y:184,w:620,h:80},{x:64,y:304,w:240,h:56}]; styleBlock.attributes.css=layout.css(scope,children.map(function(b,i) { return Object.assign({key:nodeKey(b),type:b.name},positions[i]); }),1200,460); }
 		return api.serialize([root]);
 	}
 	function mount(options) {
@@ -125,7 +128,7 @@
 		if (!api) return null;
 		if (!api.getBlockType('core/group') && wp.blockLibrary) wp.blockLibrary.registerCoreBlocks();
 		if (!api.getBlockType('gt-page-block/page-block')) api.registerBlockType('gt-page-block/page-block', { apiVersion:3, title:'Page Block', category:'design', attributes:options.config.pageBlockAttributes, save:function() { return null; } });
-		var caches = new Map(), snapshots = new Map(), selection = null, pendingMeasure = null, viewport = 'desktop', grid = false, noticeTimer = null, activeSectionUid = null, mobilePreview = null, previewReady = false;
+		var caches = new Map(), snapshots = new Map(), selection = null, pendingMeasure = null, viewport = 'desktop', grid = false, noticeTimer = null, activeSectionUid = null, mobilePreview = null, previewReady = false, uploading = false;
 		var panel = doc.createElement('div'); panel.className = 'pb-canvas-inspector'; options.container.appendChild(panel);
 		var rail = doc.createElement('div'); rail.className = 'pb-canvas-rail'; rail.setAttribute('aria-label','Canvas tools'); (options.canvas.querySelector('.md-pb-canvas-toolbar') || options.canvas).appendChild(rail);
 		var widthNote=doc.createElement('span'); widthNote.className='pb-canvas-size'; widthNote.title='Actual canvas width. Freeform arrangement needs more than 768px.'; var viewportControls=options.canvas.querySelector('.md-pb-viewport-controls'); if (viewportControls) viewportControls.prepend(widthNote);
@@ -235,7 +238,8 @@
 			if ((message.viewportWidth || frameWidth() || message.width) <= 768) { notify('Use a desktop preview to arrange or add elements in a freeform section. Text and style editing work in every preview.'); return; }
 			var group = found.block, selected = selection && locate(blocks,selection.nativePath || ''), selectedId = selected && selected.block.clientId;
 			var actual = group.innerBlocks.filter(function(b) { return !(b.name === 'gt-page-block/page-block' && !b.attributes.content && !b.attributes.js && !b.attributes.blockId && b.attributes.css); });
-			if ((!message.elements.length && !(pending && pending.block)) || actual.length !== message.elements.length || actual.some(function(b) { return !SUPPORTED.includes(b.name); })) { notify('This section contains blocks the canvas cannot arrange. Its content stays intact; use Code or the WordPress editor for those blocks.'); return; }
+			if (!actual.length && pending && pending.action === 'activate') { var scope=layoutKey(group); helper(group,api).attributes.css='/* Page Blocks canvas layout */\n.pb-freeform.' + scope + '{position:relative;min-height:240px}\n/* Page Blocks canvas layout end */'; commit(s,blocks,true,true); notify('Freeform placement enabled.'); return; }
+			if ((!message.elements.length && !(pending && (pending.block || pending.blocks))) || actual.length !== message.elements.length || actual.some(function(b) { return !SUPPORTED.includes(b.name); })) { notify('This section contains blocks the canvas cannot arrange. Its content stays intact; use Code or the WordPress editor for those blocks.'); return; }
 			var geometry = [];
 			for (var i = 0; i < message.elements.length; i++) {
 				var e = copy(message.elements[i]), target = locate(blocks,e.path);
@@ -245,6 +249,9 @@
 			if (pending && pending.block) {
 				group.innerBlocks.push(pending.block); selectedId = pending.block.clientId;
 				geometry.push({key:nodeKey(pending.block),type:pending.block.name,x:24,y:Math.max(0,...geometry.map(function(e) { return e.y + e.h; })) + 24,w:Math.min(540,message.width - 48),h:pending.block.name === 'core/image' ? 240 : 80});
+			}
+			if (pending && pending.blocks) { var y=pending.point ? pending.point.y : Math.max(0,...geometry.map(function(e) { return e.y + e.h; })) + 24;
+				pending.blocks.forEach(function(block) { group.innerBlocks.push(block); selectedId=block.clientId; var w=Math.min(480,message.width - 48),x=Math.min(Math.max(0,pending.point && pending.point.x || 24),Math.max(0,message.width - w)); geometry.push({key:nodeKey(block),type:block.name,x:x,y:y,w:w,h:block.name === 'core/image' || block.name === 'core/video' ? 300 : 80}); y+=block.name === 'core/image' || block.name === 'core/video' ? 324 : 104; });
 			}
 			var copyPath = message.duplicate ? message.changedPath : pending && pending.action === 'duplicate' ? pending.selectedPath : null;
 			if (copyPath) {
@@ -276,6 +283,13 @@
 			if (target < 0 || target >= s.found.list.length) return;
 			s.found.list.splice(s.found.index,1); s.found.list.splice(target,0,s.block); selection.nativePath = findPath(s.blocks,s.block.clientId); commit(s.section,s.blocks,true,true);
 		}
+		function reorder(message) {
+			if (options.config.canEditNativeBlocks === false || !fresh(message.sectionUid)) return;
+			var s=section(message.sectionUid),blocks=tree(s),parent=blocks && locate(blocks,message.parentPath),source=blocks && locate(blocks,message.path),target=blocks && locate(blocks,message.targetPath);
+			if (!parent || !source || !target || source.parent !== parent.block || target.parent !== parent.block || !['core/group','core/column','core/columns'].includes(parent.block.name) || /\bpb-freeform\b/.test(parent.block.attributes.className || '') || source.block === target.block) return;
+			var list=parent.block.innerBlocks, index=target.index + (message.after ? 1 : 0), original=source.index;
+			list.splice(original,1); if (original < index) index--; list.splice(index,0,source.block); selection={sectionUid:s.uid,nativePath:findPath(blocks,source.block.clientId)}; commit(s,blocks,true,true); notify('Block order updated.');
+		}
 		function neighbor(s,direction) { var target = s.found.index + direction; while (s.found.list[target] && s.found.list[target].name === 'gt-page-block/page-block' && s.found.list[target].attributes.name === 'Page Blocks canvas styles') target += direction; return target; }
 		function addBlock(type) {
 			var s = current(), blocks = s && s.blocks, group = insertionGroup(s);
@@ -296,6 +310,36 @@
 		function chooseImage(callback) {
 			if (!wp.media) { notify('The WordPress media picker is unavailable. Use the image URL field.'); return; }
 			var media = wp.media({title:'Choose image',library:{type:'image'},multiple:false,button:{text:'Use image'}}); media.on('select',function() { callback(media.state().get('selection').first().toJSON()); }); media.open();
+		}
+		function mediaBlock(media) { var url=media.source_url,mime=media.mime_type || ''; if (!safeURL(url,true)) throw new Error('WordPress returned an invalid media URL.');
+			if (mime.startsWith('image/')) return api.createBlock('core/image',{id:media.id,url:url,alt:media.alt_text || ''});
+			if (mime.startsWith('video/')) return api.createBlock('core/video',{id:media.id,src:url});
+			if (mime.startsWith('audio/')) return api.createBlock('core/audio',{id:media.id,src:url});
+			var title=doc.createElement('template'); title.innerHTML=media.title && media.title.rendered || 'Download file'; return api.createBlock('core/file',{id:media.id,href:url,fileName:title.content.textContent,displayPreview:false});
+		}
+		async function dropFiles(message) {
+			if (options.config.canUploadMedia === false || options.config.canEditNativeBlocks === false) { notify('With your current permissions, add media through the WordPress editor.',true); return; }
+			if (uploading) { notify('An upload is in progress. Wait before dropping more files.',true); return; }
+			var files=Array.isArray(message.files) ? message.files : []; if (!files.length) return; if (files.length > 20) { notify('Drop up to 20 files at a time.',true); return; }
+			if (!options.config.mediaEndpoint || !options.config.restNonce) { notify('The WordPress media upload endpoint is unavailable.',true); return; }
+			var target=message.sectionUid && section(message.sectionUid),source=target && (target.kind === 'foreign' ? target.serialized : target.content),containers=target && tree(target),found=containers && message.containerPath && locate(containers,message.containerPath);
+			if (found && /\bpb-freeform\b/.test(found.block.attributes.className || '') && frameWidth() <= 768) { notify('Use a desktop preview to drop media into a freeform section.',true); return; }
+			uploading=true; var uploaded=[],failures=[];
+			try {
+				for (var i=0;i<files.length;i++) { var file=files[i]; if (!(file instanceof win.Blob) || !file.name || options.config.maxUploadBytes && file.size > options.config.maxUploadBytes) { failures.push((file.name || 'File') + ': exceeds the upload limit or is not a file.'); continue; }
+					notify('Uploading ' + file.name + ' (' + (i+1) + '/' + files.length + ')…',true);
+					try { var data=new win.FormData(); data.append('file',file,file.name); data.append('post',String(options.config.postId)); var response=await win.fetch(options.config.mediaEndpoint,{method:'POST',credentials:'same-origin',headers:{'X-WP-Nonce':options.config.restNonce},body:data}),media=await response.json(); if (!response.ok) throw new Error(media.message || 'WordPress rejected this file.'); uploaded.push(mediaBlock(media)); } catch(error) { failures.push(file.name + ': ' + error.message); }
+				}
+				if (uploaded.length) {
+					var latest=target && section(target.uid); if (target && (!latest || source !== (latest.kind === 'foreign' ? latest.serialized : latest.content))) { notify('Media uploaded to the library. The section changed during upload; add the files from the media picker.',true); return; }
+					var blocks=latest && tree(latest),parent=blocks && message.containerPath && locate(blocks,message.containerPath);
+					if (parent && ['core/group','core/column'].includes(parent.block.name)) {
+						if (/\bpb-freeform\b/.test(parent.block.attributes.className || '')) { pendingMeasure={sectionUid:latest.uid,action:'insert',blocks:uploaded,point:message.point}; frameMessage({type:'pb_canvas_measure',sectionUid:latest.uid,path:message.containerPath}); }
+						else { var anchor=message.targetPath && locate(blocks,message.targetPath),index=anchor && anchor.parent === parent.block ? anchor.index + (message.after ? 1 : 0) : parent.block.innerBlocks.length; parent.block.innerBlocks.splice(index,0,...uploaded); selection={sectionUid:latest.uid,nativePath:findPath(blocks,uploaded[0].clientId)}; commit(latest,blocks,true,true); }
+					} else { var group=api.createBlock('core/group',{tagName:'section',metadata:{name:'Media section'},layout:{type:'default'},style:{spacing:{padding:'48px',blockGap:'24px'}}},uploaded),uid=options.addSection(api.serialize([group]),target && target.uid); selection={sectionUid:uid,nativePath:'0.0'}; render(); }
+				}
+				notify((uploaded.length ? uploaded.length + ' file(s) uploaded. Save to keep the page changes.' : 'No files were uploaded.') + (failures.length ? ' ' + failures.join(' ') : ''),!!failures.length);
+			} finally { uploading=false; }
 		}
 		function field(parent,label,value,change,choices) {
 			var wrap = doc.createElement('label'); wrap.className = 'pb-canvas-field'; var caption = doc.createElement('span'); caption.textContent = label; wrap.appendChild(caption);
@@ -363,7 +407,9 @@
 				field(contentGroup,'Alt text',s.block ? attrs.alt : selection.attributes.alt,function(v) { if (s.block) { attrs.alt = v; commit(s.section,s.blocks,true,false); } else sourceAttribute(s,'alt',v); });
 			}
 			if (s.block && s.block.name === 'core/button' || !s.block && selection.tagName === 'a') field(contentGroup,'Link URL',s.block ? attrs.url : selection.attributes.href,function(v) { if (!safeURL(v,false)) { notify('Use a valid link URL.'); return false; } if (s.block) { attrs.url = v; commit(s.section,s.blocks,true,false); } else return sourceAttribute(s,'href',v); });
+			if (s.block && ['core/video','core/audio','core/file'].includes(s.block.name)) { contentGroup.hidden=false; field(contentGroup,'Media URL',attrs.src || attrs.href || '',function(value) { if (!safeURL(value,true)) return false; attrs[s.block.name === 'core/file' ? 'href' : 'src']=value; delete attrs.id; commit(s.section,s.blocks,true,false); }); }
 			if (!texty && !image && !(s.block && s.block.name === 'core/button')) contentGroup.hidden = true;
+			if (s.block && ['core/video','core/audio','core/file'].includes(s.block.name)) contentGroup.hidden=false;
 			var styles = group('Style'); field(styles,'Apply to',viewport,function(v) { viewport=v; if (options.setPreviewViewport) options.setPreviewViewport(v === 'desktop' ? 'desktop' : v === 'tablet' ? '768' : '480'); render(); },[['desktop','All screens'],['tablet','Tablet ≤768px'],['mobile','Mobile ≤480px']]);
 			var styleHint=doc.createElement('p'); styleHint.textContent='Lengths accept px, rem, or a number for pixels. Clear a value to inherit.'; styles.appendChild(styleHint);
 			var map = {'color':['color','text'],'background-color':['color','background'],'font-size':['typography','fontSize'],'padding':['spacing','padding'],'margin':['spacing','margin'],'border-radius':['border','radius']};
@@ -387,10 +433,10 @@
 				},[['','Custom / inherit']].concat(fontPresets.map(function(p) { return [p.slug,p.name || p.slug]; })));
 			}
 			if (texty) field(styles,'Text alignment',s.block ? attrs.textAlign || attrs.align || '' : '',function(v) { return setStyle(s,'text-align',v); },[['','Inherit'],['left','Left'],['center','Center'],['right','Right']]);
-			if (s.block && s.block.name === 'core/group') {
-				var layoutGroup = group('Layout'), freeform = /\bpb-freeform\b/.test(attrs.className || '');
-				if (!freeform) { var arrange = button('Make freeform','arrows-move',function() { requestLayout(s,selection.nativePath,'activate'); }); arrange.disabled = frameWidth() <= 768; layoutGroup.appendChild(arrange); }
-				var hint = doc.createElement('p'); hint.textContent = frameWidth() <= 768 ? 'Mobile stacks blocks in reading order. Arrangement needs a canvas wider than 768px: select Desktop, hide Sections, or enlarge the window.' : 'Drag Move to arrange; resize with the corner handle. Shift locks an axis; Ctrl/Cmd bypasses snapping.'; layoutGroup.appendChild(hint);
+			var owner=s.block && insertionGroup(s); if (owner && owner.name === 'core/group') {
+				var layoutGroup=group('Layout'),freeform=/\bpb-freeform\b/.test(owner.attributes.className || ''),ownerPath=findPath(s.blocks,owner.clientId);
+				field(layoutGroup,'Placement',freeform ? 'freeform' : 'auto',function(value) { if (value === 'auto') { pendingMeasure=null; autoPlacement(owner); selection.nativePath=findPath(s.blocks,s.block.clientId); commit(s.section,s.blocks,true,true); notify('Auto placement enabled. Drag blocks to reorder them.'); } else { if (frameWidth() <= 768) { notify('Freeform arrangement needs a canvas wider than 768px.',true); return false; } requestLayout(s,ownerPath,'activate'); } },[['auto','Fixed / Auto'],['freeform','Freeform']]);
+				var hint=doc.createElement('p'); hint.textContent=freeform ? 'Drag to place freely. Mobile follows block reading order.' : 'Blocks stay in normal layout flow. Drag to change their order.'; layoutGroup.appendChild(hint);
 			}
 			options.container.scrollTop = scroll;
 			if (focusedName) { var focused=panel.querySelector('[name="' + focusedName + '"]'); if (focused) focused.focus({preventScroll:true}); }
@@ -406,6 +452,7 @@
 		doc.addEventListener('keydown',function(event) { if (event.key === 'Escape' && !palette.hidden) { event.preventDefault(); showPalette(false); addButton.focus(); } });
 		doc.addEventListener('pointerdown',function(event) { if (!palette.hidden && !palette.contains(event.target) && !addButton.contains(event.target)) showPalette(false); });
 		function handleMessage(message) {
+			if (message && message.type === 'pb_canvas_files_disabled') { notify('Switch to Visual mode to drop media onto the page.',true); return true; }
 			if (!message || (!options.isEnabled() && message.type !== 'pb_canvas_text')) return false;
 			if (message.type === 'pb_canvas_clear') { selection = null; showPalette(false); render(); return true; }
 			if (message.type === 'pb_canvas_inspect') { render(); var input=panel.querySelector('input,textarea,select'); if (input) input.focus(); return true; }
@@ -413,6 +460,8 @@
 			if (message.type === 'pb_canvas_select') { if (!fresh(message.sectionUid)) return true; options.selectSection(message.sectionUid); selection = message; status.hidden = true; showPalette(false); render(); return true; }
 			if (message.type === 'pb_canvas_measure_result') { if (pendingMeasure && pendingMeasure.sectionUid === message.sectionUid) { var p=pendingMeasure; pendingMeasure=null; layoutCommit(message,p); } return true; }
 			if (message.type === 'pb_canvas_layout') { layoutCommit(message); return true; }
+			if (message.type === 'pb_canvas_reorder') { reorder(message); return true; }
+			if (message.type === 'pb_canvas_files') { dropFiles(message).catch(function(error) { uploading=false; notify('Upload failed: ' + error.message,true); }); return true; }
 			if (message.type === 'pb_canvas_action') { if (!fresh(message.sectionUid)) return true; selection=message; action(message.action); return true; }
 			if (message.type === 'pb_canvas_history') { if (message.redo) options.redo(); else options.undo(); render(); return true; }
 			if (message.type === 'pb_canvas_save') { options.save(); return true; }
@@ -442,5 +491,5 @@
 		});
 		return holder.innerHTML;
 	}
-	return { mount:mount, locate:locate, setRule:setRule, ruleValue:ruleValue, editPlainText:editPlainText, createSection:createSection, cleanInline:cleanInline, cloneNative:cloneNative, duplicateWithin:duplicateWithin, replaceLayoutCss:replaceLayoutCss, safeURL:safeURL };
+	return { mount:mount, locate:locate, setRule:setRule, ruleValue:ruleValue, editPlainText:editPlainText, createSection:createSection, autoPlacement:autoPlacement, cleanInline:cleanInline, cloneNative:cloneNative, duplicateWithin:duplicateWithin, replaceLayoutCss:replaceLayoutCss, safeURL:safeURL };
 });

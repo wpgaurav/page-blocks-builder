@@ -1683,7 +1683,7 @@
 				// Short label: the panel is ~200px and a sentence here left the
 				// section name about 36px to render in. The full explanation
 				// lives in the tooltip and in the note above the code panes.
-				var nativeEditable = config.canEditNativeBlocks !== false && /^core\/(group|columns|column|heading|paragraph|buttons|button|image)$/.test(section.blockName);
+				var nativeEditable = config.canEditNativeBlocks !== false && /^core\/(group|columns|column|heading|paragraph|buttons|button|image|video|audio|file)$/.test(section.blockName);
 				badge.textContent = nativeEditable ? 'Block' : 'Locked';
 				badge.title = nativeEditable ? 'Edit directly in Visual mode.' : (section.label || section.blockName || 'This block') +
 					' is not a Page Block — edit it in the WordPress editor.';
@@ -4788,9 +4788,10 @@
 					}
 					renderIndexList(); queuePreviewRender(0, true); queueAutosave();
 				},
-				addSection: function(serialized) {
+				addSection: function(serialized, afterUid) {
 					pushHistory(); var added = normalizeSection({ kind:'foreign',blockName:'core/group',label:'Visual section',serialized:serialized,rendered:'' });
-					state.sections.splice(state.selectedIndex + 1,0,added); state.selectedIndex++; renderAll(); queueAutosave(); return added.uid;
+					var index=afterUid ? indexOfUid(afterUid) : state.selectedIndex; if (index < 0) index=state.selectedIndex;
+					state.sections.splice(index + 1,0,added); state.selectedIndex=index + 1; renderAll(); queueAutosave(); return added.uid;
 				},
 				deleteSection: function(uid) { var index=indexOfUid(uid); if (index>=0) deleteSection(index); },
 				undo: undoDocument, redo: redoDocument, save: activateApply, canUndo: function() { return history.undo.length > 0; }, canRedo: function() { return history.redo.length > 0; },

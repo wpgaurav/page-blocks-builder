@@ -25,6 +25,47 @@ function mount(t, width = 1200, children, config = {}) {
 	return {win,doc,editor,sections,messages,changes,viewports,select,field,change,tree:()=>JSON.parse(sections[0].serialized)[0]};
 }
 
+test('Auto placement removes only its grid CSS and keeps content and authored styling', t => {
+	const b=mount(t); var root=b.tree();root.innerBlocks[0].attributes.css='/* before */\n'+layout.css('pb-layout-a',[{key:'pb-node-a',x:20,y:20,w:200,h:80}],1200,300)+'\n/* author rule */ .pb-node-a{color:red}';b.sections[0].serialized=JSON.stringify([root]);b.editor.sync([{uid:'pb-group',source:b.sections[0].serialized}]);b.select('0.1');b.change('placement','auto');
+	assert.doesNotMatch(b.tree().attributes.className,/pb-freeform|pb-layout-/);assert.equal(b.tree().innerBlocks[1].attributes.content,'A <strong>bold</strong> title');assert.match(b.tree().innerBlocks[0].attributes.css,/author rule/);assert.doesNotMatch(b.tree().innerBlocks[0].attributes.css,/display:grid/);
+});
+
+test('a new visual section starts in Auto placement', () => {
+	const api={createBlock:(name,attributes,innerBlocks=[])=>({name,attributes,innerBlocks}),serialize:JSON.stringify};
+	const root=JSON.parse(canvas.createSection(api,layout,'hero'))[0];assert.equal(root.name,'core/group');assert.equal(root.innerBlocks.length,3);assert.doesNotMatch(root.attributes.className || '',/pb-freeform/);
+});
+
+test('Auto drag changes native reading order without adding geometric placement', t => {
+	const b=mount(t),root=b.tree();canvas.autoPlacement(root);root.innerBlocks.push({name:'core/paragraph',attributes:{content:'Second'},innerBlocks:[],clientId:'second',isValid:true});b.sections[0].serialized=JSON.stringify([root]);b.editor.sync([{uid:'pb-group',source:b.sections[0].serialized}]);
+	b.editor.handleMessage({type:'pb_canvas_reorder',sectionUid:'pb-group',parentPath:'0',path:'0.1',targetPath:'0.2',after:true});
+	assert.equal(b.tree().innerBlocks.at(-1).name,'core/heading');assert.doesNotMatch(b.tree().attributes.className,/pb-freeform/);
+});
+
+test('Auto sections can opt into Freeform using measured placement', t => {
+	const b=mount(t),root=b.tree();canvas.autoPlacement(root);b.sections[0].serialized=JSON.stringify([root]);b.editor.sync([{uid:'pb-group',source:b.sections[0].serialized}]);b.select('0.1');b.change('placement','freeform');
+	assert.equal(b.messages.at(-1).type,'pb_canvas_measure');b.editor.handleMessage({type:'pb_canvas_measure_result',sectionUid:'pb-group',rootPath:'0',viewportWidth:1200,width:1200,height:300,elements:[{path:'0.1',x:20,y:20,w:200,h:40}]});
+	assert.match(b.tree().attributes.className,/pb-freeform/);
+});
+
+test('dropped media uses WordPress upload and inserts a native image in Auto flow', async t => {
+	const b=mount(t,1200,undefined,{mediaEndpoint:'/wp-json/wp/v2/media',restNonce:'test',postId:42}),root=b.tree();canvas.autoPlacement(root);b.sections[0].serialized=JSON.stringify([root]);b.editor.sync([{uid:'pb-group',source:b.sections[0].serialized}]);
+	var requests=[];b.win.fetch=async(url,options)=>{requests.push({url,options});return {ok:true,json:async()=>({id:44,source_url:'https://builder.test/upload.png',mime_type:'image/png',alt_text:'Uploaded'})};};
+	b.editor.handleMessage({type:'pb_canvas_files',sectionUid:'pb-group',containerPath:'0',targetPath:'0.1',after:true,files:[new b.win.File(['image'],'upload.png',{type:'image/png'})]});await new Promise(r=>setImmediate(r));
+	assert.equal(requests.length,1);assert.equal(requests[0].options.headers['X-WP-Nonce'],'test');assert.equal(requests[0].options.body.get('file').name,'upload.png');assert.equal(b.tree().innerBlocks.at(-1).name,'core/image');assert.equal(b.tree().innerBlocks.at(-1).attributes.alt,'Uploaded');
+});
+
+test('failed media uploads retain the document and surface the WordPress error', async t => {
+	const b=mount(t,1200,undefined,{mediaEndpoint:'/media',restNonce:'test',postId:42}),before=b.sections[0].serialized;
+	b.win.fetch=async()=>({ok:false,json:async()=>({message:'This file type is not allowed.'})});b.editor.handleMessage({type:'pb_canvas_files',sectionUid:'pb-group',files:[new b.win.File(['svg'],'image.svg',{type:'image/svg+xml'})]});await new Promise(r=>setImmediate(r));
+	assert.equal(b.sections[0].serialized,before);assert.match(b.doc.querySelector('.pb-canvas-notice').textContent,/not allowed/);
+});
+
+test('media finishing after an intervening section edit does not overwrite that edit', async t => {
+	const b=mount(t,1200,undefined,{mediaEndpoint:'/media',restNonce:'test',postId:42});var release;
+	b.win.fetch=()=>new Promise(resolve=>release=resolve);b.editor.handleMessage({type:'pb_canvas_files',sectionUid:'pb-group',containerPath:'0',files:[new b.win.File(['image'],'image.png',{type:'image/png'})]});b.sections[0].serialized='changed by the author';release({ok:true,json:async()=>({id:44,source_url:'https://builder.test/new.png',mime_type:'image/png'})});await new Promise(r=>setImmediate(r));
+	assert.equal(b.sections[0].serialized,'changed by the author');assert.match(b.doc.querySelector('.pb-canvas-notice').textContent,/section changed during upload/);
+});
+
 test('plain inspector text changes retain unchanged emphasis and links', () => {
 	const doc = new JSDOM('').window.document;
 	const html = 'A <strong>bold</strong> title and <a href="/about/">more</a>';
@@ -165,6 +206,15 @@ test('the click synthesized after a Move gesture does not clear the selected ele
 	b.win.dispatchEvent(new b.win.MouseEvent('pointermove',{clientX:80,clientY:80}));b.win.dispatchEvent(new b.win.MouseEvent('pointerup'));
 	b.doc.body.click();assert.equal(b.messages.filter(m=>m.type==='pb_canvas_clear').length,0);
 	assert.equal(b.messages.filter(m=>m.type==='pb_canvas_layout').length,1);
+});
+
+test('Auto Move gestures emit insertion order rather than freeform coordinates', t => {
+	const b=bridge(t),root=b.h.parentElement;root.dataset.pbCanvasType='core/group';root.dataset.pbCanvasPath='0';
+	b.h.getBoundingClientRect=()=>({left:24,right:224,top:24,bottom:64,width:200,height:40});
+	const p=b.doc.createElement('p');p.dataset.pbCanvasPath='0.2';p.dataset.pbCanvasType='core/paragraph';p.textContent='Second';p.getBoundingClientRect=()=>({left:24,right:224,top:100,bottom:140,width:200,height:40});root.appendChild(p);b.h.click();
+	b.doc.querySelector('[data-pb-move]').dispatchEvent(new b.win.MouseEvent('pointerdown',{bubbles:true,button:0,clientX:40,clientY:20}));
+	b.win.dispatchEvent(new b.win.MouseEvent('pointermove',{clientX:50,clientY:160}));b.win.dispatchEvent(new b.win.MouseEvent('pointerup'));
+	const message=b.messages.find(m=>m.type==='pb_canvas_reorder');assert.equal(message.targetPath,'0.2');assert.equal(message.after,true);assert.equal(b.messages.some(m=>m.type==='pb_canvas_layout'),false);
 });
 
 test('preview failure is visible and Retry preview requests a fresh render', async t => {

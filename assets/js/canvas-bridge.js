@@ -23,6 +23,7 @@
 			return { sectionUid: sec.dataset.pbSection, sourcePath: path, tagName: node.tagName.toLowerCase() };
 		}
 		function draggable(node) { return nativeEditable && node && node.closest('.pb-freeform > [data-pb-canvas-path]'); }
+		function movable(node) { if (!nativeEditable) return null; var free=draggable(node); if (free) return free; var item=nativeNode(node); while (item) { if (item.parentElement && ['core/group','core/column','core/columns'].includes(item.parentElement.dataset.pbCanvasType)) return item; item=nativeNode(item.parentElement); } return null; }
 		function editable(node) {
 			if (!node) return null;
 			var native = nativeNode(node), sec = section(node);
@@ -44,10 +45,11 @@
 		}
 		function position() {
 			if (!selected || !selected.isConnected || !window.__pbCanvasVisual) { if (box) box.hidden = true; return; }
-			var rect = (gesture ? gesture.ghost : selected).getBoundingClientRect();
+			var rect = (gesture && gesture.ghost ? gesture.ghost : selected).getBoundingClientRect();
 			if (rect.bottom <= 0 || rect.top >= innerHeight || rect.right <= 0 || rect.left >= innerWidth) { box.hidden = true; return; }
 			var canArrange = !!draggable(selected) && window.innerWidth > 768;
-			box.querySelector('[data-pb-move]').hidden = !canArrange; box.querySelector('.pb-canvas-resize').hidden = !canArrange;
+			box.querySelector('[data-pb-move]').hidden = !movable(selected) || (!!draggable(selected) && innerWidth <= 768); box.querySelector('.pb-canvas-resize').hidden = !canArrange;
+			box.querySelector('[data-pb-move]').title=draggable(selected) ? 'Move freely' : 'Drag to reorder';
 			var duplicate=box.querySelector('[data-pb-action="duplicate"]');
 			if (duplicate) { var desktopOnly=selected.parentElement.classList.contains('pb-freeform') && innerWidth <= 768; duplicate.disabled=!!editing || desktopOnly; duplicate.title=desktopOnly ? 'Switch to Desktop to duplicate this freeform element.' : 'Duplicate'; }
 			box.hidden = false;
@@ -98,8 +100,15 @@
 			if (notify && node) send(Object.assign({ type: 'pb_canvas_select', html: node.innerHTML, text: node.textContent, attributes: { src: node.getAttribute('src') || '', alt: node.getAttribute('alt') || '', href: node.getAttribute('href') || '', className: node.getAttribute('class') || '' }, computed: { color: getComputedStyle(node).color, fontSize: getComputedStyle(node).fontSize } }, ref(node)));
 		}
 		function start(event, resize) {
-			if (event.button !== 0 || !selected || window.innerWidth <= 768) return;
-			var node = draggable(selected); if (!node) return;
+			if (event.button !== 0 || !selected) return;
+			var node = movable(selected); if (!node) return;
+			var free=node.parentElement.classList.contains('pb-freeform'); if (free && innerWidth <= 768 || resize && !free) return;
+			if (!free) {
+				event.preventDefault(); event.stopPropagation(); var items=Array.from(node.parentElement.children).filter(function(n) { return n.dataset.pbCanvasPath; });
+				var rects=items.map(function(n) { return n.getBoundingClientRect(); }), horizontal=rects.length > 1 && Math.abs(rects[0].left - rects[1].left) > Math.abs(rects[0].top - rects[1].top);
+				var line=document.createElement('div'); line.className='pb-canvas-guide'; line.style.position='fixed'; document.body.appendChild(line);
+				gesture={flow:true,node:node,parent:node.parentElement,items:items,rects:rects,horizontal:horizontal,line:line,startX:event.clientX,startY:event.clientY}; window.addEventListener('pointermove',motion); window.addEventListener('pointerup',finish); window.addEventListener('pointercancel',cancel); return;
+			}
 			var parent = node.parentElement, model = geometry(parent), index = model.elements.findIndex(function(e) { return e.path === node.dataset.pbCanvasPath; });
 			if (index < 0) return;
 			event.preventDefault(); event.stopPropagation();
@@ -113,6 +122,10 @@
 		}
 		function motion(event) {
 			if (!gesture) return;
+			if (gesture.flow) { var g=gesture, coordinate=g.horizontal ? event.clientX : event.clientY, best=null,distance=Infinity; g.lastX=event.clientX;g.lastY=event.clientY;
+				g.items.forEach(function(item,i) { if (item === g.node) return; var r=g.rects[i],start=g.horizontal ? r.left : r.top,span=g.horizontal ? r.width : r.height; [false,true].forEach(function(after) { var edge=start + (after ? span : 0),d=Math.abs(edge-coordinate); if (d < distance) { distance=d; best={item:item,rect:r,after:after,edge:edge}; } }); });
+				g.target=best; if (best) Object.assign(g.line.style,g.horizontal ? {left:best.edge+'px',top:best.rect.top+'px',width:'2px',height:best.rect.height+'px'} : {left:best.rect.left+'px',top:best.edge+'px',width:best.rect.width+'px',height:'2px'}); return;
+			}
 			var g = gesture, dx = event.clientX - g.startX, dy = event.clientY - g.startY, next = Object.assign({}, g.initial);
 			if (event.shiftKey && !g.resize) { if (Math.abs(dx) > Math.abs(dy)) dy = 0; else dx = 0; }
 			if (g.resize) { next.w = Math.max(40, Math.min(g.model.width - next.x, g.initial.w + dx)); next.h = Math.max(24, g.initial.h + dy); }
@@ -129,12 +142,13 @@
 		}
 		function cleanup() {
 			if (!gesture) return;
-			gesture.node.style.visibility = gesture.oldVisibility; gesture.ghost.remove(); gx.remove(); gy.remove(); gesture = null;
+			if (gesture.flow) gesture.line.remove(); else { gesture.node.style.visibility = gesture.oldVisibility; gesture.ghost.remove(); gx.remove(); gy.remove(); } gesture = null;
 			window.removeEventListener('pointermove', motion); window.removeEventListener('pointerup', finish); window.removeEventListener('pointercancel', cancel); position();
 		}
 		function finish() {
 			if (!gesture) return;
 			var g = gesture;
+			if (g.flow) { if (g.target && Math.hypot(g.lastX - g.startX,g.lastY - g.startY) > 3) { suppressClickUntil=Date.now()+250; send({type:'pb_canvas_reorder',sectionUid:section(g.node).dataset.pbSection,parentPath:g.parent.dataset.pbCanvasPath,path:g.node.dataset.pbCanvasPath,targetPath:g.target.item.dataset.pbCanvasPath,after:g.target.after}); } cleanup(); return; }
 			if (JSON.stringify(g.initial) !== JSON.stringify(g.model.elements[g.index])) { suppressClickUntil=Date.now() + 250; send(Object.assign({ type: 'pb_canvas_layout', changedPath: g.initial.path, original: g.initial, duplicate: g.duplicate, precise: g.precise }, g.model)); }
 			cleanup();
 		}
@@ -162,7 +176,7 @@
 			if (Date.now() < suppressClickUntil) { suppressClickUntil=0; event.preventDefault(); event.stopPropagation(); return; }
 			if (!window.__pbCanvasVisual || event.target.isContentEditable || event.target.closest('.pb-canvas-box')) return;
 			var node = nativeNode(event.target) || event.target.closest('h1,h2,h3,h4,h5,h6,p,li,a,img,button,section,div');
-			if (node && section(node)) { event.preventDefault(); event.stopPropagation(); select(node, true); }
+			if (node && section(node)) { if (['core/audio','core/video'].includes(node.dataset.pbCanvasType)) { select(node,true); return; } event.preventDefault(); event.stopPropagation(); select(node, true); }
 			else { select(null,false); send({type:'pb_canvas_clear'}); }
 		}, true);
 		document.addEventListener('dblclick', function(event) {
@@ -170,6 +184,14 @@
 			if (editable(event.target)) { event.preventDefault(); event.stopPropagation(); startEditing(event.target); }
 		}, true);
 		document.addEventListener('submit', function(event) { if (window.__pbCanvasVisual) event.preventDefault(); }, true);
+		function filesDragged(event) { return event.dataTransfer && Array.from(event.dataTransfer.types || []).includes('Files'); }
+		document.addEventListener('dragover',function(event) { if (filesDragged(event)) { event.preventDefault(); event.dataTransfer.dropEffect=window.__pbCanvasVisual ? 'copy' : 'none'; } },true);
+		document.addEventListener('drop',function(event) { if (!filesDragged(event)) return; event.preventDefault(); event.stopPropagation(); if (!window.__pbCanvasVisual) { send({type:'pb_canvas_files_disabled'}); return; }
+			var files=Array.from(event.dataTransfer.files || []),sec=section(event.target),node=nativeNode(event.target),container=node;
+			while (container && !['core/group','core/column'].includes(container.dataset.pbCanvasType)) container=nativeNode(container.parentElement);
+			var before=null,after=false,point=null; if (container) { var direct=node; while (direct && direct.parentElement !== container) direct=nativeNode(direct.parentElement); if (direct && direct !== container) { before=direct.dataset.pbCanvasPath; var r=direct.getBoundingClientRect(); after=event.clientY >= r.top + r.height / 2; } var g=geometry(container),r=container.getBoundingClientRect(); point={x:Math.max(0,event.clientX-r.left-g.originX),y:Math.max(0,event.clientY-r.top-g.originY)}; }
+			send({type:'pb_canvas_files',files:files,sectionUid:sec && sec.dataset.pbSection,containerPath:container && container.dataset.pbCanvasPath,targetPath:before,after:after,point:point});
+		},true);
 		document.addEventListener('keydown', function(event) {
 			if (!window.__pbCanvasVisual) return;
 			var meta = event.metaKey || event.ctrlKey;

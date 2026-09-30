@@ -35,7 +35,7 @@ final class GT_PB_Canvas_Editor {
 					continue;
 				}
 				$path = array_merge( $parent_path, array( $position++ ) );
-				if ( in_array( $block['blockName'], array( 'core/group', 'core/columns', 'core/column', 'core/heading', 'core/paragraph', 'core/buttons', 'core/button', 'core/image' ), true ) ) {
+				if ( in_array( $block['blockName'], array( 'core/group', 'core/columns', 'core/column', 'core/heading', 'core/paragraph', 'core/buttons', 'core/button', 'core/image', 'core/video', 'core/audio', 'core/file' ), true ) ) {
 					$block['attrs']['_pbCanvasPath'] = implode( '.', $path );
 				}
 				$block['innerBlocks'] = $mark( $block['innerBlocks'], $path );
