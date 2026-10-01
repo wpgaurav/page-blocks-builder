@@ -24,6 +24,7 @@
 		}
 		return found;
 	}
+	function isAssetHelper(block) { var a=block.attributes || {};return block.name==='gt-page-block/page-block' && !a.content && !a.blockId && !a.blockSlug && !a.phpExec && !a.nativeContent && !!(a.css || a.js); }
 	function helper(root, api) {
 		var item = root.innerBlocks.find(function(b) { return b.name === 'gt-page-block/page-block' && b.attributes.name === 'Page Blocks canvas styles'; });
 		if (!item) { item = api.createBlock('gt-page-block/page-block', { name: 'Page Blocks canvas styles', cssOutput: 'inline' }); root.innerBlocks.unshift(item); }
@@ -268,7 +269,7 @@
 			if (!found || found.block.name !== 'core/group' || !fresh(s.uid) || !Number.isFinite(message.width) || !Number.isFinite(message.height) || message.width <= 0) return;
 			if ((message.viewportWidth || frameWidth() || message.width) <= 768) { notify('Use a desktop preview to arrange or add elements in a freeform section. Text and style editing work in every preview.'); return; }
 			var group = found.block, selected = selection && locate(blocks,selection.nativePath || ''), selectedId = selected && selected.block.clientId;
-			var actual = group.innerBlocks.filter(function(b) { return !(b.name === 'gt-page-block/page-block' && !b.attributes.content && !b.attributes.js && !b.attributes.blockId && b.attributes.css); });
+			var actual = group.innerBlocks.filter(function(b) { return !isAssetHelper(b); });
 			if (!actual.length && pending && pending.action === 'activate') { var scope=layoutKey(group); helper(group,api).attributes.css='/* Page Blocks canvas layout */\n.pb-freeform.' + scope + '{position:relative;min-height:240px}\n/* Page Blocks canvas layout end */'; commit(s,blocks,true,true); notify('Freeform placement enabled.'); return; }
 			if ((!message.elements.length && !(pending && (pending.block || pending.blocks))) || actual.length !== message.elements.length || actual.some(function(b) { return !SUPPORTED.includes(b.name); })) { notify('This section contains blocks the canvas cannot arrange. Its content stays intact; use Code or the WordPress editor for those blocks.'); return; }
 			var geometry = [];
@@ -321,7 +322,7 @@
 			var list=parent.block.innerBlocks, index=target.index + (message.after ? 1 : 0), original=source.index;
 			list.splice(original,1); if (original < index) index--; list.splice(index,0,source.block); selection={sectionUid:s.uid,nativePath:findPath(blocks,source.block.clientId)}; commit(s,blocks,true,true); notify('Block order updated.');
 		}
-		function neighbor(s,direction) { var target = s.found.index + direction; while (s.found.list[target] && s.found.list[target].name === 'gt-page-block/page-block' && s.found.list[target].attributes.name === 'Page Blocks canvas styles') target += direction; return target; }
+		function neighbor(s,direction) { var target = s.found.index + direction; while (s.found.list[target] && isAssetHelper(s.found.list[target])) target += direction; return target; }
 		function addBlock(type) {
 			var s = current(), blocks = s && s.blocks, group = insertionGroup(s);
 			var simpleBlock=function() { if(type==='heading')return api.createBlock('core/heading',{content:'Your heading',level:2});if(type==='text')return api.createBlock('core/paragraph',{content:'Add your text here.'});if(type==='button')return api.createBlock('core/buttons',{},[api.createBlock('core/button',{text:'Learn more',url:'#'})]);if(type==='columns')return api.createBlock('core/columns',{},[api.createBlock('core/column',{},[api.createBlock('core/paragraph',{content:'First column'})]),api.createBlock('core/column',{},[api.createBlock('core/paragraph',{content:'Second column'})])]);return null; };
@@ -447,7 +448,7 @@
 		}
 		function renderLayers(s) {
 			var layers=group('Layers');
-			function row(bs,prefix,depth) { var counts={}; bs.forEach(function(b,i) { var path=prefix ? prefix + '.' + i : String(i); if (b.name === 'gt-page-block/page-block' && ['Page Blocks canvas styles','Imported section styles'].includes(b.attributes.name)) return;
+			function row(bs,prefix,depth) { var counts={}; bs.forEach(function(b,i) { var path=prefix ? prefix + '.' + i : String(i); if (isAssetHelper(b)) return;
 				var type=LABELS[b.name] || b.name; counts[type]=(counts[type] || 0) + 1; var probe=doc.createElement('template'); probe.innerHTML=b.attributes.content || b.attributes.text || ''; var excerpt=probe.content.textContent.trim().slice(0,48);
 				var label=b.attributes.metadata && b.attributes.metadata.name || type + (excerpt ? ' ' + counts[type] + ' · ' + excerpt : ''), item=button(label,'layout',function() { selection={sectionUid:s.section.uid,nativePath:path}; inspectorView='design';render(); frameMessage({type:'pb_canvas_select_native',sectionUid:s.section.uid,path:path}); },'pb-canvas-layer' + (path === selection.nativePath ? ' is-selected' : ''));
 				item.setAttribute('aria-pressed',String(path === selection.nativePath)); item.style.paddingLeft=(8 + depth * 12) + 'px'; layers.appendChild(item); row(b.innerBlocks || [],path,depth+1);
