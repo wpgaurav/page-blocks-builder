@@ -78,7 +78,8 @@ final class GT_PB_Canvas_Editor {
 		wp_enqueue_script( 'gt-pb-canvas-layout', GT_PB_BUILDER_URL . 'assets/js/canvas-layout.js', array(), filemtime( GT_PB_BUILDER_DIR . 'assets/js/canvas-layout.js' ), true );
 		wp_enqueue_script( 'gt-pb-prototype-conversion', GT_PB_BUILDER_URL . 'assets/js/prototype-conversion.js', array( 'wp-blocks' ), filemtime( GT_PB_BUILDER_DIR . 'assets/js/prototype-conversion.js' ), true );
 		wp_enqueue_script( 'gt-pb-canvas-bridge', GT_PB_BUILDER_URL . 'assets/js/canvas-bridge.js', array(), filemtime( GT_PB_BUILDER_DIR . 'assets/js/canvas-bridge.js' ), true );
-		wp_enqueue_script( 'gt-pb-canvas-editor', GT_PB_BUILDER_URL . 'assets/js/canvas-editor.js', array( 'wp-blocks', 'wp-block-library', 'gt-page-block-preview-dom', 'gt-pb-canvas-layout', 'gt-pb-canvas-bridge', 'gt-pb-prototype-conversion' ), filemtime( GT_PB_BUILDER_DIR . 'assets/js/canvas-editor.js' ), true );
+		wp_enqueue_script( 'gt-pb-canvas-presets', GT_PB_BUILDER_URL . 'assets/js/canvas-presets.js', array( 'wp-blocks' ), filemtime( GT_PB_BUILDER_DIR . 'assets/js/canvas-presets.js' ), true );
+		wp_enqueue_script( 'gt-pb-canvas-editor', GT_PB_BUILDER_URL . 'assets/js/canvas-editor.js', array( 'wp-blocks', 'wp-block-library', 'gt-page-block-preview-dom', 'gt-pb-canvas-layout', 'gt-pb-canvas-bridge', 'gt-pb-prototype-conversion', 'gt-pb-canvas-presets' ), filemtime( GT_PB_BUILDER_DIR . 'assets/js/canvas-editor.js' ), true );
 	}
 
 	/** Mark supported blocks while rendering a draft; never modify the saved markup. */

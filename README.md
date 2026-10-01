@@ -6,7 +6,7 @@ Build, reuse, and place custom HTML/CSS/JS sections anywhere in WordPress — th
 
 Originally part of Marketers Delight's Page Blocks dropin (2018–2026, © Kolakube), now a standalone plugin.
 
-**Requires:** WordPress 6.0+, PHP 8.1+ · **Current version:** 3.1.0
+**Requires:** WordPress 6.0+, PHP 8.1+ · **Current version:** 4.0.0
 
 ---
 
@@ -87,6 +87,16 @@ Page Blocks has two editing modes for the same WordPress page:
 - Native markup editing follows the existing administrator permission policy. Other roles retain code-section editing and can edit native blocks in the regular WordPress editor.
 
 See the [visual and UX audit](docs/plans/2026-09-30-builder-ux-audit.md) for the local findings, fixes, verification, and remaining coverage limits.
+
+### Everyday visual editing (in development)
+
+Start with a Blank, Introduction, Three columns, Call to action, or Questions and answers section, or add your first block directly. The Add menu searches both blocks and starting sections. New Auto blocks go after the selected item; Freeform retains its desktop positioning tools.
+
+The inspector opens Design controls first. Switch to Layers to navigate the native block tree, or use the parent breadcrumb to select a container. Color pickers and named theme swatches complement direct CSS-value entry. Code sections and their HTML/CSS/JS workflow remain available alongside visual sections.
+
+Recovery drafts retain their original saved-page baseline and page settings. Conflicting or older hashless drafts remain available to inspect and export, with protection against overwriting newer work. Structural edits now participate in unsaved state, recovery, and undo.
+
+See the [audit and prioritized plan](docs/plans/2026-10-01-everyday-builder-audit.md) for the completed work and follow-up milestones.
 
 ### Compatibility with the visual prototype
 

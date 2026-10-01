@@ -98,3 +98,14 @@ test('duplicating an element retains scoped responsive styles without sharing it
 	assert.equal(canvas.ruleValue(styleBlock.attributes.css,'pb-node-a','color','mobile'),'#315b56');
 	assert.ok(styleBlock.attributes.css.startsWith('author-css'));
 });
+
+
+test('mobile style rules remain after tablet overrides regardless of edit order', () => {
+	const authored='/* authored */ .existing { color: red !important; }';
+	let css=canvas.setRule(authored,'pb-node-a','.pb-node-a.pb-node-a','font-size','20px','mobile');
+	css=canvas.setRule(css,'pb-node-a','.pb-node-a.pb-node-a','font-size','32px','tablet');
+	assert.ok(css.startsWith(authored));assert.ok(css.indexOf('max-width:768px')<css.indexOf('max-width:480px'));
+	assert.equal(canvas.ruleValue(css,'pb-node-a','font-size','mobile'),'20px');
+	css=canvas.setRule(css,'pb-node-a','.pb-node-a.pb-node-a','font-size','','tablet');
+	assert.ok(css.startsWith(authored));assert.doesNotMatch(css,/max-width:768px/);assert.equal(canvas.ruleValue(css,'pb-node-a','font-size','mobile'),'20px');
+});

@@ -7,23 +7,7 @@ const layout = require('../../assets/js/canvas-layout.js');
 const preview = require('../../assets/js/preview-dom.js');
 const builder = require('./helpers/builder.js');
 
-function mount(t, width = 1200, children, config = {}) {
-	const page = new JSDOM('<div id="stage"><div class="md-pb-canvas-toolbar"></div></div><div id="panel"></div>',{url:'https://builder.test/',runScripts:'outside-only'});
-	t.after(()=>page.window.close());
-	const win = page.window, doc = win.document, messages = [], changes = [], viewports = [];
-	const block = (name,attrs={},innerBlocks=[])=>({name,attributes:attrs,innerBlocks,clientId:Math.random().toString(36),isValid:true});
-	const root = block('core/group',{className:'pb-freeform pb-layout-a'},children || [block('gt-page-block/page-block',{name:'Page Blocks canvas styles',css:'.keep{color:red}'}),block('core/heading',{content:'A <strong>bold</strong> title',className:'pb-node-a'})]);
-	const sections = [{uid:'pb-group',kind:'foreign',blockName:'core/group',serialized:JSON.stringify([root])}];
-	const api = {getBlockType:name=>({supports:{typography:{fontSize:true},color:{text:true}}}),parse:JSON.parse,serialize:JSON.stringify,createBlock:block,cloneBlock:(b,a,children)=>block(b.name,a,children)};
-	win.gtPbCanvasLayout = layout; win.gtPbPreviewDom = preview;
-	const frame = {contentWindow:{innerWidth:width,postMessage:m=>messages.push(m)}};
-	const editor = canvas.mount({container:doc.querySelector('#panel'),canvas:doc.querySelector('#stage'),config:{icons:{},...config},wp:{blocks:api},getFrame:()=>frame,getSections:()=>sections,isEnabled:()=>true,selectSection:()=>{},onChange:(uid,patch)=>{changes.push(patch);Object.assign(sections[0],patch);},addSection:()=>{},deleteSection:()=>{},canUndo:()=>false,canRedo:()=>false,undo:()=>{},redo:()=>{},save:()=>{},setPreviewViewport:v=>viewports.push(v)});
-	editor.sync([{uid:'pb-group',source:sections[0].serialized}]);
-	const select = path => editor.handleMessage({type:'pb_canvas_select',sectionUid:'pb-group',nativePath:path});
-	const field = name => doc.querySelector('[name="pb-canvas-' + name + '"]');
-	const change = (name,value)=>{const input=field(name);input.value=value;input.dispatchEvent(new win.Event('change'));};
-	return {win,doc,editor,sections,messages,changes,viewports,select,field,change,tree:()=>JSON.parse(sections[0].serialized)[0]};
-}
+const mount=require('./helpers/canvas');
 
 test('Auto placement removes only its grid CSS and keeps content and authored styling', t => {
 	const b=mount(t); var root=b.tree();root.innerBlocks[0].attributes.css='/* before */\n'+layout.css('pb-layout-a',[{key:'pb-node-a',x:20,y:20,w:200,h:80}],1200,300)+'\n/* author rule */ .pb-node-a{color:red}';b.sections[0].serialized=JSON.stringify([root]);b.editor.sync([{uid:'pb-group',source:b.sections[0].serialized}]);b.select('0.1');b.change('placement','auto');
@@ -91,13 +75,14 @@ test('a failed preview remains paused when toggling Grid', t => {
 test('native controls reflect existing save permissions without accepting unsavable edits', t => {
 	const b=mount(t,1200,undefined,{canEditNativeBlocks:false,editPostUrl:'/wp-admin/post.php'});b.select('0.1');
 	assert.equal(b.field('text'),null);assert.match(b.doc.querySelector('#panel').textContent,/current permissions/);
-	assert.equal(b.doc.querySelector('.pb-canvas-palette [aria-label="New visual section"]').disabled,true);
+	assert.equal(b.doc.querySelector('.pb-canvas-palette [data-preset="blank"]').disabled,true);
 	assert.equal(b.messages.filter(m=>m.type==='pb_canvas_mode').at(-1).nativeEditable,false);
 });
 
 test('responsive scope changes its preview and selected layers expose their state', t => {
 	const b=mount(t); b.select('0.1'); b.change('apply-to','mobile');
 	assert.deepEqual(b.viewports,['480']);
+	b.doc.querySelector('[role="tab"][aria-label="Layers"]').click();
 	assert.equal(b.doc.querySelector('.pb-canvas-layer.is-selected').getAttribute('aria-pressed'),'true');
 });
 
@@ -265,4 +250,70 @@ test('style icon choices keep named fields and accessible state', t => {
 	const b=mount(t);b.select('0.1');const button=b.doc.querySelector('[aria-label="Mobile ≤480px"]');button.click();
 	assert.deepEqual(b.viewports,['480']);assert.equal(b.doc.querySelector('[aria-label="Mobile ≤480px"]').getAttribute('aria-pressed'),'true');
 	assert.equal(b.field('font-size').getAttribute('aria-label'),'Font size');assert.ok(b.field('font-size').parentElement.classList.contains('pb-canvas-icon-field'));
+});
+
+
+test('alignment controls reflect the applied value and each responsive scope independently', t => {
+	const b=mount(t);b.select('0.1');
+	b.doc.querySelector('[aria-label="Align center"]').click();
+	assert.equal(b.doc.querySelector('[aria-label="Align center"]').getAttribute('aria-pressed'),'true');
+	assert.equal(b.doc.querySelector('[aria-label="Inherit alignment"]').getAttribute('aria-pressed'),'false');
+	b.change('apply-to','mobile');
+	assert.equal(b.field('text-alignment').value,'');
+	b.doc.querySelector('[aria-label="Align right"]').click();
+	b.editor.render();
+	assert.equal(b.field('text-alignment').value,'right');
+	b.change('apply-to','desktop');
+	assert.equal(b.field('text-alignment').value,'center');
+});
+
+test('native typography alignment follows WordPress supports without replacing wide layout alignment', t => {
+	const heading={name:'core/heading',attributes:{content:'Heading',align:'wide'},innerBlocks:[],clientId:'heading',isValid:true};
+	const b=mount(t,1200,[heading],{blockTypes:{'core/heading':{supports:{typography:{textAlign:true}}}}});b.select('0.0');
+	b.doc.querySelector('[aria-label="Align center"]').click();
+	const attrs=b.tree().innerBlocks[0].attributes;
+	assert.equal(attrs.style.typography.textAlign,'center');assert.equal(attrs.align,'wide');assert.equal(attrs.textAlign,undefined);
+	b.editor.render();assert.equal(b.field('text-alignment').value,'center');
+});
+
+test('button alignment uses native typography and responsive styles target the visible link', t => {
+	const button={name:'core/button',attributes:{text:'Go',className:'pb-node-button'},innerBlocks:[],clientId:'button',isValid:true};
+	const buttons={name:'core/buttons',attributes:{},innerBlocks:[button],clientId:'buttons',isValid:true};
+	const b=mount(t,1200,[buttons],{blockTypes:{'core/button':{supports:{typography:{textAlign:true,fontSize:true}}}}});b.select('0.0.0');
+	b.doc.querySelector('[aria-label="Align center"]').click();
+	assert.equal(b.tree().innerBlocks[0].innerBlocks[0].attributes.style.typography.textAlign,'center');
+	assert.equal(b.tree().innerBlocks[0].innerBlocks[0].attributes.align,undefined);
+	b.change('apply-to','mobile');b.change('font-size','18px');
+	const helper=b.tree().innerBlocks.find(block=>block.name==='gt-page-block/page-block');
+	assert.match(helper.attributes.css,/\.pb-node-button\.pb-node-button > \.wp-block-button__link\{font-size:18px !important\}/);
+});
+
+test('custom colors replace native presets and clearing restores theme inheritance', t => {
+	const b=mount(t),root=b.tree();root.innerBlocks[1].attributes.textColor='brand';root.innerBlocks[1].attributes.backgroundColor='canvas';root.innerBlocks[1].attributes.fontSize='large';b.sections[0].serialized=JSON.stringify([root]);b.editor.sync([{uid:'pb-group',source:b.sections[0].serialized}]);b.select('0.1');
+	assert.equal(b.field('text-color').value,'var(--wp--preset--color-brand)');
+	assert.equal(b.field('background').value,'var(--wp--preset--color-canvas)');
+	b.change('text-color','#112233');
+	assert.equal(b.tree().innerBlocks[1].attributes.textColor,undefined);assert.equal(b.tree().innerBlocks[1].attributes.style.color.text,'#112233');
+	b.change('text-color','');b.change('background','');b.change('font-size','');
+	const attrs=b.tree().innerBlocks[1].attributes;
+	assert.equal(attrs.style.color.text,undefined);assert.equal(attrs.backgroundColor,undefined);assert.equal(attrs.fontSize,undefined);
+});
+
+test('responsive styles override explicit base styles while keeping desktop values intact', t => {
+	const b=mount(t);b.select('0.1');b.change('font-size','48px');b.change('apply-to','mobile');b.change('font-size','20px');
+	const root=b.tree();assert.equal(root.innerBlocks[1].attributes.style.typography.fontSize,'48px');
+	assert.match(root.innerBlocks[0].attributes.css,/@media\(max-width:480px\)\{\.pb-node-a\.pb-node-a\{font-size:20px !important\}\}/);
+	b.editor.render();assert.equal(b.field('font-size').value,'20px');
+	b.change('font-size','');assert.doesNotMatch(b.tree().innerBlocks[0].attributes.css,/font-size:20px/);assert.equal(b.tree().innerBlocks[1].attributes.style.typography.fontSize,'48px');
+});
+
+
+test('font preset controls reflect responsive choices and clear when a custom size is entered', t => {
+	const b=mount(t,1200,undefined,{themeFontSizes:[{slug:'large',name:'Large',size:'48px'}]});b.select('0.1');
+	b.change('theme-font-size','large');assert.equal(b.field('font-size').value,'var(--wp--preset--font-size-large)');
+	b.change('apply-to','mobile');assert.equal(b.field('theme-font-size').value,'');
+	b.change('theme-font-size','large');b.editor.render();assert.equal(b.field('theme-font-size').value,'large');
+	b.change('font-size','20px');assert.equal(b.field('theme-font-size').value,'');
+	b.change('theme-font-size','large');assert.equal(b.field('font-size').value,'var(--wp--preset--font-size-large)');
+	b.change('apply-to','desktop');assert.equal(b.field('theme-font-size').value,'large');
 });

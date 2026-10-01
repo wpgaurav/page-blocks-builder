@@ -1708,7 +1708,21 @@ class GT_Page_Blocks_Builder {
 			if ( isset( $section['kind'] ) && 'foreign' === $section['kind'] ) {
 				$raw = isset( $section['serialized'] ) ? (string) $section['serialized'] : '';
 				if ( '' !== trim( $raw ) ) {
-					$html_output[] = $this->preview_section_html( (string) GT_PB_Canvas_Editor::preview( $raw, $section['uid'] ?? '' ), $section, $post_id );
+					// Native containers may hold inline or linked Page Blocks.
+					// Their footer scripts belong to the preview document, and
+					// must not consume or pollute the surrounding request's queue.
+					$outer_scripts        = $this->footer_scripts;
+					$this->footer_scripts = array();
+					try {
+						$rendered      = $this->render_native_preview_section( $raw, $section, $post_id );
+						$html_output[] = $rendered['html'];
+						foreach ( $rendered['scripts'] as $key => $script ) {
+							// Retain the renderer's keys so repeated placements run once.
+							$js_footer_output[ $key ] = self::minify_js( $script );
+						}
+					} finally {
+						$this->footer_scripts = $outer_scripts;
+					}
 				}
 				continue;
 			}
@@ -1731,7 +1745,7 @@ class GT_Page_Blocks_Builder {
 
 				$queued_key = 'block-' . (int) $row->id;
 				if ( isset( $this->footer_scripts[ $queued_key ] ) ) {
-					$js_footer_output[] = self::minify_js( (string) $this->footer_scripts[ $queued_key ] );
+					$js_footer_output[ $queued_key ] = self::minify_js( (string) $this->footer_scripts[ $queued_key ] );
 					unset( $this->footer_scripts[ $queued_key ] );
 				}
 
@@ -1791,6 +1805,19 @@ class GT_Page_Blocks_Builder {
 				? __( 'PHP in this section was not executed in the preview. Running PHP requires administrator access.', 'page-blocks-builder' )
 				: '',
 		);
+	}
+
+	/**
+	 * Render native content and collect scripts queued by nested render callbacks.
+	 *
+	 * @param string $raw Native block markup.
+	 * @param array  $section Builder section.
+	 * @param int    $post_id Previewed post.
+	 * @return array{html: string, scripts: array<string, string>}
+	 */
+	private function render_native_preview_section( string $raw, array $section, int $post_id ): array {
+		$html = $this->preview_section_html( GT_PB_Canvas_Editor::preview( $raw, $section['uid'] ?? '' ), $section, $post_id );
+		return array( 'html' => $html, 'scripts' => $this->footer_scripts );
 	}
 
 	/** Apply preview-only content integrations and preserve section selection. */

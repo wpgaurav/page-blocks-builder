@@ -28,7 +28,11 @@
 			if (!node) return null;
 			var native = nativeNode(node), sec = section(node);
 			if (!sec || (native ? !nativeEditable || !['core/heading','core/paragraph','core/button'].includes(native.dataset.pbCanvasType) : !editableSections.has(sec.dataset.pbSection))) return null;
-			var text = /^(H[1-6]|P|LI|A|BUTTON)$/.test(node.tagName) ? node : node.querySelector('h1,h2,h3,h4,h5,h6,p,a,button');
+			// A nested link or emphasis still edits the complete native block's text.
+			var text = native;
+			if (native && native.dataset.pbCanvasType === 'core/button' && !native.matches('a,button')) text = native.querySelector('a,button');
+			if (!native) text = node.closest('h1,h2,h3,h4,h5,h6,p,li,a,button') || node.querySelector('h1,h2,h3,h4,h5,h6,p,a,button');
+			if (text && !sec.contains(text)) return null;
 			return text && !text.querySelector('div,section,article,ul,ol,table,form,header,footer,nav,aside') ? text : null;
 		}
 		function geometry(parent) {
@@ -157,9 +161,10 @@
 			var text = editable(node); if (!text) return false;
 			if (editing === text) return true;
 			if (endEditing) endEditing(false);
-			var before = text.innerHTML, reference = ref(nativeNode(text) || text);
+			var before = text.innerHTML, reference = ref(nativeNode(text) || text), previousEditable = text.getAttribute('contenteditable');
 			editing = text; text.contentEditable = 'true'; text.focus(); select(nativeNode(text) || text,false);
 			function key(event) {
+				if (event.isComposing) return;
 				if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); finishEdit(true); }
 				else if (event.key === 'Enter' && !event.shiftKey && text.tagName !== 'P') { event.preventDefault(); finishEdit(false); }
 			}
@@ -167,7 +172,7 @@
 			function finishEdit(cancelled) {
 				if (editing !== text) return;
 				if (cancelled) text.innerHTML = before;
-				text.removeEventListener('keydown',key); text.removeEventListener('blur',blur); text.contentEditable = 'false'; editing = null; endEditing = null; text.blur(); select(selected,false);
+				text.removeEventListener('keydown',key); text.removeEventListener('blur',blur); text.contentEditable = 'inherit'; if (previousEditable === null) text.removeAttribute('contenteditable'); else text.setAttribute('contenteditable',previousEditable); editing = null; endEditing = null; text.blur(); select(selected,false);
 				if (!cancelled && text.innerHTML !== before) send(Object.assign({ type:'pb_canvas_text',oldHtml:before,newHtml:text.innerHTML,text:text.textContent },reference));
 			}
 			endEditing = finishEdit; text.addEventListener('keydown',key); text.addEventListener('blur',blur); return true;

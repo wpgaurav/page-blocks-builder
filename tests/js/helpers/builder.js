@@ -20,7 +20,7 @@ module.exports = function builder(t, sections = [{}], options = {}) {
 	window.alert = message => alerts.push(message);
 	window.confirm = () => true;
 	window.HTMLElement.prototype.scrollIntoView = () => {};
-	window.mdPbBuilder = { postId: 42, userId: 7, saveNonce: 'fixture', saveEndpoint: '/save', initialSections: sections.map((s, i) => ({
+	window.mdPbBuilder = { postId: 42, userId: 7, contentHash: 'a'.repeat(64), saveNonce: 'fixture', saveEndpoint: '/save', initialSections: sections.map((s, i) => ({
 		uid: 'pb-section' + i, name: 'Section ' + i,
 		content: '<section id="fixture' + i + '">Section</section>', css: '#fixture' + i + '{color:red}', ...s
 	})), ...options.config };
@@ -33,6 +33,7 @@ module.exports = function builder(t, sections = [{}], options = {}) {
 			invalidJSON: () => resolve({ json: () => Promise.reject(new SyntaxError('bad JSON')) }) });
 	});
 	window.eval(preview);
+	if (options.beforeInit) options.beforeInit(window);
 	window.eval(shell);
 	window.document.dispatchEvent(new window.Event('DOMContentLoaded'));
 	const flush = delay => {

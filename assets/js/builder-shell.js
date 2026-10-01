@@ -485,6 +485,29 @@
 	var AUTOSAVE_KEY = 'md_pb_draft_' + (config.postId || 0) + '_u' + (config.userId || 0);
 	var AUTOSAVE_INTERVAL = 5000;
 	var autosaveTimer = null;
+	var savedDocument = '';
+	var documentDirty = false;
+	var draftMissingBaseline = false;
+	var draftConflict = false;
+	var DRAFT_RECOVERY_HELP = 'This draft comes from an older editor. To protect newer changes, Save is paused. Export the draft in Page settings, then reload the saved page to review and import it.';
+	var DRAFT_CONFLICT_HELP = 'A newer version of this page has been saved. Export your draft in Page settings, then reload the page to review and combine your changes.';
+
+	function documentFingerprint(sections, title, slug, template) {
+		return JSON.stringify([getApplyPayloadSections(sections).map(function(section) {
+			delete section.uid;
+			// These labels describe foreign rows; only their markup is saved.
+			if (section.kind === 'foreign') { delete section.label; delete section.blockName; }
+			return section;
+		}), title, slug, template]);
+	}
+
+	function currentDocumentFingerprint() {
+		return documentFingerprint(state.sections, state.pageTitle, state.pageSlug, state.pageTemplate);
+	}
+
+	function draftRecoveryMessage() {
+		return draftMissingBaseline ? DRAFT_RECOVERY_HELP : draftConflict ? DRAFT_CONFLICT_HELP : '';
+	}
 
 	function getAutosaveDraft() {
 		try {
@@ -552,7 +575,14 @@
 		try {
 			window.localStorage.setItem(AUTOSAVE_KEY, JSON.stringify({
 				version: DRAFT_VERSION,
+				// Keep the page revision this draft actually started from. A
+				// freshly loaded hash would approve overwriting newer edits.
+				contentHash: draftMissingBaseline ? null : config.contentHash || null,
 				sections: getAutosaveDraftSections(),
+				pageTitle: state.pageTitle,
+				pageSlug: state.pageSlug,
+				pageTemplate: state.pageTemplate,
+				removedForeign: state.removedForeign,
 				timestamp: Date.now()
 			}));
 		} catch (error) {
@@ -575,7 +605,17 @@
 	}
 
 	function queueAutosave() {
-		if (dom.saveStatus && !state.applyBusy) { dom.saveStatus.textContent = 'Unsaved changes'; dom.saveStatus.removeAttribute('data-error'); }
+		documentDirty = draftMissingBaseline || draftConflict || currentDocumentFingerprint() !== savedDocument;
+		if (!documentDirty) {
+			clearAutosaveDraft();
+			if (dom.saveStatus && !state.applyBusy) { dom.saveStatus.textContent = 'All changes saved'; dom.saveStatus.removeAttribute('data-error'); }
+			return;
+		}
+		if (dom.saveStatus && !state.applyBusy) {
+			dom.saveStatus.textContent = draftRecoveryMessage() || 'Unsaved changes';
+			if (draftRecoveryMessage()) dom.saveStatus.setAttribute('data-error','true');
+			else dom.saveStatus.removeAttribute('data-error');
+		}
 		if (autosaveTimer) {
 			window.clearTimeout(autosaveTimer);
 		}
@@ -1156,6 +1196,11 @@
 	}
 
 	function saveSections(sections) {
+		if (draftMissingBaseline) {
+			if (dom.saveStatus) { dom.saveStatus.textContent = DRAFT_RECOVERY_HELP; dom.saveStatus.setAttribute('data-error','true'); }
+			saveAutosaveDraft();
+			return Promise.resolve(false);
+		}
 		if (!config.saveEndpoint || !config.postId || !config.saveNonce) {
 			window.alert('Save endpoint is missing.');
 			return Promise.resolve(false);
@@ -1226,6 +1271,10 @@
 				}
 
 				if (payload.data && payload.data.contentHash) config.contentHash = payload.data.contentHash;
+				savedDocument = documentFingerprint(payload.data && Array.isArray(payload.data.sections) ? payload.data.sections : sections,
+					payload.data && typeof payload.data.postTitle === 'string' ? payload.data.postTitle : submittedTitle,
+					payload.data && typeof payload.data.postSlug === 'string' ? payload.data.postSlug : submittedSlug, submittedTemplate);
+				draftConflict = false;
 
 				// Those blocks are gone from the page now, so they are no
 				// longer a discrepancy the next save has to explain.
@@ -1235,6 +1284,8 @@
 					queueAutosave();
 					if (dom.saveStatus) dom.saveStatus.textContent = 'Saved. Newer edits are still unsaved.';
 				} else {
+					documentDirty = false;
+					savedDocument = currentDocumentFingerprint();
 					clearAutosaveDraft();
 					if (dom.saveStatus) dom.saveStatus.textContent = 'All changes saved';
 				}
@@ -1252,8 +1303,8 @@
 			});
 	}
 
-	function getApplyPayloadSections() {
-		return state.sections.map(function(section) {
+	function getApplyPayloadSections(sections) {
+		return (sections || state.sections).map(function(section) {
 			var normalized = normalizeSection(section);
 
 			// A block the builder does not own travels as its original markup
@@ -1349,7 +1400,8 @@
 	function snapshotDocument() {
 		return {
 			sections: JSON.parse(JSON.stringify(state.sections)),
-			selectedUid: (state.sections[state.selectedIndex] || {}).uid || ''
+			selectedUid: (state.sections[state.selectedIndex] || {}).uid || '',
+			removedForeign: state.removedForeign
 		};
 	}
 
@@ -1380,6 +1432,7 @@
 	function restoreSnapshot(snap) {
 		if (canvasEditor) canvasEditor.clearSelection();
 		state.sections = snap.sections.map(normalizeSection);
+		state.removedForeign = snap.removedForeign || 0;
 		var idx = indexOfUid(snap.selectedUid);
 		state.selectedIndex = idx >= 0 ? idx : Math.min(state.selectedIndex, state.sections.length - 1);
 		if (state.selectedIndex < 0) state.selectedIndex = 0;
@@ -1415,15 +1468,23 @@
 		var insertAt = typeof afterIndex === 'number' ? afterIndex + 1 : state.sections.length;
 		state.sections.splice(insertAt, 0, createDefaultSection());
 		state.selectedIndex = insertAt;
+		state.visualMode = false;
+		state.showCode = true;
+		state.showPreview = true;
 		renderAll();
+		queueAutosave();
 	}
 
 	function duplicateSection(index) {
 		if (index < 0 || index >= state.sections.length) {
 			return;
 		}
-		pushHistory();
 		var copy = normalizeSection(state.sections[index]);
+		if(isForeign(copy) && window.wp && window.wp.blocks && window.gtPbCanvasEditor) {
+			try { var blocks=window.wp.blocks.parse(copy.serialized),valid=function(bs) { return bs.every(function(b) { return b.isValid!==false && valid(b.innerBlocks || []); }); };if(!valid(blocks))throw new Error('Invalid block');copy.serialized=window.wp.blocks.serialize(blocks.map(function(b) { return window.gtPbCanvasEditor.cloneNative(b,window.wp.blocks); })); }
+			catch(error) { if(canvasEditor)canvasEditor.notify('This section cannot be duplicated safely here. Use the WordPress editor.',true);return; }
+		}
+		pushHistory();
 		copy.uid = mintUid();
 		if (copy.content) {
 			copy.content = copy.content.replace(/id=(["'])([^"']+)\1/i, function(match, quote, idValue) {
@@ -1448,6 +1509,7 @@
 		state.sections.splice(index + 1, 0, copy);
 		state.selectedIndex = index + 1;
 		renderAll();
+		queueAutosave();
 	}
 
 	function deleteSection(index) {
@@ -1465,10 +1527,10 @@
 			)) {
 				return;
 			}
-			state.removedForeign += 1;
 		}
 
 		pushHistory();
+		if (isForeign(section)) state.removedForeign += 1;
 		state.sections.splice(index, 1);
 
 		if (!state.sections.length) {
@@ -1480,6 +1542,7 @@
 		}
 
 		renderAll();
+		queueAutosave();
 	}
 
 	function toggleCollapse(index) {
@@ -1521,6 +1584,7 @@
 			return;
 		}
 		selectSectionFromPreview(index);
+		if (canvasEditor && state.visualMode) canvasEditor.selectSectionRoot(state.sections[index].uid);
 		scrollPreviewToSection(index);
 	}
 
@@ -4796,10 +4860,12 @@
 					}
 					renderIndexList(); queuePreviewRender(0, true); queueAutosave();
 				},
-				addSection: function(serialized, afterUid) {
-					pushHistory(); var added = normalizeSection({ kind:'foreign',blockName:'core/group',label:'Visual section',serialized:serialized,rendered:'' });
+				addSection: function(serialized, afterUid, label) {
+					pushHistory(); var added = normalizeSection({ kind:'foreign',blockName:'core/group',label:label || 'Visual section',serialized:serialized,rendered:'' });
 					var index=afterUid ? indexOfUid(afterUid) : state.selectedIndex; if (index < 0) index=state.selectedIndex;
-					state.sections.splice(index + 1,0,added); state.selectedIndex=index + 1; renderAll(); queueAutosave(); return added.uid;
+					var only=state.sections[0],placeholder=state.sections.length===1 && !(config.initialSections || []).length && only && !isForeign(only) && !only.blockId && !only.blockSlug && !only.phpExec && !only.format && !only.visualData && !only.name && !only.collapsed && [only.content,only.css,only.js].every(function(value) { return !String(value || '').trim(); });
+					if(placeholder) { state.sections[0]=added;state.selectedIndex=0; }else { state.sections.splice(index + 1,0,added);state.selectedIndex=index + 1; }
+					renderAll(); queueAutosave(); return added.uid;
 				},
 				deleteSection: function(uid) { var index=indexOfUid(uid); if (index>=0) deleteSection(index); },
 				undo: undoDocument, redo: redoDocument, save: activateApply, canUndo: function() { return history.undo.length > 0; }, canRedo: function() { return history.redo.length > 0; },
@@ -4813,15 +4879,22 @@
 
 		var initial = Array.isArray(config.initialSections) ? config.initialSections : [];
 		var draft = getAutosaveDraft();
+		hydrateSections(initial);
+		savedDocument = currentDocumentFingerprint();
 
-		if (draft && window.confirm('An unsaved draft was recovered. Restore it?')) {
+		if (draft && window.confirm('An unsaved draft was recovered. Restore it?\n\nChoose Cancel to discard this draft and open the saved page.')) {
+			draftMissingBaseline = typeof draft.contentHash !== 'string' || !/^[a-f0-9]{64}$/.test(draft.contentHash);
+			draftConflict = !draftMissingBaseline && draft.contentHash !== config.contentHash;
+			if (!draftMissingBaseline) config.contentHash = draft.contentHash;
+			['pageTitle','pageSlug','pageTemplate'].forEach(function(field) { if (typeof draft[field] === 'string') state[field] = draft[field]; });
+			state.removedForeign = Number.isInteger(draft.removedForeign) && draft.removedForeign >= 0 ? draft.removedForeign : 0;
 			hydrateSections(draft.sections);
-			if (dom.saveStatus) dom.saveStatus.textContent = 'Recovered draft · unsaved changes';
+			queueAutosave();
+			if (dom.saveStatus) dom.saveStatus.textContent = draftRecoveryMessage() || (documentDirty ? 'Recovered draft · unsaved changes' : 'All changes saved');
 		} else {
 			if (draft) {
 				clearAutosaveDraft();
 			}
-			hydrateSections(initial);
 			if (dom.saveStatus) dom.saveStatus.textContent = 'All changes saved';
 		}
 
@@ -4881,8 +4954,9 @@
 
 		// Warn before leaving with unsaved changes
 		window.addEventListener('beforeunload', function(e) {
-			if (autosaveTimer) {
-				// There are pending autosave changes, which means edits exist
+			if (documentDirty) {
+				// Persist the latest edits even if the debounce has not fired.
+				saveAutosaveDraft();
 				e.preventDefault();
 				e.returnValue = '';
 			}
