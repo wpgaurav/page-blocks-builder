@@ -2,7 +2,7 @@ const {JSDOM}=require('jsdom');
 const canvas=require('../../../assets/js/canvas-editor');
 const layout=require('../../../assets/js/canvas-layout');
 const preview=require('../../../assets/js/preview-dom');
-module.exports = function mount(t, width = 1200, children, config = {}) {
+module.exports = function mount(t, width = 1200, children, config = {}, callbacks = {}) {
 	const page = new JSDOM('<div id="stage"><div class="md-pb-canvas-toolbar"></div></div><div id="panel"></div>',{url:'https://builder.test/',runScripts:'outside-only'});
 	t.after(()=>page.window.close());
 	const win = page.window, doc = win.document, messages = [], changes = [], viewports = [];
@@ -10,9 +10,9 @@ module.exports = function mount(t, width = 1200, children, config = {}) {
 	const root = block('core/group',{className:'pb-freeform pb-layout-a'},children || [block('gt-page-block/page-block',{name:'Page Blocks canvas styles',css:'.keep{color:red}'}),block('core/heading',{content:'A <strong>bold</strong> title',className:'pb-node-a'})]);
 	const sections = [{uid:'pb-group',kind:'foreign',blockName:'core/group',serialized:JSON.stringify([root])}];
 	const api = {getBlockType:name=>config.blockTypes && config.blockTypes[name] || ({supports:{typography:{fontSize:true},color:{text:true}}}),parse:JSON.parse,serialize:JSON.stringify,createBlock:block,cloneBlock:(b,a,children)=>block(b.name,a,children)};
-	win.gtPbCanvasLayout = layout; win.gtPbPreviewDom = preview;win.gtPbCanvasPresets=require('../../../assets/js/canvas-presets');
+	win.gtPbCanvasClipboard=require('../../../assets/js/canvas-clipboard');win.gtPbCanvasLayout = layout; win.gtPbPreviewDom = preview;win.gtPbCanvasPresets=require('../../../assets/js/canvas-presets');
 	const frame = {contentWindow:{innerWidth:width,postMessage:m=>messages.push(m)}};
-	const editor = canvas.mount({container:doc.querySelector('#panel'),canvas:doc.querySelector('#stage'),config:{icons:{},...config},wp:{blocks:api},getFrame:()=>frame,getSections:()=>sections,isEnabled:()=>true,selectSection:()=>{},onChange:(uid,patch)=>{changes.push(patch);Object.assign(sections.find(s=>s.uid===uid),patch);},addSection:(serialized,afterUid,label)=>{const uid='pb-new'+sections.length;sections.push({uid,kind:'foreign',blockName:'core/group',serialized,label});return uid;},deleteSection:()=>{},canUndo:()=>false,canRedo:()=>false,undo:()=>{},redo:()=>{},save:()=>{},setPreviewViewport:v=>viewports.push(v)});
+	const editor = canvas.mount({container:doc.querySelector('#panel'),canvas:doc.querySelector('#stage'),config:{icons:{},...config},wp:{blocks:api},getFrame:()=>frame,getSections:()=>sections,isEnabled:()=>true,selectSection:()=>{},onChange:(uid,patch)=>{changes.push(patch);Object.assign(sections.find(s=>s.uid===uid),patch);},addSection:(serialized,afterUid,label)=>{const uid='pb-new'+sections.length;sections.push({uid,kind:'foreign',blockName:'core/group',serialized,label});return uid;},deleteSection:()=>{},canUndo:()=>false,canRedo:()=>false,undo:()=>{},redo:()=>{},save:()=>{},setPreviewViewport:v=>viewports.push(v),...callbacks});
 	editor.sync([{uid:'pb-group',source:sections[0].serialized}]);
 	const select = path => editor.handleMessage({type:'pb_canvas_select',sectionUid:'pb-group',nativePath:path});
 	const field = name => doc.querySelector('[name="pb-canvas-' + name + '"]');

@@ -4,7 +4,7 @@ Tags: page builder, html blocks, css sections, gutenberg, visual builder
 Requires at least: 6.0
 Tested up to: 6.9.1
 Requires PHP: 8.1
-Stable tag: 4.0.0
+Stable tag: 4.1.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -73,6 +73,9 @@ Check **Load CSS from a file** to give a section its own stylesheet in `wp-conte
 
 == Upgrade Notice ==
 
+= 4.1.0 =
+Adds a blank canvas template for classic and block themes, a clearer library picker, optional Visual/Code conversion, better dragging, and element/section clipboard actions. Existing sections are not converted automatically. Converted native block code requires 4.1.0 or later.
+
 = 4.0.0 =
 Adds direct visual editing with native WordPress blocks, Auto and Freeform placement, media drops, and a compact Design inspector. Existing code sections, linked library blocks, and stored page content remain supported. Visual mode does not automatically convert old sections.
 
@@ -98,6 +101,17 @@ Major release. Back up your database first: the schema change is one-way. Requir
 Security release. Fixes privilege escalation in the block preview (any Author could execute PHP on sites with PHP blocks enabled) and restores certificate verification on the update channel. If you have PHP blocks turned on, update now. Requires PHP 8.1.
 
 == Changelog ==
+
+= 4.1.0 =
+
+* Added Blank canvas (no header or footer) across classic and block themes, retaining WordPress scripts/styles and authored content.
+* Improved the library picker with search, sorting, pagination, isolated previews, explicit independent-copy/linked insertion, and error recovery.
+* Added undoable Visual/Code section conversion. Preserve native block markup for exact restoration and retain unsupported HTML as code; refuse unsafe or ambiguous conversions without dropping content.
+* Added copy, cut, and paste for elements and sections, with keyboard shortcuts, safe Cut checks, independent native style identities, and an editor clipboard fallback.
+* Improved Auto/Freeform drag gestures with insertion cues, geometry-aware targets, edge scrolling, thresholds, direct image/container dragging, and cancellation cleanup.
+* Keep inspector width stable between Visual and Code mode and synchronize canvas selection with the inspector.
+* Added native starting sections, searchable insertion, Design/Layers tabs, parent navigation, color pickers, and named theme swatches.
+* Fixed responsive style precedence, nested rich-text editing, structural unsaved state, recovery baselines, native duplication, and nested preview scripts.
 
 = 4.0.0 =
 

@@ -1,0 +1,11 @@
+/* Portable clipboard envelopes. Native content stays WordPress block markup. */
+(function(root,factory){if(typeof module==='object'&&module.exports)module.exports=factory();else root.gtPbCanvasClipboard=factory();})(typeof window!=='undefined'?window:this,function(){
+ 'use strict';
+ var FORMAT='page-blocks-clipboard',LIMIT=2*1024*1024;
+ function encode(value){var text=JSON.stringify(Object.assign({format:FORMAT,version:1},value));if(text.length>LIMIT)throw new Error('This selection is too large for the clipboard. Export the page from Page settings.');return text;}
+ function decode(text){if(typeof text!=='string'||text.length>LIMIT)return null;try{var value=JSON.parse(text);if(value.format!==FORMAT||value.version!==1||!['section','blocks'].includes(value.kind))return null;if(value.kind==='section'&&(!value.section||typeof value.section!=='object'||Array.isArray(value.section)))return null;if(value.kind==='blocks'&&(typeof value.serialized!=='string'||typeof value.css!=='string'))return null;return value;}catch(error){return null;}}
+ function capture(api,block,roots){var keys=new Set(),inside=new Set(),css=[];function visit(b){inside.add(b.clientId);(String(b.attributes.className||'').match(/\bpb-(?:node|layout)-[a-z0-9]+\b/g)||[]).forEach(k=>keys.add(k));(b.innerBlocks||[]).forEach(visit);}visit(block);
+ function collect(b){if(!inside.has(b.clientId)&&b.name==='gt-page-block/page-block'){var snippets=String(b.attributes.css||'').match(/\/\* pb-visual:[a-z0-9-]+:start \*\/[\s\S]*?\/\* pb-visual:[a-z0-9-]+:end \*\//g)||[];snippets.forEach(rule=>{if(Array.from(keys).some(key=>rule.startsWith('/* pb-visual:'+key+'-')))css.push(rule);});}(b.innerBlocks||[]).forEach(collect);}roots.forEach(collect);return {kind:'blocks',serialized:api.serialize([block]),css:css.join('\n')};}
+ function materialize(api,payload,clone){var blocks=api.parse(payload.serialized),keys={};function valid(bs){return bs.every(b=>b.isValid!==false&&(b.innerBlocks||[]).every(child=>valid([child])));}if(!blocks.length||!valid(blocks))throw new Error('These blocks could not be pasted safely.');blocks=blocks.map(b=>clone(b,api,keys));var css=payload.css;Object.keys(keys).forEach(key=>{css=css.replace(new RegExp('\\b'+key+'\\b','g'),keys[key]);});return {blocks:blocks,css:css};}
+ return {encode:encode,decode:decode,capture:capture,materialize:materialize};
+});

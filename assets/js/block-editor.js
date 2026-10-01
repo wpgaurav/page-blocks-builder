@@ -344,7 +344,7 @@
 	}
 
 	function shouldUseServerPreview( attributes ) {
-		return !! ( attributes && ( attributes.phpExec || attributes.format ) );
+		return !! ( attributes && ( attributes.phpExec || attributes.format || attributes.nativeContent ) );
 	}
 
 	function requestServerPreviewPayload( attributes ) {
@@ -359,7 +359,8 @@
 			js: attributes && typeof attributes.js === 'string' ? attributes.js : '',
 			jsLocation: attributes && attributes.jsLocation === 'inline' ? 'inline' : 'footer',
 			format: !! ( attributes && attributes.format ),
-			phpExec: !! ( attributes && attributes.phpExec )
+			phpExec: !! ( attributes && attributes.phpExec ),
+			nativeContent: !! ( attributes && attributes.nativeContent )
 		};
 
 		var form = new window.URLSearchParams();
@@ -521,6 +522,7 @@
 			cssOutput:  { type: 'string', default: '' },
 			cssDefer:   { type: 'boolean', default: false },
 			visualData: { type: 'object', default: {} },
+			nativeContent: { type: 'boolean', default: false },
 			// Added in 3.0.0. These must mirror the PHP registration for the
 			// same reason the comment above gives.
 			name:              { type: 'string', default: '' },
@@ -1030,7 +1032,7 @@
 				}, viewMode === 'preview' ? 0 : 400 );
 
 				return function() { clearTimeout( timer ); };
-			}, [ viewMode, livePane, previewDark, linkedId, linkedRow, source.content, source.css, source.js, source.jsLocation, source.format, source.phpExec ] );
+			}, [ viewMode, livePane, previewDark, linkedId, linkedRow, source.content, source.css, source.js, source.jsLocation, source.format, source.phpExec, source.nativeContent ] );
 
 			// Copy the active tab's code to the clipboard.
 			function copyActiveCode() {
@@ -1055,6 +1057,10 @@
 
 			// Promote this block to a reusable library Page Block.
 			function saveAsReusable() {
+				if ( attributes.nativeContent ) {
+					if ( notices ) { notices.createErrorNotice( __( 'Converted WordPress blocks cannot be saved to the code library. Copy this section in the builder instead.' ), { type: 'snackbar' } ); }
+					return;
+				}
 				var title = window.prompt( __( 'Name this Page Block:' ), '' );
 				if ( ! title ) {
 					return;
@@ -1072,6 +1078,7 @@
 				form.set( 'output', attributes.output === 'file' ? 'file' : 'inline' );
 				form.set( 'php_exec', attributes.phpExec ? '1' : '' );
 				form.set( 'format', attributes.format ? '1' : '' );
+				form.set( 'nativeContent', attributes.nativeContent ? '1' : '' );
 
 				window.fetch( config.ajaxUrl || window.ajaxurl, {
 					method: 'POST',
@@ -1136,6 +1143,8 @@
 						// Copy semantics: this placement owns the code from
 						// here on, so any existing library link is dropped.
 						blockId: 0,
+						blockSlug: '',
+						nativeContent: false,
 						content: full.content || '',
 						css: full.css || '',
 						js: full.js || '',
@@ -1175,6 +1184,7 @@
 			function linkToLibrary( item ) {
 				props.setAttributes( {
 					blockId: item.id,
+					nativeContent: false,
 					// The slug travels; blockId is a site-local auto-increment.
 					// The builder already writes both, and render_block()
 					// prefers the slug, so the editor has to agree or the two
@@ -1216,7 +1226,8 @@
 						jsLocation: copy.jsLocation,
 						output:     copy.output,
 						format:     copy.format,
-						phpExec:    copy.phpExec
+						phpExec:    copy.phpExec,
+						nativeContent: false
 					} );
 					setMode( 'editor' );
 					if ( notices ) {
@@ -1625,9 +1636,9 @@
 							config.canSave && ! isPrototype && el( 'button', {
 								type: 'button',
 								className: 'md-page-block-bar-btn',
-								disabled: saving,
+								disabled: saving || !! attributes.nativeContent,
 								onClick: saveAsReusable,
-								title: __( 'Save a copy to the Page Blocks library' )
+								title: attributes.nativeContent ? __( 'Copy converted WordPress sections in the builder' ) : __( 'Save a copy to the Page Blocks library' )
 							}, saving ? __( 'Saving…' ) : __( 'Save to library' ) ),
 							el( 'button', {
 								type: 'button',

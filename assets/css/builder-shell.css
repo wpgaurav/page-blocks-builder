@@ -28,6 +28,7 @@
 	--pb-radius: 2px;
 	--pb-shadow: 0 2px 6px rgba(0, 0, 0, 0.12);
 	--pb-font-ui: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen-Sans, Ubuntu, Cantarell, "Helvetica Neue", sans-serif;
+	--pb-sidebar-width: 308px;
 	--pb-font-code: ui-monospace, SFMono-Regular, Menlo, Consolas, Monaco, "Liberation Mono", monospace;
 	color-scheme: light;
 }
@@ -310,7 +311,7 @@ html.dark body.md-page-blocks-builder-shell {
 
 .md-pb-main {
 	display: grid;
-	grid-template-columns: minmax(0, 1fr) 220px;
+	grid-template-columns: minmax(0, 1fr) var(--pb-sidebar-width);
 	min-height: 0;	min-width: 0;
 }
 
@@ -397,7 +398,7 @@ html.dark body.md-page-blocks-builder-shell {
 }
 
 .md-pb-index {
-	display: flex;
+	box-sizing: border-box;	display: flex;
 	flex-direction: column;
 	border-left: 1px solid var(--pb-border);
 	background: var(--pb-surface);
@@ -1067,7 +1068,7 @@ html.dark body.md-page-blocks-builder-shell {
 }
 
 .md-pb-shell.is-ai-open .md-pb-main {
-	grid-template-columns: 340px minmax(0, 1fr) 220px;
+	grid-template-columns: 340px minmax(0, 1fr) var(--pb-sidebar-width);
 }
 
 .md-pb-shell.is-ai-open.is-sidebar-hidden .md-pb-main {
@@ -1378,11 +1379,11 @@ html.dark body.md-page-blocks-builder-shell {
 	}
 
 	.md-pb-index {
-		width: 220px;
+		width: var(--pb-sidebar-width);
 	}
 
 	.md-pb-main {
-		grid-template-columns: minmax(0, 1fr) 220px;
+		grid-template-columns: minmax(0, 1fr) var(--pb-sidebar-width);
 	}
 }
 

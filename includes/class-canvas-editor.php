@@ -7,6 +7,12 @@ if ( ! defined( 'ABSPATH' ) ) {
 final class GT_PB_Canvas_Editor {
 	/** Recover the post-content layout omitted by the standalone editing shell. */
 	public static function template_layout( $post_id, $slug ) {
+		if ( 'page-blocks-full-builder.php' === $slug ) {
+			return array(
+				'css'       => 'body{margin:0;padding:0;}.pb-preview-content{box-sizing:border-box;display:flow-root;width:100%;max-width:none;margin:0;padding:0;}',
+				'className' => 'pb-preview-content',
+			);
+		}
 		if ( ! wp_is_block_theme() || ! function_exists( 'wp_get_layout_style' ) || ! function_exists( 'wp_style_engine_get_styles' ) ) {
 			return array();
 		}
@@ -65,7 +71,7 @@ final class GT_PB_Canvas_Editor {
 
 	public static function icons() {
 		$icons = array();
-		foreach ( array( 'layout', 'code', 'external-link', 'eye', 'layout-sidebar', 'settings', 'x', 'plus', 'typography', 'text-caption', 'photo', 'click', 'arrows-move', 'arrow-back-up', 'arrow-forward-up', 'copy', 'trash', 'grid-dots', 'chevron-up', 'chevron-down', 'bold', 'italic', 'link', 'letter-a', 'paint', 'text-size', 'box-padding', 'box-margin', 'arrows-horizontal', 'border-radius', 'align-left', 'align-center', 'align-right', 'device-desktop', 'device-tablet', 'device-mobile', 'info-circle' ) as $name ) {
+		foreach ( array( 'layout', 'code', 'external-link', 'eye', 'layout-sidebar', 'settings', 'x', 'plus', 'typography', 'text-caption', 'photo', 'click', 'arrows-move', 'arrow-back-up', 'arrow-forward-up', 'copy', 'trash', 'grid-dots', 'chevron-up', 'chevron-down', 'bold', 'italic', 'link', 'letter-a', 'paint', 'text-size', 'box-padding', 'box-margin', 'arrows-horizontal', 'border-radius', 'align-left', 'align-center', 'align-right', 'device-desktop', 'device-tablet', 'device-mobile', 'info-circle', 'cut', 'clipboard', 'arrows-exchange', 'books' ) as $name ) {
 			// phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents -- Trusted bundled local SVG, never a remote URL.
 			$icons[ $name ] = str_replace( '<svg', '<svg aria-hidden="true" focusable="false"', (string) file_get_contents( GT_PB_BUILDER_DIR . 'assets/icons/tabler/' . $name . '.svg' ) );
 		}
@@ -79,7 +85,11 @@ final class GT_PB_Canvas_Editor {
 		wp_enqueue_script( 'gt-pb-prototype-conversion', GT_PB_BUILDER_URL . 'assets/js/prototype-conversion.js', array( 'wp-blocks' ), filemtime( GT_PB_BUILDER_DIR . 'assets/js/prototype-conversion.js' ), true );
 		wp_enqueue_script( 'gt-pb-canvas-bridge', GT_PB_BUILDER_URL . 'assets/js/canvas-bridge.js', array(), filemtime( GT_PB_BUILDER_DIR . 'assets/js/canvas-bridge.js' ), true );
 		wp_enqueue_script( 'gt-pb-canvas-presets', GT_PB_BUILDER_URL . 'assets/js/canvas-presets.js', array( 'wp-blocks' ), filemtime( GT_PB_BUILDER_DIR . 'assets/js/canvas-presets.js' ), true );
-		wp_enqueue_script( 'gt-pb-canvas-editor', GT_PB_BUILDER_URL . 'assets/js/canvas-editor.js', array( 'wp-blocks', 'wp-block-library', 'gt-page-block-preview-dom', 'gt-pb-canvas-layout', 'gt-pb-canvas-bridge', 'gt-pb-prototype-conversion', 'gt-pb-canvas-presets' ), filemtime( GT_PB_BUILDER_DIR . 'assets/js/canvas-editor.js' ), true );
+		foreach ( array( 'canvas-conversion', 'canvas-clipboard' ) as $module ) {
+			wp_enqueue_script( 'gt-pb-' . $module, GT_PB_BUILDER_URL . 'assets/js/' . $module . '.js', array( 'wp-blocks' ), filemtime( GT_PB_BUILDER_DIR . 'assets/js/' . $module . '.js' ), true );
+		}
+		wp_enqueue_style( 'gt-pb-canvas-library', GT_PB_BUILDER_URL . 'assets/css/canvas-library.css', array(), filemtime( GT_PB_BUILDER_DIR . 'assets/css/canvas-library.css' ) );
+		wp_enqueue_script( 'gt-pb-canvas-editor', GT_PB_BUILDER_URL . 'assets/js/canvas-editor.js', array( 'wp-blocks', 'wp-block-library', 'gt-page-block-preview-dom', 'gt-pb-canvas-layout', 'gt-pb-canvas-bridge', 'gt-pb-prototype-conversion', 'gt-pb-canvas-presets', 'gt-pb-canvas-conversion', 'gt-pb-canvas-clipboard' ), filemtime( GT_PB_BUILDER_DIR . 'assets/js/canvas-editor.js' ), true );
 	}
 
 	/** Mark supported blocks while rendering a draft; never modify the saved markup. */

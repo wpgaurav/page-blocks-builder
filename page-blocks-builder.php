@@ -4,7 +4,7 @@
  * Plugin URI: https://gauravtiwari.org/product/gt-page-blocks-builder/
  * Update URI: https://gauravtiwari.org/product/gt-page-blocks-builder/
  * Description: Standalone visual Page Blocks builder with HTML/CSS/JS sections synced to Gutenberg block content.
- * Version: 4.0.0
+ * Version: 4.1.0
  * Author: Gaurav Tiwari
  * Author URI: https://gauravtiwari.org
  * Text Domain: page-blocks-builder
@@ -20,7 +20,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 if ( ! defined( 'GT_PB_BUILDER_VERSION' ) ) {
-	define( 'GT_PB_BUILDER_VERSION', '4.0.0' );
+	define( 'GT_PB_BUILDER_VERSION', '4.1.0' );
 }
 
 if ( ! defined( 'GT_PB_BUILDER_FILE' ) ) {
@@ -514,6 +514,7 @@ class GT_Page_Blocks_Builder {
 		require_once GT_PB_BUILDER_DIR . 'includes/class-section-css.php';
 		require_once GT_PB_BUILDER_DIR . 'includes/class-performance.php';
 		require_once GT_PB_BUILDER_DIR . 'includes/class-canvas-editor.php';
+		require_once GT_PB_BUILDER_DIR . 'includes/class-native-content.php';
 
 		$this->db = new gt_pb_db();
 		gt_pb_css_loader::init();
@@ -585,11 +586,10 @@ class GT_Page_Blocks_Builder {
 		add_action( 'gt_pb_block_saved', array( __CLASS__, 'flush_block_usage_counts' ) );
 		add_action( 'gt_pb_block_deleted', array( __CLASS__, 'flush_block_usage_counts' ) );
 
-		if ( ! wp_is_block_theme() ) {
-			add_filter( 'theme_page_templates', array( $this, 'register_page_templates' ) );
-			add_filter( 'template_include', array( $this, 'load_page_template' ) );
-			add_action( 'wp_head', array( $this, 'output_template_styles' ) );
-		}
+		// The blank canvas owns its document shell, so it also works with block themes.
+		add_filter( 'theme_templates', array( $this, 'register_page_templates' ), 10, 4 );
+		add_filter( 'template_include', array( $this, 'load_page_template' ) );
+		add_action( 'wp_head', array( $this, 'output_template_styles' ), 99 );
 
 		if ( ! is_admin() && $this->is_builder_request() ) {
 			add_filter( 'show_admin_bar', '__return_false' );
@@ -721,6 +721,7 @@ class GT_Page_Blocks_Builder {
 				'cssDefer'   => array( 'type' => 'boolean', 'default' => false ),
 				// Read-only compatibility for the unreleased visual prototype.
 				'visualData' => array( 'type' => 'object', 'default' => array() ),
+				'nativeContent' => array( 'type' => 'boolean', 'default' => false ),
 
 				// Added together in 3.0.0, deliberately. Each defaults to a
 				// falsy value, so existing post_content parses unchanged and
@@ -869,6 +870,11 @@ class GT_Page_Blocks_Builder {
 	 */
 	public function render_block( $attributes ) {
 		$attributes   = is_array( $attributes ) ? $attributes : array();
+		$native_content = ! empty( $attributes['nativeContent'] );
+		$native_valid = GT_PB_Native_Content::validate_section( $attributes );
+		if ( is_wp_error( $native_valid ) ) {
+			return '<!-- Page Blocks: converted content was not rendered because validation failed. -->';
+		}
 
 		// Reference mode: the block points at a library row, so render that
 		// row instead of the (empty) inline attributes. Blocks migrated from
@@ -939,7 +945,11 @@ class GT_Page_Blocks_Builder {
 			}
 		}
 
-		if ( $content !== '' ) {
+		if ( $content !== '' && $native_content ) {
+			// Native markup already carries its formatting. Never run wpautop or
+			// a second shortcode pass over the rendered WordPress block tree.
+			$output .= do_blocks( $content );
+		} elseif ( $content !== '' ) {
 			// Inline blocks live in post_content with no separately-stored
 			// save-time checksum, so a DB-only mutation of the post body could
 			// not be detected. PHP execution therefore needs a second opt-in
@@ -1190,6 +1200,8 @@ class GT_Page_Blocks_Builder {
 				'initialSections'    => $this->get_builder_sections_from_post( $post_id ),
 				'builderMode'        => isset( $_GET['pb_mode'] ) && 'visual' === $_GET['pb_mode'] ? 'visual' : 'code',
 				'canEditNativeBlocks' => current_user_can( 'manage_options' ),
+				'canManageLibrary' => current_user_can( 'manage_options' ),
+				'libraryEditUrl' => admin_url( 'admin.php?page=gt_pb_edit&id=' ),
 				'canUploadMedia' => current_user_can( 'upload_files' ),
 				'mediaEndpoint' => esc_url_raw( rest_url( 'wp/v2/media' ) ),
 				'maxUploadBytes' => wp_max_upload_size(),
@@ -1514,7 +1526,7 @@ class GT_Page_Blocks_Builder {
 			'name'              => $name,
 			'blockSlug'         => $block_slug,
 			'respectConditions' => ! empty( $section['respectConditions'] ),
-			'content'    => $this->decode_builder_unicode_sequences( $content ),
+			'content'    => ! empty( $section['nativeContent'] ) ? $content : $this->decode_builder_unicode_sequences( $content ),
 			'css'        => $this->decode_builder_unicode_sequences( $css ),
 			'js'         => $this->decode_builder_unicode_sequences( $js ),
 			'jsLocation' => $js_location,
@@ -1526,6 +1538,9 @@ class GT_Page_Blocks_Builder {
 		);
 		if ( ! empty( $section['visualData'] ) ) {
 			$normalized['visualData'] = $section['visualData'];
+		}
+		if ( ! empty( $section['nativeContent'] ) ) {
+			$normalized['nativeContent'] = true;
 		}
 		return $normalized;
 	}
@@ -1667,6 +1682,10 @@ class GT_Page_Blocks_Builder {
 		foreach ( $blocks as $block ) {
 			if ( self::is_page_block_name( (string) ( $block['blockName'] ?? '' ) ) ) {
 				$found[] = $block;
+				$attrs = (array) ( $block['attrs'] ?? array() );
+				if ( ! empty( $attrs['nativeContent'] ) && true === GT_PB_Native_Content::validate_section( $attrs ) ) {
+					$found = array_merge( $found, self::find_page_blocks( parse_blocks( (string) $attrs['content'] ) ) );
+				}
 			}
 
 			if ( ! empty( $block['innerBlocks'] ) && is_array( $block['innerBlocks'] ) ) {
@@ -1690,6 +1709,7 @@ class GT_Page_Blocks_Builder {
 	 */
 	private function build_preview_payload( $sections, $allow_php = false, $post_id = 0 ) {
 		$php_stripped     = false;
+		$native_notice    = '';
 		$html_output      = array();
 		$css_output       = array();
 		$js_inline_output = array();
@@ -1698,6 +1718,11 @@ class GT_Page_Blocks_Builder {
 		foreach ( (array) $sections as $section ) {
 			$section = is_array( $section ) ? $section : array();
 			if ( ! empty( $section['collapsed'] ) ) {
+				continue;
+			}
+			$native_valid = GT_PB_Native_Content::validate_section( $section );
+			if ( is_wp_error( $native_valid ) ) {
+				$native_notice = $native_valid->get_error_message();
 				continue;
 			}
 
@@ -1759,7 +1784,22 @@ class GT_Page_Blocks_Builder {
 			$php_exec    = ! empty( $section['phpExec'] );
 			$js_location = isset( $section['jsLocation'] ) && $section['jsLocation'] === 'inline' ? 'inline' : 'footer';
 
-			if ( $content !== '' ) {
+			if ( ! empty( $section['nativeContent'] ) ) {
+				$outer_scripts = $this->footer_scripts;
+				$outer_css = $this->inline_css_done;
+				$this->footer_scripts = array();
+				$this->inline_css_done = array();
+				try {
+					$rendered = $this->render_native_preview_section( $content, $section, $post_id, true );
+					$html_output[] = $rendered['html'];
+					foreach ( $rendered['scripts'] as $key => $script ) {
+						$js_footer_output[ $key ] = self::minify_js( $script );
+					}
+				} finally {
+					$this->footer_scripts = $outer_scripts;
+					$this->inline_css_done = $outer_css;
+				}
+			} elseif ( $content !== '' ) {
 				// Only run PHP when the caller established the authority for it.
 				// Everyone else previews with the tags stripped, which is what
 				// execute_php() does when handed an empty checksum.
@@ -1801,9 +1841,9 @@ class GT_Page_Blocks_Builder {
 			'jsInline'    => implode( ";\n", $js_inline_output ),
 			'jsFooter'    => implode( ";\n", $js_footer_output ),
 			'phpStripped' => $php_stripped,
-			'notice'      => $php_stripped
+			'notice'      => $native_notice ?: ( $php_stripped
 				? __( 'PHP in this section was not executed in the preview. Running PHP requires administrator access.', 'page-blocks-builder' )
-				: '',
+				: '' ),
 		);
 	}
 
@@ -1813,10 +1853,12 @@ class GT_Page_Blocks_Builder {
 	 * @param string $raw Native block markup.
 	 * @param array  $section Builder section.
 	 * @param int    $post_id Previewed post.
+	 * @param bool   $code Whether the native markup is edited as code.
 	 * @return array{html: string, scripts: array<string, string>}
 	 */
-	private function render_native_preview_section( string $raw, array $section, int $post_id ): array {
-		$html = $this->preview_section_html( GT_PB_Canvas_Editor::preview( $raw, $section['uid'] ?? '' ), $section, $post_id );
+	private function render_native_preview_section( string $raw, array $section, int $post_id, bool $code = false ): array {
+		$rendered = $code ? do_blocks( $raw ) : GT_PB_Canvas_Editor::preview( $raw, $section['uid'] ?? '' );
+		$html = $this->preview_section_html( $rendered, $section, $post_id );
 		return array( 'html' => $html, 'scripts' => $this->footer_scripts );
 	}
 
@@ -1852,6 +1894,10 @@ class GT_Page_Blocks_Builder {
 		$nonce = isset( $_POST['nonce'] ) ? sanitize_text_field( wp_unslash( $_POST['nonce'] ) ) : '';
 		if ( ! wp_verify_nonce( $nonce, 'gt_pb_save_to_library' ) || ! current_user_can( 'manage_options' ) ) {
 			wp_send_json_error( array( 'message' => __( 'You do not have permission to save to the library.', 'page-blocks-builder' ) ), 403 );
+		}
+
+		if ( ! empty( $_POST['nativeContent'] ) || ! empty( $_POST['native_content'] ) ) {
+			wp_send_json_error( array( 'message' => __( 'Converted WordPress blocks cannot be saved to the code library. Copy this section in the builder instead.', 'page-blocks-builder' ) ), 400 );
 		}
 
 		$title = isset( $_POST['title'] ) ? sanitize_text_field( wp_unslash( $_POST['title'] ) ) : '';
@@ -1946,6 +1992,10 @@ class GT_Page_Blocks_Builder {
 			}
 
 			$normalized = $this->normalize_builder_section( $section );
+			$native_valid = GT_PB_Native_Content::validate_section( $normalized );
+			if ( is_wp_error( $native_valid ) ) {
+				wp_send_json_error( array( 'message' => $native_valid->get_error_message() ), 400 );
+			}
 			$sections[] = $normalized;
 
 			$attrs = $normalized;
@@ -2142,6 +2192,10 @@ class GT_Page_Blocks_Builder {
 				continue;
 			}
 			$normalized = $this->normalize_builder_section( $section );
+			$native_valid = GT_PB_Native_Content::validate_section( $normalized );
+			if ( is_wp_error( $native_valid ) ) {
+				wp_send_json_error( array( 'message' => $native_valid->get_error_message() ), 400 );
+			}
 			$normalized['uid'] = isset( $section['uid'] ) && is_string( $section['uid'] ) ? $section['uid'] : '';
 			$normalized['collapsed'] = ! empty( $section['collapsed'] );
 			$normalized['kind'] = 'foreign' === ( $section['kind'] ?? '' ) ? 'foreign' : 'block';
@@ -2292,13 +2346,13 @@ class GT_Page_Blocks_Builder {
 	 * Output CSS for page-blocks templates.
 	 */
 	public function output_template_styles() {
-		if ( ! is_singular() ) {
+		if ( ! is_singular() || $this->is_builder_request() ) {
 			return;
 		}
 
 		$slug = get_page_template_slug();
 
-		if ( $slug === 'page-blocks-builder.php' ) {
+		if ( $slug === 'page-blocks-builder.php' && ! wp_is_block_theme() ) {
 			echo '<style id="gt-pb-builder-template">'
 				. '.page-blocks-main{max-width:none;padding:0;margin:0;}'
 				. '.entry-title,.page-title,.post-title{display:none;}'
@@ -2309,7 +2363,7 @@ class GT_Page_Blocks_Builder {
 		if ( $slug === 'page-blocks-full-builder.php' ) {
 			echo '<style id="gt-pb-full-builder-template">'
 				. 'body.page-blocks-full-builder{margin:0;padding:0;}'
-				. '.page-blocks-main{max-width:none;padding:0;margin:0;}'
+				. 'body.page-blocks-full-builder>main.page-blocks-main{box-sizing:border-box;display:flow-root;width:100%;max-width:none;padding:0;margin:0;}'
 				. '</style>' . "\n";
 		}
 	}
@@ -2317,12 +2371,21 @@ class GT_Page_Blocks_Builder {
 	/**
 	 * Register page templates for Page Blocks Builder.
 	 *
-	 * @param array $templates Existing templates.
+	 * @param array         $templates Existing templates.
+	 * @param WP_Theme|null $theme     Theme being queried.
+	 * @param WP_Post|null  $post      Current post, when available.
+	 * @param string        $post_type Post type being queried.
 	 * @return array
 	 */
-	public function register_page_templates( $templates ) {
-		$templates['page-blocks-builder.php']     = __( 'Page Blocks Builder', 'page-blocks-builder' );
-		$templates['page-blocks-full-builder.php'] = __( 'Full Page Builder', 'page-blocks-builder' );
+	public function register_page_templates( $templates, $theme = null, $post = null, $post_type = 'page' ) {
+		if ( 'page' !== $post_type && ! in_array( $post_type, gt_page_blocks_builder_post_types(), true ) ) {
+			return $templates;
+		}
+		if ( ! wp_is_block_theme() ) {
+			$templates['page-blocks-builder.php'] = __( 'Page Blocks Builder', 'page-blocks-builder' );
+		}
+		// Keep the original slug so existing Full Page Builder pages need no migration.
+		$templates['page-blocks-full-builder.php'] = __( 'Blank canvas (no header or footer)', 'page-blocks-builder' );
 		return $templates;
 	}
 
@@ -2333,10 +2396,14 @@ class GT_Page_Blocks_Builder {
 	 * @return string
 	 */
 	public function load_page_template( $template ) {
+		// The standalone editor already supplied its own document at priority zero.
+		if ( $this->is_builder_request() ) {
+			return $template;
+		}
 		if ( is_singular() ) {
 			$slug = get_page_template_slug();
 
-			if ( $slug === 'page-blocks-builder.php' ) {
+			if ( $slug === 'page-blocks-builder.php' && ! wp_is_block_theme() ) {
 				$file = GT_PB_BUILDER_DIR . 'templates/page-blocks-builder.php';
 				if ( file_exists( $file ) ) {
 					return $file;

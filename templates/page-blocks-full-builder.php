@@ -1,9 +1,9 @@
 <?php
 /**
- * Template Name: Full Page Builder
+ * Template Name: Blank canvas (no header or footer)
  * Template Post Type: post, page, product, snippet, ebook, study_notes, deal, fluent-products, landing_page, portfolio, event, course, lesson
  *
- * Removes header and footer for complete layout control.
+ * Removes theme header, footer, title, and content width constraints.
  * Retains head, body, wp_head, and wp_footer for SEO, scripts, and styles.
  *
  * @package GT_Page_Blocks_Builder

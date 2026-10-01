@@ -187,8 +187,10 @@ test('the click synthesized after a Move gesture does not clear the selected ele
 	root.getBoundingClientRect=()=>({left:0,right:1024,top:0,bottom:400,width:1024,height:400});
 	b.h.getBoundingClientRect=()=>({left:24,right:224,top:64,bottom:104,width:200,height:40});b.h.click();
 	b.doc.querySelector('[data-pb-move]').dispatchEvent(new b.win.MouseEvent('pointerdown',{bubbles:true,button:0,clientX:40,clientY:40}));
+	assert.equal(b.doc.querySelector('[data-pb-ghost]'),null);
+	b.win.dispatchEvent(new b.win.MouseEvent('pointermove',{clientX:80,clientY:80}));
 	assert.equal(b.doc.querySelector('[data-pb-ghost]').style.gridArea,'auto');
-	b.win.dispatchEvent(new b.win.MouseEvent('pointermove',{clientX:80,clientY:80}));b.win.dispatchEvent(new b.win.MouseEvent('pointerup'));
+	b.win.dispatchEvent(new b.win.MouseEvent('pointerup'));
 	b.doc.body.click();assert.equal(b.messages.filter(m=>m.type==='pb_canvas_clear').length,0);
 	assert.equal(b.messages.filter(m=>m.type==='pb_canvas_layout').length,1);
 });

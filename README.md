@@ -6,7 +6,7 @@ Build, reuse, and place custom HTML/CSS/JS sections anywhere in WordPress — th
 
 Originally part of Marketers Delight's Page Blocks dropin (2018–2026, © Kolakube), now a standalone plugin.
 
-**Requires:** WordPress 6.0+, PHP 8.1+ · **Current version:** 4.0.0
+**Requires:** WordPress 6.0+, PHP 8.1+ · **Current version:** 4.1.0
 
 ---
 
@@ -88,7 +88,7 @@ Page Blocks has two editing modes for the same WordPress page:
 
 See the [visual and UX audit](docs/plans/2026-09-30-builder-ux-audit.md) for the local findings, fixes, verification, and remaining coverage limits.
 
-### Everyday visual editing (in development)
+### Everyday visual editing
 
 Start with a Blank, Introduction, Three columns, Call to action, or Questions and answers section, or add your first block directly. The Add menu searches both blocks and starting sections. New Auto blocks go after the selected item; Freeform retains its desktop positioning tools.
 
@@ -97,6 +97,14 @@ The inspector opens Design controls first. Switch to Layers to navigate the nati
 Recovery drafts retain their original saved-page baseline and page settings. Conflicting or older hashless drafts remain available to inspect and export, with protection against overwriting newer work. Structural edits now participate in unsaved state, recovery, and undo.
 
 See the [audit and prioritized plan](docs/plans/2026-10-01-everyday-builder-audit.md) for the completed work and follow-up milestones.
+
+### Blank canvas and connected workflows
+
+Choose **Page settings → Template → Blank canvas (no header or footer)** for a page containing only your content. It works with classic and block themes and keeps WordPress asset hooks active.
+
+The **Library** picker is also available in the canvas Add menu. Preview a section, then insert an independent copy or a linked section. Selected-section controls offer **Convert to Code** and **Convert to Visual**. Native layouts retain WordPress block comments for exact restoration; simple HTML becomes editable native blocks, while unsupported markup remains code. PHP, dynamic bindings, shared open containers, and other ambiguous conversions are refused with the original intact. Converted block code requires 4.1.0 and uses the clipboard for reuse; the existing library continues to store ordinary code.
+
+Use the Copy/Cut/Paste buttons or Command/Ctrl+C/X/V outside text inputs. Text and code editing keep normal clipboard behavior. Native copies have independent styling identities; failed clipboard access never removes a cut target. Auto movement reorders within its container; Cut/Paste moves content between containers and sections. Freeform keeps its existing positioning and snapping tools.
 
 ### Compatibility with the visual prototype
 

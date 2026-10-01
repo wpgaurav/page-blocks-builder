@@ -189,7 +189,7 @@
 				var blocks = tree(s), found = blocks && locate(blocks,selection.nativePath);
 				return options.config.canEditNativeBlocks !== false && found && SUPPORTED.includes(found.block.name) ? { section:s,blocks:blocks,found:found,block:found.block } : null;
 			}
-			if (s.kind === 'foreign' || s.blockId || s.phpExec || s.format || s.visualData) return null;
+			if (s.kind === 'foreign' || s.blockId || s.phpExec || s.format || s.visualData || s.nativeContent) return null;
 			var source = win.gtPbPreviewDom.sourceElement(s.content, selection.sourcePath || []);
 			return source && source.tag === selection.tagName ? {section:s,source:source} : null;
 		}
@@ -295,7 +295,7 @@
 			}
 			var scope = layoutKey(group), css = win.gtPbCanvasLayout.css(scope,geometry,message.width,Math.max(message.height,...geometry.map(function(e) { return e.y + e.h + 24; })),message.precise);
 			if (!css) return;
-			var styleBlock = helper(group,api); styleBlock.attributes.css = replaceLayoutCss(styleBlock.attributes.css || '',css);
+			var styleBlock = helper(group,api); styleBlock.attributes.css = replaceLayoutCss(styleBlock.attributes.css || '',css);if(pending && pending.clipboardCss)styleBlock.attributes.css+='\n'+pending.clipboardCss;
 			if (selection && selectedId) selection.nativePath = findPath(blocks,selectedId);
 			commit(s,blocks,true,true); notify(pending && pending.action === 'activate' ? 'Freeform layout enabled. Drag the Move handle, resize, or use arrow keys. Mobile keeps the block reading order.' : 'Layout updated.');
 		}
@@ -352,6 +352,36 @@
 			if (mime.startsWith('video/')) return api.createBlock('core/video',{id:media.id,src:url});
 			if (mime.startsWith('audio/')) return api.createBlock('core/audio',{id:media.id,src:url});
 			var title=doc.createElement('template'); title.innerHTML=media.title && media.title.rendered || 'Download file'; return api.createBlock('core/file',{id:media.id,href:url,fileName:title.content.textContent,displayPreview:false});
+		}
+		async function copySelection(cut) {
+			var s=current();
+			if(selection && selection.sourcePath) {
+				if(!s || !s.source || !options.clipboardWrite){notify('Use the section Copy action for generated content.',true);return;}
+				var source=s.source,start=source.openStart,end=source.openEnd;
+				if(typeof source.closeStart==='number'){var close=s.section.content.slice(source.closeStart).match(/^<\/[^>]+>/);if(!close){notify('This element has no complete source to copy.',true);return;}end=source.closeStart+close[0].length;}
+				else if(!/^(img|hr|br|input|source)$/.test(source.tag)){notify('Copy the whole section when an element continues across sections.',true);return;}
+				var original=s.section.content,payload={kind:'section',section:{kind:'block',content:original.slice(start,end),css:s.section.css || '',js:'',name:'Copied '+source.tag}};
+				try{var system=await options.clipboardWrite(payload);if(cut){if(!system){notify('Copied within this editor. Allow clipboard access before cutting.',true);return;}var latest=section(s.section.uid);if(!latest || latest.content!==original){notify('Copied. The source changed before Cut finished, so it was kept.',true);return;}options.onChange(s.section.uid,{content:original.slice(0,start)+original.slice(end)},true);selection=null;render();}notify((cut?'HTML element cut.':'HTML element copied.')+(s.section.js?' Use section Copy to include its scripts.':''));}catch(error){notify(error.message,true);}return;
+			}
+			if(!s || !s.block || !s.found.parent) { if(options.copySection)return options.copySection(cut,selection && selection.sectionUid);return; }
+			var codec=win.gtPbCanvasClipboard;if(!codec || !options.clipboardWrite)return;
+			var before=s.section.serialized,reference=copy(selection),payload=codec.capture(api,s.block,s.blocks);
+			try{var system=await options.clipboardWrite(payload);if(cut){if(!system){notify('Copied within this editor. Allow clipboard access before cutting.',true);return;}if(!section(s.section.uid) || section(s.section.uid).serialized!==before || !selection || selection.sectionUid!==reference.sectionUid || selection.nativePath!==reference.nativePath){notify('Copied. The selection changed before Cut finished, so the element was kept.',true);return;}action('delete');}notify(cut?'Element cut. Paste to move it.':system?'Element copied.':'Copied within this editor.');}catch(error){notify(error.message,true);}
+		}
+		async function pasteClipboard(payload) {
+			try{
+				if(!payload)payload=await options.clipboardRead();
+				if(payload.kind==='section'){options.pasteSection(payload);notify('Section pasted.');return;}
+				if(options.config.canEditNativeBlocks===false)throw new Error('Use the WordPress editor to paste native blocks with your permissions.');
+				var parsed=win.gtPbCanvasClipboard.materialize(api,payload,cloneNative),s=options.isEnabled()?current():null,parent=insertionGroup(s);
+				if(!parent){var root=api.createBlock('core/group',{tagName:'section',metadata:{name:'Pasted elements'},layout:{type:'default'}},parsed.blocks);if(parsed.css)helper(root,api).attributes.css=parsed.css;var uid=options.addSection(api.serialize([root]),selection && selection.sectionUid,'Pasted elements');selection={sectionUid:uid,nativePath:'0'};inspectorView='design';render();notify('Elements pasted into a new section.');return;}
+				if(/\bpb-freeform\b/.test(parent.attributes.className || '')){
+					if(frameWidth()<=768)throw new Error('Switch to Desktop to paste into a Freeform layout.');
+					pendingMeasure={sectionUid:s.section.uid,action:'insert',blocks:parsed.blocks,clipboardCss:parsed.css};frameMessage({type:'pb_canvas_measure',sectionUid:s.section.uid,path:findPath(s.blocks,parent.clientId)});return;
+				}
+				var anchor=s.block;while(anchor && anchor!==parent && !parent.innerBlocks.includes(anchor)){var found=locate(s.blocks,findPath(s.blocks,anchor.clientId));anchor=found && found.parent;}
+				var index=anchor && anchor!==parent?parent.innerBlocks.indexOf(anchor)+1:parent.innerBlocks.length;parent.innerBlocks.splice(index,0,...parsed.blocks);if(parsed.css)helper(parent,api).attributes.css+='\n'+parsed.css;selection={sectionUid:s.section.uid,nativePath:findPath(s.blocks,parsed.blocks[0].clientId)};inspectorView='design';commit(s.section,s.blocks,true,true);notify('Elements pasted.');
+			}catch(error){notify(error.message,true);}
 		}
 		async function dropFiles(message) {
 			if (options.config.canUploadMedia === false || options.config.canEditNativeBlocks === false) { notify('With your current permissions, add media through the WordPress editor.',true); return; }
@@ -450,7 +480,7 @@
 			breadcrumbs(s);
 			var title = doc.createElement('div'); title.className = 'pb-canvas-selection-title'; title.textContent = s.block ? LABELS[s.block.name] || s.block.name : selection.tagName.toUpperCase(); panel.appendChild(title);
 			if (s.block) {
-				var actions = doc.createElement('div'); actions.className = 'pb-canvas-actions'; [['up','Move up in reading order','chevron-up'],['down','Move down in reading order','chevron-down'],['duplicate','Duplicate','copy'],['delete','Delete','trash']].forEach(function(a) { var b=button(a[1],a[2],function() { action(a[0]); }); if (a[0] === 'up' || a[0] === 'down') { var next=neighbor(s,a[0] === 'up' ? -1 : 1); b.disabled = next < 0 || next >= s.found.list.length; } if (a[0] === 'duplicate' && s.found.parent && /\bpb-freeform\b/.test(s.found.parent.attributes.className || '') && frameWidth() <= 768) { b.disabled = true; b.title='Switch to a desktop preview to duplicate this freeform element.'; } actions.appendChild(b); }); panel.appendChild(actions);
+				var actions = doc.createElement('div'); actions.className = 'pb-canvas-actions'; [['up','Move up in reading order','chevron-up'],['down','Move down in reading order','chevron-down'],['duplicate','Duplicate','copy'],['delete','Delete','trash']].forEach(function(a) { var b=button(a[1],a[2],function() { action(a[0]); }); if (a[0] === 'up' || a[0] === 'down') { var next=neighbor(s,a[0] === 'up' ? -1 : 1); b.disabled = next < 0 || next >= s.found.list.length; } if (a[0] === 'duplicate' && s.found.parent && /\bpb-freeform\b/.test(s.found.parent.attributes.className || '') && frameWidth() <= 768) { b.disabled = true; b.title='Switch to a desktop preview to duplicate this freeform element.'; } actions.appendChild(b); }); [['Copy element','copy',function(){copySelection(false);}],['Cut element','cut',function(){copySelection(true);}],['Paste elements','clipboard',function(){pasteClipboard();}]].forEach(function(item){actions.appendChild(button(item[0],item[1],item[2]));});panel.appendChild(actions);
 				if(inspectorNavigation(s)) { options.container.scrollTop=0;return; }
 			}
 			var contentGroup = group('Content'), attrs = s.block && s.block.attributes;
@@ -532,7 +562,7 @@
 		var gridButton = button('Grid','grid-dots',function() { grid = !grid; this.setAttribute('aria-pressed',grid ? 'true' : 'false'); sync(); }); gridButton.setAttribute('aria-pressed','false'); rail.appendChild(gridButton);
 		var undoButton = button('Undo','arrow-back-up',function() { options.undo(); render(); }), redoButton = button('Redo','arrow-forward-up',function() { options.redo(); render(); }); rail.append(undoButton,redoButton);
 		function updateHistory() { if (undoButton) undoButton.disabled = !options.canUndo(); if (redoButton) redoButton.disabled = !options.canRedo(); }
-		var paletteHeading=doc.createElement('div');paletteHeading.className='pb-canvas-palette-heading';var paletteTitle=doc.createElement('strong');paletteTitle.textContent='Add to your page';paletteHeading.append(paletteTitle,button('Close Add menu','x',function() { showPalette(false);addButton.focus(); }));palette.appendChild(paletteHeading);
+		var paletteHeading=doc.createElement('div');paletteHeading.className='pb-canvas-palette-heading';var paletteTitle=doc.createElement('strong');paletteTitle.textContent='Add to your page';paletteHeading.append(paletteTitle,button('Close Add menu','x',function() { showPalette(false);addButton.focus(); }));palette.appendChild(paletteHeading);if(options.openLibrary){var libraryButton=button('Browse library','books',function(){showPalette(false);options.openLibrary();});palette.appendChild(libraryButton);}
 		var paletteSearch=doc.createElement('input');paletteSearch.type='search';paletteSearch.name='pb-canvas-search';paletteSearch.className='pb-canvas-search';paletteSearch.placeholder='Search blocks and sections';paletteSearch.setAttribute('aria-label','Search blocks and sections');paletteSearch.addEventListener('input',updatePalette);palette.appendChild(paletteSearch);
 		var paletteHint=doc.createElement('p');palette.appendChild(paletteHint);
 		var blockOptions=doc.createElement('section');blockOptions.className='pb-canvas-palette-group';blockOptions.innerHTML='<strong>Blocks</strong>';var blockGrid=doc.createElement('div');blockGrid.className='pb-canvas-block-options';blockOptions.appendChild(blockGrid);palette.appendChild(blockOptions);
@@ -553,10 +583,11 @@
 		function handleMessage(message) {
 			if (message && message.type === 'pb_canvas_files_disabled') { notify('Switch to Visual mode to drop media onto the page.',true); return true; }
 			if (!message || (!options.isEnabled() && message.type !== 'pb_canvas_text')) return false;
+			if(message.type==='pb_canvas_clipboard'){if(message.sectionUid){if(!fresh(message.sectionUid))return true;selection=message;}if(message.action==='paste'){if(options.clipboardRead)options.clipboardRead(message.text).then(pasteClipboard).catch(function(error){notify(error.message,true);});}else copySelection(message.action==='cut');return true;}
 			if (message.type === 'pb_canvas_clear') { selection = null; showPalette(false); render(); return true; }
 			if (message.type === 'pb_canvas_inspect') { render(); var input=panel.querySelector('input,textarea,select'); if (input) input.focus(); return true; }
 			if (message.type === 'pb_canvas_viewport') { widthNote.textContent=Math.round(message.width) + 'px'; widthNote.setAttribute('aria-label','Canvas width ' + Math.round(message.width) + ' pixels'); var mobile=message.width <= 768; if (mobile !== mobilePreview) { mobilePreview=mobile; render(); if (!palette.hidden) updatePalette(); } return true; }
-			if (message.type === 'pb_canvas_select') { if (!fresh(message.sectionUid)) return true; options.selectSection(message.sectionUid); selection = message; status.hidden = true; showPalette(false); render(); return true; }
+			if (message.type === 'pb_canvas_select') { if (!fresh(message.sectionUid)) return true; options.selectSection(message.sectionUid); selection = message; status.hidden = true; showPalette(false); render(); sync(); return true; }
 			if (message.type === 'pb_canvas_measure_result') { if (pendingMeasure && pendingMeasure.sectionUid === message.sectionUid) { var p=pendingMeasure; pendingMeasure=null; layoutCommit(message,p); } return true; }
 			if (message.type === 'pb_canvas_layout') { layoutCommit(message); return true; }
 			if (message.type === 'pb_canvas_reorder') { reorder(message); return true; }
@@ -573,12 +604,12 @@
 		}
 		function sync(snapshot) {
 			if (snapshot) { previewReady=true; snapshot.forEach(function(s) { snapshots.set(s.uid,s.source); }); }
-			frameMessage({type:'pb_canvas_mode',enabled:options.isEnabled() && previewReady,paused:options.isEnabled() && !previewReady,nativeEditable:options.config.canEditNativeBlocks !== false,grid:grid,editableSections:options.getSections().filter(function(s) { return s.kind !== 'foreign' && !s.blockId && !s.phpExec && !s.format && !s.visualData; }).map(function(s) { return s.uid; })});
+			frameMessage({type:'pb_canvas_mode',enabled:options.isEnabled() && previewReady,paused:options.isEnabled() && !previewReady,nativeEditable:options.config.canEditNativeBlocks !== false,grid:grid,editableSections:options.getSections().filter(function(s) { return s.kind !== 'foreign' && !s.blockId && !s.phpExec && !s.format && !s.visualData && !s.nativeContent; }).map(function(s) { return s.uid; })});
 			if (selection && selection.nativePath) frameMessage({type:'pb_canvas_select_native',sectionUid:selection.sectionUid,path:selection.nativePath});
 			else if (selection && selection.sourcePath) frameMessage({type:'pb_canvas_select_source',sectionUid:selection.sectionUid,path:selection.sourcePath,tagName:selection.tagName});
 			else if (!selection) frameMessage({type:'pb_canvas_clear'});
 		}
-		return { render:render, handleMessage:handleMessage, sync:sync, notify:notify, selectSectionRoot:function(uid) { var target=section(uid);if(!target || target.kind!=='foreign')return;activeSectionUid=uid;selection={sectionUid:uid,nativePath:'0'};inspectorView='design';options.container.scrollTop=0;render();sync(); }, updateHistory:updateHistory, clearSelection:function() { selection=null; }, invalidate:function() { previewReady=false; snapshots.clear(); selection=null; frameMessage({type:'pb_canvas_clear'}); sync(); render(); } };
+		return { copySelection:copySelection, pasteClipboard:pasteClipboard, render:render, handleMessage:handleMessage, sync:sync, notify:notify, selectSectionRoot:function(uid) { var target=section(uid);if(!target || target.kind!=='foreign')return;activeSectionUid=uid;selection={sectionUid:uid,nativePath:'0'};inspectorView='design';options.container.scrollTop=0;render();sync(); }, updateHistory:updateHistory, clearSelection:function() { selection=null; }, invalidate:function() { previewReady=false; snapshots.clear(); selection=null; frameMessage({type:'pb_canvas_clear'}); sync(); render(); } };
 	}
 	function cleanInline(html,doc) {
 		var holder = doc.createElement('div'), output = doc.createElement('div'), hasText = false, lineBreak = false, pendingBreak = false; holder.innerHTML = html;

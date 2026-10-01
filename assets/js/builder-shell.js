@@ -142,6 +142,9 @@
 			// Non-zero blockId means the section renders a Page Blocks library
 			// row; its own content/css/js are ignored by render_block().
 			blockId: 0,
+			blockSlug: '',
+			respectConditions: false,
+			nativeContent: false,
 			content: '',
 			css: '',
 			js: '',
@@ -173,6 +176,9 @@
 		// rather than only the parts the builder can edit.
 		section.rendered = typeof source.rendered === 'string' ? source.rendered : '';
 		section.blockId = Math.max(0, parseInt(source.blockId, 10) || 0);
+		section.blockSlug = typeof source.blockSlug === 'string' ? source.blockSlug : '';
+		section.respectConditions = !!source.respectConditions;
+		section.nativeContent = !!source.nativeContent;
 		section.content = typeof source.content === 'string' ? source.content : '';
 		section.css = typeof source.css === 'string' ? source.css : '';
 		section.js = typeof source.js === 'string' ? source.js : '';
@@ -293,7 +299,7 @@
 	 * @return {boolean} Whether the content changed.
 	 */
 	function ensureSectionRootId(section) {
-		if (!section || isForeign(section) || isLinked(section) || section.visualData) {
+		if (!section || isForeign(section) || isLinked(section) || section.visualData || section.nativeContent) {
 			return false;
 		}
 
@@ -556,6 +562,9 @@
 				serialized: n.serialized,
 				rendered: n.rendered,
 				blockId: n.blockId,
+				blockSlug: n.blockSlug,
+				respectConditions: n.respectConditions,
+				nativeContent: n.nativeContent,
 				content: n.content,
 				css: n.css,
 				js: n.js,
@@ -634,7 +643,7 @@
 		}
 
 		return state.sections.some(function(section) {
-			return !!(section && (section.phpExec || section.format || (section.kind === 'foreign' && /^core\//.test(section.blockName))));
+			return !!(section && (section.phpExec || section.format || section.nativeContent || (section.kind === 'foreign' && /^core\//.test(section.blockName))));
 		});
 	}
 
@@ -1325,6 +1334,9 @@
 				uid: normalized.uid,
 				name: normalized.name,
 				blockId: normalized.blockId,
+				blockSlug: normalized.blockSlug,
+				respectConditions: normalized.respectConditions,
+				nativeContent: normalized.nativeContent || undefined,
 				content: normalized.content,
 				css: normalized.css,
 				js: normalized.js,
@@ -1475,18 +1487,69 @@
 		queueAutosave();
 	}
 
+	var workspaceClipboard = '';
+	function actionNotice(text) { if(canvasEditor)canvasEditor.notify(text,true);else window.alert(text); }
+	function clipboardWrite(payload) {
+		var codec=window.gtPbCanvasClipboard;if(!codec)return Promise.reject(new Error('Clipboard tools are unavailable. Reload the editor.'));
+		workspaceClipboard=codec.encode(payload);
+		if(!navigator.clipboard || !navigator.clipboard.writeText)return Promise.resolve(false);
+		return navigator.clipboard.writeText(workspaceClipboard).then(function(){return true;},function(){return false;});
+	}
+	function clipboardRead(text) {
+		var codec=window.gtPbCanvasClipboard;
+		function read(value){var data=codec && codec.decode(value);if(!data)throw new Error('Copy an element or section from Page Blocks first.');return data;}
+		if(typeof text==='string')return Promise.resolve().then(function(){return read(text);});
+		if(navigator.clipboard && navigator.clipboard.readText)return navigator.clipboard.readText().then(read,function(){return read(workspaceClipboard);});
+		return Promise.resolve().then(function(){return read(workspaceClipboard);});
+	}
+	function copySection(cut,uid) {
+		var index=uid?indexOfUid(uid):state.selectedIndex,section=state.sections[index];if(!section)return Promise.resolve(false);
+		var snapshot=JSON.stringify(section),value=normalizeSection(section);delete value.rendered;
+		return clipboardWrite({kind:'section',section:value}).then(function(system){
+			if(cut){var now=indexOfUid(section.uid);if(!system){actionNotice('Copied within this editor. Allow clipboard access before cutting, so your section stays recoverable.');return false;}if(now<0 || JSON.stringify(state.sections[now])!==snapshot){actionNotice('Section copied. It changed before Cut finished, so it was kept.');return false;}deleteSection(now,true);}
+			actionNotice(cut?'Section cut. Paste to move it.':system?'Section copied.':'Copied within this editor.');return true;
+		}).catch(function(error){actionNotice(error.message);return false;});
+	}
+	function pasteSection(payload) {
+		if(!payload || payload.kind!=='section')return false;
+		var next=normalizeSection(payload.section);next.uid=mintUid();
+		if(isForeign(next) || next.nativeContent){
+			if(config.canEditNativeBlocks===false)throw new Error('Use the WordPress editor to paste native blocks with your permissions.');
+			var api=window.wp && window.wp.blocks,valid=function(bs){return bs.every(function(b){return b.isValid!==false && valid(b.innerBlocks||[]);});};
+			if(!api || !window.gtPbCanvasEditor)throw new Error('Native block tools are unavailable.');
+			var blocks=api.parse(next.nativeContent?next.content:next.serialized);if(!blocks.length || !valid(blocks))throw new Error('This section could not be pasted safely.');var pastedMarkup=api.serialize(blocks.map(function(b){return window.gtPbCanvasEditor.cloneNative(b,api);}));if(next.nativeContent)next.content=pastedMarkup;else next.serialized=pastedMarkup;next.rendered='';
+		}
+		pushHistory();state.sections.splice(state.selectedIndex+1,0,next);state.selectedIndex++;state.visualMode=isForeign(next);state.showCode=!state.visualMode;state.showPreview=true;renderAll();queueAutosave();return next.uid;
+	}
+	function pasteWorkspace(text) {
+		return clipboardRead(text).then(function(payload){if(payload.kind==='section'){pasteSection(payload);actionNotice('Section pasted.');}else if(canvasEditor)canvasEditor.pasteClipboard(payload);}).catch(function(error){actionNotice(error.message);});
+	}
+	function convertSelectedSection() {
+		var source=getCurrentSection(),convert=window.gtPbCanvasConversion,api=window.wp && window.wp.blocks;if(!source || !convert || !api)return;
+		try {
+			var next;
+			if(isForeign(source)){next=normalizeSection(Object.assign({},convert.visualToCode(api,source.serialized,document),{uid:source.uid,name:getSectionDisplayName(source,state.selectedIndex)}));}
+			else { if(config.canEditNativeBlocks===false)throw new Error('Use the WordPress editor to edit native blocks with your permissions.');var serialized=convert.codeToVisual(api,source,document),blocks=api.parse(serialized);next=normalizeSection({uid:source.uid,kind:'foreign',blockName:blocks[0].name,label:source.name||'Visual section',serialized:serialized}); }
+			pushHistory();if(isForeign(source))state.removedForeign++;state.sections[state.selectedIndex]=next;state.visualMode=isForeign(next);state.showCode=!state.visualMode;state.showPreview=true;if(canvasEditor)canvasEditor.clearSelection();renderAll();queueAutosave();actionNotice(isForeign(next)?'Converted to Visual. Original code that needs it stays in code blocks. Undo restores the section.':'Converted to Code. Keep the WordPress block comments to convert back with the same layout.');
+		}catch(error){actionNotice(error.message);}
+	}
+	function renderSectionActions() {
+		if(!dom.sectionTools)return;var s=getCurrentSection(),convert=dom.sectionTools.querySelector('[data-role="convert-section"]');convert.textContent=isForeign(s)?'Convert to Code':'Convert to Visual';convert.disabled=!s || isLinked(s) || !!s.phpExec || !!s.visualData || config.canEditNativeBlocks===false;
+		dom.sectionTools.querySelector('[data-role="cut-section"]').disabled=!s;dom.sectionTools.querySelector('[data-role="copy-section"]').disabled=!s;
+	}
+
 	function duplicateSection(index) {
 		if (index < 0 || index >= state.sections.length) {
 			return;
 		}
 		var copy = normalizeSection(state.sections[index]);
-		if(isForeign(copy) && window.wp && window.wp.blocks && window.gtPbCanvasEditor) {
-			try { var blocks=window.wp.blocks.parse(copy.serialized),valid=function(bs) { return bs.every(function(b) { return b.isValid!==false && valid(b.innerBlocks || []); }); };if(!valid(blocks))throw new Error('Invalid block');copy.serialized=window.wp.blocks.serialize(blocks.map(function(b) { return window.gtPbCanvasEditor.cloneNative(b,window.wp.blocks); })); }
+		if((isForeign(copy) || copy.nativeContent) && window.wp && window.wp.blocks && window.gtPbCanvasEditor) {
+			try { var blocks=window.wp.blocks.parse(copy.nativeContent?copy.content:copy.serialized),valid=function(bs) { return bs.every(function(b) { return b.isValid!==false && valid(b.innerBlocks || []); }); };if(!valid(blocks))throw new Error('Invalid block');var duplicateMarkup=window.wp.blocks.serialize(blocks.map(function(b) { return window.gtPbCanvasEditor.cloneNative(b,window.wp.blocks); }));if(copy.nativeContent)copy.content=duplicateMarkup;else copy.serialized=duplicateMarkup; }
 			catch(error) { if(canvasEditor)canvasEditor.notify('This section cannot be duplicated safely here. Use the WordPress editor.',true);return; }
 		}
 		pushHistory();
 		copy.uid = mintUid();
-		if (copy.content) {
+		if (copy.content && !copy.nativeContent) {
 			copy.content = copy.content.replace(/id=(["'])([^"']+)\1/i, function(match, quote, idValue) {
 				// A one-shot '-copy' suffix meant duplicating twice produced two
 				// elements sharing an id. Scan what is already on the page and
@@ -1512,15 +1575,15 @@
 		queueAutosave();
 	}
 
-	function deleteSection(index) {
+	function deleteSection(index, clipboardCut) {
 		if (index < 0 || index >= state.sections.length) {
 			return;
 		}
 
 		var section = state.sections[index];
 
-		// Ask before removing a complete native or third-party block section.
-		if (isForeign(section)) {
+		// Cut already has a recoverable clipboard copy; Delete keeps its confirmation.
+		if (isForeign(section) && !clipboardCut) {
 			if (!window.confirm(
 				'Delete ' + (section.label || section.blockName || 'this block') + ' from the page?\n\n' +
 				'You can undo this in the current workspace.'
@@ -1642,6 +1705,7 @@
 	// -------------------------------------------------------------------------
 
 	function renderIndexList() {
+		renderSectionActions();
 		if (!dom.indexList) {
 			return;
 		}
@@ -3407,6 +3471,7 @@
 						'</div>' +
 					'</div>' +
 					'<ul class="md-pb-index-list" data-role="index-list"></ul>' +
+					'<div class="md-pb-section-tools" data-role="section-tools" aria-label="Selected section actions"><button type="button" data-role="copy-section" title="Copy section" aria-label="Copy section">Copy</button><button type="button" data-role="cut-section" title="Cut section" aria-label="Cut section">Cut</button><button type="button" data-role="paste-section" title="Paste" aria-label="Paste">Paste</button><button type="button" data-role="convert-section">Convert to Visual</button></div>' +
 					'<div class="pb-canvas-inspector-mount" data-role="canvas-inspector"></div>' +
 					'<button type="button" class="md-pb-add-section-btn" data-role="add-section">+ Add Section</button>' +
 					'<div class="md-pb-meta">' +
@@ -3491,6 +3556,8 @@
 		dom.previewStatus = shell.querySelector('[data-role="preview-status"]'); dom.previewLabel = shell.querySelector('[data-role="preview-label"]');
 		dom.canvasWrap = shell.querySelector('.md-pb-canvas-wrap');
 		dom.canvasInspector = shell.querySelector('[data-role="canvas-inspector"]');
+		dom.sectionTools = shell.querySelector('[data-role="section-tools"]');
+		[['copy-section','copy',function(){copySection(false);} ],['cut-section','cut',function(){copySection(true);} ],['paste-section','clipboard',function(){pasteWorkspace();} ],['convert-section',null,convertSelectedSection]].forEach(function(item){var b=dom.sectionTools.querySelector('[data-role="'+item[0]+'"]');if(item[1] && config.icons && config.icons[item[1]])b.innerHTML=config.icons[item[1]];b.addEventListener('click',item[2]);});
 		dom.indexList = shell.querySelector('[data-role="index-list"]');
 		dom.sectionCount = shell.querySelector('[data-role="section-count"]');
 		dom.textareaHtml = shell.querySelector('[data-role="textarea-html"]');
@@ -4223,6 +4290,8 @@
 			}
 		});
 
+		document.addEventListener('keydown',function(event){var node=event.target;if(!(event.metaKey||event.ctrlKey)||event.altKey||node && (node.closest && node.closest('input,textarea,select,[contenteditable="true"],.CodeMirror') || node.isContentEditable))return;var key=event.key.toLowerCase();if(key==='c'||key==='x'){event.preventDefault();if(state.visualMode && canvasEditor && !(node.closest && node.closest('.md-pb-index-list,.md-pb-section-tools')))canvasEditor.copySelection(key==='x');else copySection(key==='x');}});
+		document.addEventListener('paste',function(event){var node=event.target;if(node && (node.closest && node.closest('input,textarea,select,[contenteditable="true"],.CodeMirror') || node.isContentEditable))return;var text=event.clipboardData && event.clipboardData.getData('text/plain');if(window.gtPbCanvasClipboard && window.gtPbCanvasClipboard.decode(text)){event.preventDefault();pasteWorkspace(text);}});
 		setupSectionDragging();
 		setupResizeEvents();
 	}
@@ -4256,6 +4325,9 @@
 			[mod + '+K', 'Toggle AI prompt'],
 			[mod + '+N', 'Add section after current'],
 			[mod + '+D', 'Duplicate section'],
+			[mod + '+C', 'Copy selected element or section'],
+			[mod + '+X', 'Cut selected element or section'],
+			[mod + '+V', 'Paste copied elements or sections'],
 			[mod + '+Backspace', 'Delete section'],
 			[mod + '+B', 'Cycle viewport size'],
 			['Alt+\u2191', 'Move section up'],
@@ -4306,208 +4378,235 @@
 	// Section Library
 	// -------------------------------------------------------------------------
 
+	/** Static, isolated library preview. Never request the executable render endpoint. */
+	function libraryPreviewDocument(item) {
+		var template = document.createElement('template');
+		template.innerHTML = String(item.content || '').replace(/<\?[\s\S]*?\?>/g, '');
+		template.content.querySelectorAll('script,style,link,meta,base,iframe,object,embed,form,input,button,textarea,select').forEach(function(node) { node.remove(); });
+		template.content.querySelectorAll('*').forEach(function(node) {
+			Array.prototype.slice.call(node.attributes).forEach(function(attribute) {
+				if (/^on/i.test(attribute.name) || /^(?:href|xlink:href|srcdoc|autofocus|contenteditable|target|formaction)$/i.test(attribute.name)) node.removeAttribute(attribute.name);
+			});
+		});
+		// A literal '<' must not close the style element, even in authored comments.
+		var css = String(item.css || '').replace(/</g, '\\3c ');
+		return '<!doctype html><html><head><meta charset="utf-8">' +
+			'<meta http-equiv="Content-Security-Policy" content="default-src \'none\'; script-src \'none\'; style-src \'unsafe-inline\'; img-src https: http: data:; font-src \'none\'; base-uri \'none\'; form-action \'none\'">' +
+			'<style>html{background:#fff;color:#202020;font:16px/1.5 system-ui,sans-serif}body{margin:0;padding:24px;overflow-wrap:anywhere}*,*:before,*:after{box-sizing:border-box}img,video,svg{max-width:100%;height:auto}a{color:inherit}h1,h2,h3{line-height:1.2}</style>' +
+			'<style>' + css + '</style></head><body>' + template.innerHTML + '</body></html>';
+	}
+
 	function showLibraryDialog() {
 		var existing = document.getElementById('md-pb-library-overlay');
 		if (existing) {
-			existing.remove();
+			existing.querySelector('[data-library-close]').click();
 			return;
 		}
 
+		var opener = document.activeElement;
+		var anchor = getCurrentSection();
+		var anchorUid = anchor && anchor.uid;
 		var overlay = document.createElement('div');
 		overlay.id = 'md-pb-library-overlay';
 		overlay.className = 'md-pb-modal-overlay';
-
-		overlay.innerHTML = '<div class="md-pb-modal md-pb-modal--wide" role="dialog" aria-modal="true" aria-label="Section library">' +
-			'<div class="md-pb-modal-header">' +
-				'<h2 class="md-pb-modal-title">Section Library</h2>' +
-				'<button type="button" class="md-pb-icon-btn" id="md-pb-library-close" title="Close">&times;</button>' +
-			'</div>' +
-			'<div class="md-pb-modal-body">' +
-				'<div class="md-pb-field-actions">' +
-					'<button type="button" class="md-pb-button md-pb-button-primary" id="md-pb-library-save-current">Save Current Section to Library</button>' +
-				'</div>' +
-				'<div id="md-pb-library-list" class="md-pb-library-list"><p class="md-pb-field-help">Loading...</p></div>' +
-			'</div>' +
-			'</div>';
-
+		overlay.innerHTML = '<div class="md-pb-modal pb-library-dialog" role="dialog" aria-modal="true" aria-labelledby="pb-library-title">' +
+			'<div class="md-pb-modal-header"><div><h2 id="pb-library-title" class="md-pb-modal-title">Section library</h2>' +
+			'<p class="pb-library-caption">Choose a section, preview it, then add it to your page.</p></div>' +
+			'<button type="button" class="md-pb-icon-btn" data-library-close aria-label="Close section library" title="Close">&times;</button></div>' +
+			'<div class="pb-library-toolbar"><label class="pb-library-search"><span class="pb-library-sr-only">Search library</span>' +
+			'<input type="search" placeholder="Search sections…" autocomplete="off" data-library-search></label>' +
+			'<label><span class="pb-library-sr-only">Sort library</span><select data-library-sort><option value="updated_at">Recently updated</option><option value="title">Name A–Z</option></select></label></div>' +
+			'<div class="pb-library-workspace"><div class="pb-library-browser"><p class="pb-library-status" role="status" aria-live="polite" data-library-status></p>' +
+			'<div class="pb-library-list" data-library-list aria-label="Library sections"></div>' +
+			'<div class="pb-library-pagination"><button type="button" class="md-pb-button" data-library-prev>Previous</button><span data-library-page></span><button type="button" class="md-pb-button" data-library-next>Next</button></div></div>' +
+			'<div class="pb-library-detail" data-library-detail aria-live="polite"></div></div>' +
+			'<div class="pb-library-footer"><div class="pb-library-save"><button type="button" class="md-pb-button" data-library-save-toggle aria-expanded="false">Save this section…</button>' +
+			'<form data-library-save-form hidden><label><span class="pb-library-sr-only">Section name</span><input name="title" placeholder="Section name" aria-label="Section name" required maxlength="200"></label>' +
+			'<button type="submit" class="md-pb-button">Save to library</button></form><span role="status" data-library-save-status></span></div>' +
+			'<p class="pb-library-caption" data-library-placement></p></div></div>';
 		document.body.appendChild(overlay);
+		var search = overlay.querySelector('[data-library-search]');
+		var sort = overlay.querySelector('[data-library-sort]');
+		var list = overlay.querySelector('[data-library-list]');
+		var detail = overlay.querySelector('[data-library-detail]');
+		var status = overlay.querySelector('[data-library-status]');
+		var previous = overlay.querySelector('[data-library-prev]');
+		var next = overlay.querySelector('[data-library-next]');
+		var pageLabel = overlay.querySelector('[data-library-page]');
+		var saveToggle = overlay.querySelector('[data-library-save-toggle]');
+		var saveForm = overlay.querySelector('[data-library-save-form]');
+		var saveStatus = overlay.querySelector('[data-library-save-status]');
+		var active = true, page = 1, perPage = 12, listRequest = 0, detailRequest = 0, searchTimer = null, inserted = false;
+		var cache = Object.create(null);
+		var readHeaders = { 'X-WP-Nonce': config.restNonce || '' };
+		var restRoot = String(config.restUrl || '').replace(/\/$/, '');
+		overlay.querySelector('[data-library-placement]').textContent = anchor ? 'Adds after “' + getSectionDisplayName(anchor, state.selectedIndex) + '”.' : 'Adds to your page.';
 
 		function closeLibrary() {
+			active = false;
+			listRequest++; detailRequest++;
+			if (searchTimer) window.clearTimeout(searchTimer);
 			overlay.remove();
-			document.removeEventListener('keydown', libEscHandler);
+			if (opener && opener.isConnected) opener.focus();
 		}
-
-		function libEscHandler(e) {
-			if (e.key === 'Escape') {
-				closeLibrary();
-			}
-		}
-
-		document.addEventListener('keydown', libEscHandler);
-
-		overlay.addEventListener('click', function(e) {
-			if (e.target === overlay || e.target.id === 'md-pb-library-close') {
-				closeLibrary();
-			}
+		overlay.addEventListener('click', function(event) {
+			if (event.target === overlay || event.target.closest('[data-library-close]')) closeLibrary();
+		});
+		overlay.addEventListener('keydown', function(event) {
+			// Shortcuts outside the modal must not edit the page behind it.
+			event.stopPropagation();
+			if (event.key === 'Escape') { event.preventDefault(); closeLibrary(); return; }
+			if (event.key !== 'Tab') return;
+			var controls = Array.prototype.filter.call(overlay.querySelectorAll('button:not(:disabled),input:not(:disabled),select:not(:disabled),a[href],summary'), function(node) { return !node.closest('[hidden]'); });
+			var first = controls[0], last = controls[controls.length - 1];
+			if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+			else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
 		});
 
-		// Save current section
-		document.getElementById('md-pb-library-save-current').addEventListener('click', function() {
-			var section = getCurrentSection();
-			if (!section || (!section.content && !section.css && !section.js)) {
-				window.alert('Current section is empty.');
-				return;
-			}
-
-			var title = window.prompt('Section name for the library:');
-			if (!title) return;
-
-			// POST to pbb/v1 rather than an admin-ajax action that was never
-			// implemented. The route derives the checksum and the slug itself,
-			// so this is not a second write path with its own rules.
-			window.fetch(config.restUrl.replace(/\/$/, '') + '/blocks', {
-				method: 'POST',
-				credentials: 'same-origin',
-				headers: {
-					'Content-Type': 'application/json',
-					'X-WP-Nonce': config.restNonce || ''
-				},
-				body: JSON.stringify({
-					title: title,
-					status: 'publish',
-					content: section.content || '',
-					css: section.css || '',
-					js: section.js || '',
-					js_location: section.jsLocation || 'footer',
-					output: section.output || 'inline',
-					format: !!section.format,
-					php_exec: !!section.phpExec
-				})
-			}).then(function(r) { return r.json(); }).then(function(payload) {
-				if (payload && payload.id) {
-					say('Saved "' + title + '" to the library.', false);
-					loadLibraryList();
-				} else {
-					say((payload && payload.message) || 'Could not save to the library.', true);
-				}
-			}).catch(function() {
-				say('Could not save to the library.', true);
-			});
-		});
-
-		loadLibraryList();
-	}
-
-	function loadLibraryList() {
-		var listEl = document.getElementById('md-pb-library-list');
-		if (!listEl) return;
-
-		if (!config.restUrl) {
-			listEl.innerHTML = '<p class="md-pb-field-help">The library is unavailable on this site.</p>';
-			return;
-		}
-
-		var url = config.restUrl.replace(/\/$/, '') + '/blocks?status=publish&context=summary&per_page=100';
-
-		window.fetch(url, {
-			credentials: 'same-origin',
-			headers: { 'X-WP-Nonce': config.restNonce || '' }
-		})
-			.then(function(r) { return r.json(); })
-			.then(function(payload) {
-				var items = Array.isArray(payload) ? payload : (payload && payload.data);
-				if (!Array.isArray(items)) {
-					listEl.innerHTML = '<p class="md-pb-field-help">Could not load the library.</p>';
-					return;
-				}
-
-				listEl.innerHTML = '';
-				items.forEach(function(item) {
-					var row = document.createElement('div');
-					row.style.cssText = 'display:flex;justify-content:space-between;align-items:center;padding:8px;border:1px solid var(--pb-border);border-radius:6px;margin-bottom:6px;';
-
-					var nameSpan = document.createElement('span');
-					nameSpan.style.cssText = 'font-size:13px;color:var(--pb-text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';
-					nameSpan.textContent = item.title + (item.slug ? ' (' + item.slug + ')' : '');
-
-					var closeDialog = function() {
-						var overlay = document.getElementById('md-pb-library-overlay');
-						if (overlay) overlay.remove();
-					};
-
-					var insertAt = function(section) {
-						pushHistory();
-						state.sections.splice(state.selectedIndex + 1, 0, normalizeSection(section));
-						state.selectedIndex = state.selectedIndex + 1;
-						renderAll();
-						queuePreviewRender(0, true);
-						queueAutosave();
-						closeDialog();
-					};
-
-					// Linked: one copy of the code, every placement follows it.
-					// Carries the slug as well as the id, so the page survives
-					// being moved to another site.
-					var linkBtn = document.createElement('button');
-					linkBtn.type = 'button';
-					linkBtn.className = 'md-pb-icon-btn';
-					linkBtn.textContent = 'Link';
-					linkBtn.title = 'Insert linked to the library: editing the library block updates every placement';
-					linkBtn.addEventListener('click', function() {
-						insertAt({ blockId: item.id, blockSlug: item.slug || '', name: item.title || '' });
-					});
-
-					// Copy: independent from here on. Needs the full row,
-					// because the list is fetched in the summary shape.
-					var copyBtn = document.createElement('button');
-					copyBtn.type = 'button';
-					copyBtn.className = 'md-pb-icon-btn';
-					copyBtn.textContent = 'Copy';
-					copyBtn.title = 'Insert a one-off copy of the code, independent from the library';
-					copyBtn.addEventListener('click', function() {
-						copyBtn.disabled = true;
-						window.fetch(config.restUrl.replace(/\/$/, '') + '/blocks/' + item.id, {
-							credentials: 'same-origin',
-							headers: { 'X-WP-Nonce': config.restNonce || '' }
-						})
-							.then(function(r) { return r.json(); })
-							.then(function(full) {
-								insertAt({
-									name: full.title || '',
-									content: full.content || '',
-									css: full.css || '',
-									js: full.js || '',
-									jsLocation: full.js_location || 'footer',
-									output: full.output || 'inline',
-									format: !!full.format,
-									phpExec: !!full.php_exec
-								});
-							})
-							.catch(function() {
-								copyBtn.disabled = false;
-								say('Could not load that block.', true);
-							});
-					});
-
-					var actions = document.createElement('span');
-					actions.style.cssText = 'display:flex;gap:6px;flex-shrink:0;';
-					actions.appendChild(linkBtn);
-					actions.appendChild(copyBtn);
-
-					row.appendChild(nameSpan);
-					row.appendChild(actions);
-					listEl.appendChild(row);
+		function requestJSON(url, options) {
+			return window.fetch(url, options || { credentials: 'same-origin', headers: readHeaders }).then(function(response) {
+				return response.json().then(function(payload) {
+					if (response.ok === false || (payload && payload.code && !payload.id)) throw new Error(payload && payload.message || 'The library could not be loaded.');
+					return { payload: payload, headers: response.headers };
 				});
-
-				if (!items.length) {
-					listEl.innerHTML = '<p class="md-pb-field-help">No library blocks yet. Save a section to the library first.</p>';
-				}
-			})
-			.catch(function() {
-				listEl.innerHTML = '<p class="md-pb-field-help">Failed to load library.</p>';
 			});
+		}
+		function placeholder(message) {
+			detail.innerHTML = '<div class="pb-library-empty"></div>';
+			detail.firstChild.textContent = message;
+		}
+		function messageWithRetry(container, message, retry) {
+			container.innerHTML = '';
+			var text = document.createElement('p'); text.className = 'pb-library-error'; text.textContent = message; container.appendChild(text);
+			var button = document.createElement('button'); button.type = 'button'; button.className = 'md-pb-button'; button.textContent = 'Try again'; button.addEventListener('click', retry); container.appendChild(button);
+		}
+		function insertSection(section) {
+			if (!active || inserted) return;
+			inserted = true;
+			var anchorIndex = indexOfUid(anchorUid);
+			var insertIndex = anchorIndex < 0 ? Math.min(state.selectedIndex + 1, state.sections.length) : anchorIndex + 1;
+			pushHistory();
+			state.sections.splice(insertIndex, 0, normalizeSection(section));
+			state.selectedIndex = insertIndex;
+			state.visualMode = false; state.showCode = true; state.showPreview = true;
+			renderAll();
+			queuePreviewRender(0, true);
+			queueAutosave();
+			closeLibrary();
+		}
+		function renderDetail(item) {
+			detail.innerHTML = '<div class="pb-library-detail-heading"><h3></h3><p class="pb-library-caption" data-library-description></p></div>' +
+				'<div class="pb-library-preview"><iframe sandbox="" tabindex="-1" title="Static section preview" loading="lazy" referrerpolicy="no-referrer"></iframe></div>' +
+				'<p class="pb-library-caption">Preview may differ for dynamic content and theme styles.</p>' +
+				'<div class="pb-library-detail-meta"></div>' +
+				'<div class="pb-library-insert"><button type="button" class="md-pb-button md-pb-button-primary" data-library-copy>Insert copy</button>' +
+				'<button type="button" class="md-pb-button" data-library-link>Insert linked</button></div>' +
+				'<p class="pb-library-caption">Copies are yours to edit. Linked sections follow changes made in the library.</p>';
+			detail.querySelector('h3').textContent = item.title || 'Untitled section';
+			detail.querySelector('[data-library-description]').textContent = item.description || item.slug || '';
+			detail.querySelector('iframe').srcdoc = libraryPreviewDocument(item);
+			var meta = detail.querySelector('.pb-library-detail-meta');
+			var uses = document.createElement('span'); uses.textContent = (Number(item.used_on) || 0) + ' page placements'; meta.appendChild(uses);
+			if (item.php_exec) { var dynamic = document.createElement('span'); dynamic.textContent = 'Dynamic PHP'; meta.appendChild(dynamic); }
+			if (config.libraryEditUrl && config.canManageLibrary !== false) {
+				var edit = document.createElement('a'); edit.href = config.libraryEditUrl + Number(item.id); edit.target = '_blank'; edit.rel = 'noopener noreferrer'; edit.textContent = 'Open in library ↗'; meta.appendChild(edit);
+			}
+			if (item.position || item.conditions) {
+				var rules = document.createElement('details'); rules.className = 'pb-library-rules';
+				var summary = document.createElement('summary'); summary.textContent = 'Library display rules'; rules.appendChild(summary);
+				var ruleText = document.createElement('p'); ruleText.textContent = [item.position ? 'Hook: ' + item.position : '', item.conditions ? 'Conditions: ' + (typeof item.conditions === 'string' ? item.conditions : JSON.stringify(item.conditions)) : ''].filter(Boolean).join(' · '); rules.appendChild(ruleText);
+				detail.insertBefore(rules, detail.querySelector('.pb-library-insert'));
+			}
+			detail.querySelector('[data-library-link]').addEventListener('click', function() {
+				insertSection({ blockId: item.id, blockSlug: item.slug || '', name: item.title || '' });
+			});
+			detail.querySelector('[data-library-copy]').addEventListener('click', function() {
+				insertSection({ name: item.title || '', content: item.content || '', css: item.css || '', js: item.js || '', jsLocation: item.js_location || 'footer', output: item.output || 'inline', format: !!item.format, phpExec: !!item.php_exec });
+			});
+		}
+		function selectItem(item) {
+			var requestId = ++detailRequest;
+			list.querySelectorAll('[data-library-id]').forEach(function(button) { button.setAttribute('aria-pressed', String(Number(button.dataset.libraryId) === Number(item.id))); });
+			placeholder('Loading preview…');
+			if (cache[item.id]) { renderDetail(cache[item.id]); return; }
+			requestJSON(restRoot + '/blocks/' + encodeURIComponent(item.id)).then(function(result) {
+				if (!active || requestId !== detailRequest) return;
+				var full = result.payload;
+				if (!full || Number(full.id) !== Number(item.id) || full.status !== 'publish') throw new Error('This section is no longer available.');
+				cache[item.id] = full; renderDetail(full);
+			}).catch(function(error) {
+				if (!active || requestId !== detailRequest) return;
+				messageWithRetry(detail, error.message || 'Could not load this section.', function() { selectItem(item); });
+			});
+		}
+		function loadLibraryList() {
+			var requestId = ++listRequest;
+			detailRequest++;
+			list.innerHTML = ''; list.setAttribute('aria-busy', 'true');
+			status.textContent = 'Loading sections…'; previous.disabled = true; next.disabled = true; pageLabel.textContent = '';
+			placeholder('Choose a section to preview.');
+			if (!restRoot) { status.textContent = 'The library is unavailable on this site.'; list.removeAttribute('aria-busy'); return; }
+			var query = search.value.trim();
+			var url = restRoot + '/blocks?status=publish&context=summary&per_page=' + perPage + '&page=' + page + '&search=' + encodeURIComponent(query) + '&orderby=' + sort.value + '&order=' + (sort.value === 'title' ? 'asc' : 'desc');
+			requestJSON(url).then(function(result) {
+				if (!active || requestId !== listRequest) return;
+				var items = Array.isArray(result.payload) ? result.payload : result.payload && result.payload.data;
+				if (!Array.isArray(items)) throw new Error('Could not load the library.');
+				list.removeAttribute('aria-busy');
+				var totalValue = result.headers && result.headers.get('X-WP-Total');
+				var pagesValue = result.headers && result.headers.get('X-WP-TotalPages');
+				var total = totalValue === null || totalValue === undefined ? null : parseInt(totalValue, 10);
+				var totalPages = pagesValue === null || pagesValue === undefined ? null : parseInt(pagesValue, 10);
+				status.textContent = items.length ? (Number.isFinite(total) ? total + (total === 1 ? ' section' : ' sections') : 'Choose a section') + (query ? ' matching “' + query + '”' : '') : (query ? 'No sections match “' + query + '”. Try another search.' : 'Your library is empty. Save a code section to use it again.');
+				previous.disabled = page <= 1;
+				next.disabled = Number.isFinite(totalPages) ? page >= totalPages : items.length < perPage;
+				pageLabel.textContent = 'Page ' + page + (Number.isFinite(totalPages) && totalPages ? ' of ' + totalPages : '');
+				items.forEach(function(item) {
+					var button = document.createElement('button'); button.type = 'button'; button.className = 'pb-library-item'; button.dataset.libraryId = item.id; button.setAttribute('aria-pressed', 'false');
+					var name = document.createElement('strong'); name.textContent = item.title || 'Untitled section'; button.appendChild(name);
+					var description = document.createElement('span'); description.textContent = [item.has_content ? 'HTML' : '', item.has_css ? 'CSS' : '', item.has_js ? 'JS' : '', item.php_exec ? 'PHP' : ''].filter(Boolean).join(' · ') || 'Section'; button.appendChild(description);
+					button.title = item.slug || item.title || 'Untitled section';
+					button.addEventListener('click', function() { selectItem(item); }); list.appendChild(button);
+				});
+				if (items.length) selectItem(items[0]);
+			}).catch(function(error) {
+				if (!active || requestId !== listRequest) return;
+				list.removeAttribute('aria-busy'); status.textContent = 'Library unavailable';
+				messageWithRetry(list, error.message || 'Could not load the library.', loadLibraryList);
+			});
+		}
+		search.addEventListener('input', function() {
+			if (searchTimer) window.clearTimeout(searchTimer);
+			// Invalidate immediately; an old response may arrive before debounce fires.
+			listRequest++; detailRequest++; page = 1;
+			list.innerHTML = ''; status.textContent = 'Searching…'; previous.disabled = true; next.disabled = true;
+			placeholder('Choose a section to preview.');
+			searchTimer = window.setTimeout(loadLibraryList, 250);
+		});
+		sort.addEventListener('change', function() { if (searchTimer) window.clearTimeout(searchTimer); page = 1; loadLibraryList(); });
+		previous.addEventListener('click', function() { if (page > 1) { page--; loadLibraryList(); } });
+		next.addEventListener('click', function() { page++; loadLibraryList(); });
+		var canSave = config.canManageLibrary !== false && anchor && !isForeign(anchor) && !anchor.blockId && !anchor.visualData && !anchor.nativeContent && !!(anchor.content || anchor.css || anchor.js);
+		saveToggle.hidden = config.canManageLibrary === false;
+		saveToggle.disabled = !canSave;
+		saveToggle.title = canSave ? 'Save this section for reuse on other pages' : 'Select an editable code section to save it to the library';
+		saveToggle.addEventListener('click', function() { saveForm.hidden = !saveForm.hidden; saveToggle.setAttribute('aria-expanded', String(!saveForm.hidden)); if (!saveForm.hidden) { saveForm.elements.title.value = anchor.name || ''; saveForm.elements.title.focus(); } });
+		saveForm.addEventListener('submit', function(event) {
+			event.preventDefault();
+			var title = saveForm.elements.title.value.trim();
+			var button = saveForm.querySelector('button');
+			if (!canSave || !title || button.disabled) return;
+			button.disabled = true; saveStatus.textContent = 'Saving…';
+			requestJSON(restRoot + '/blocks', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json', 'X-WP-Nonce': config.restNonce || '' }, body: JSON.stringify({ title: title, status: 'publish', content: anchor.content || '', css: anchor.css || '', js: anchor.js || '', js_location: anchor.jsLocation || 'footer', output: anchor.output || 'inline', format: !!anchor.format, php_exec: !!anchor.phpExec }) }).then(function(result) {
+				if (!active) return;
+				if (!result.payload || !result.payload.id) throw new Error('Could not save to the library.');
+				saveStatus.textContent = 'Saved “' + title + '”.'; saveForm.hidden = true; saveToggle.setAttribute('aria-expanded', 'false'); saveToggle.focus();
+				search.value = ''; sort.value = 'updated_at'; page = 1; loadLibraryList();
+			}).catch(function(error) { if (active) saveStatus.textContent = error.message || 'Could not save to the library.'; }).then(function() { if (active) button.disabled = false; });
+		});
+		loadLibraryList();
+		search.focus();
 	}
-
 
 	// -------------------------------------------------------------------------
 	// -------------------------------------------------------------------------
@@ -4848,6 +4947,7 @@
 		if (window.gtPbCanvasEditor) {
 			canvasEditor = window.gtPbCanvasEditor.mount({
 				container: dom.canvasInspector, canvas: dom.canvasWrap, config: config,
+				clipboardWrite:clipboardWrite, clipboardRead:clipboardRead, copySection:copySection, pasteSection:pasteSection, openLibrary:showLibraryDialog,
 				getFrame: function() { return dom.previewFrame; }, getSections: function() { return state.sections; }, isEnabled: function() { return state.visualMode; },
 				selectSection: function(uid) { selectSectionFromPreview(indexOfUid(uid)); },
 				onChange: function(uid, patch, checkpoint) {
@@ -4861,6 +4961,7 @@
 					renderIndexList(); queuePreviewRender(0, true); queueAutosave();
 				},
 				addSection: function(serialized, afterUid, label) {
+					state.visualMode=true;state.showCode=false;state.showPreview=true;
 					pushHistory(); var added = normalizeSection({ kind:'foreign',blockName:'core/group',label:label || 'Visual section',serialized:serialized,rendered:'' });
 					var index=afterUid ? indexOfUid(afterUid) : state.selectedIndex; if (index < 0) index=state.selectedIndex;
 					var only=state.sections[0],placeholder=state.sections.length===1 && !(config.initialSections || []).length && only && !isForeign(only) && !only.blockId && !only.blockSlug && !only.phpExec && !only.format && !only.visualData && !only.name && !only.collapsed && [only.content,only.css,only.js].every(function(value) { return !String(value || '').trim(); });

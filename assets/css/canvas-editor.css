@@ -1,9 +1,9 @@
 /* Canvas-first controls inside the established Page Blocks workspace. */
-.md-pb-shell.is-visual-mode .md-pb-main { grid-template-columns: minmax(0,1fr) 308px; }
-.md-pb-shell.is-visual-mode.is-ai-open .md-pb-main { grid-template-columns: 340px minmax(0,1fr) 308px; }
+.md-pb-shell.is-visual-mode .md-pb-main { grid-template-columns: minmax(0,1fr) var(--pb-sidebar-width,308px); }
+.md-pb-shell.is-visual-mode.is-ai-open .md-pb-main { grid-template-columns: 340px minmax(0,1fr) var(--pb-sidebar-width,308px); }
 .md-pb-shell.is-visual-mode.is-sidebar-hidden .md-pb-main { grid-template-columns: minmax(0,1fr); }
 .md-pb-shell.is-visual-mode.is-ai-open.is-sidebar-hidden .md-pb-main { grid-template-columns: 340px minmax(0,1fr); }
-.md-pb-shell.is-visual-mode .md-pb-index { width: 308px; }
+.md-pb-shell.is-visual-mode .md-pb-index { width: var(--pb-sidebar-width,308px); }
 .md-pb-shell.is-visual-mode .md-pb-index-list { flex: 0 0 auto; max-height: 150px; min-height: 62px; }
 .md-pb-shell.is-visual-mode .md-pb-meta { display: none; }
 .pb-canvas-inspector-mount { display: none; }
@@ -65,7 +65,7 @@
 .pb-canvas-layer svg { width: 14px; height: 14px; flex-basis: 14px; color: var(--pb-muted); }
 .pb-canvas-layer:hover { background: var(--pb-surface2); }
 .pb-canvas-layer.is-selected { background: var(--pb-accent-dim); border-left-color: var(--pb-accent); color: var(--pb-accent); }
-@media (max-width: 1100px) { .md-pb-shell.is-visual-mode.is-ai-open .md-pb-main { grid-template-columns: minmax(0,1fr) 308px; } }
+@media (max-width: 1100px) { .md-pb-shell.is-visual-mode.is-ai-open .md-pb-main { grid-template-columns: minmax(0,1fr) var(--pb-sidebar-width,308px); } }
 @media (max-width: 980px) {
 	.md-pb-shell.is-visual-mode .md-pb-main { display: flex; }
 	.md-pb-shell.is-visual-mode .md-pb-index { width: auto; max-height: 46%; }
@@ -87,7 +87,7 @@
 
 /* In Visual mode AI floats over the stage so opening it does not turn the
    desktop artboard into a mobile preview. Code mode retains its docked panel. */
-.md-pb-shell.is-visual-mode.is-ai-open .md-pb-main { grid-template-columns: minmax(0,1fr) 308px; position: relative; }
+.md-pb-shell.is-visual-mode.is-ai-open .md-pb-main { grid-template-columns: minmax(0,1fr) var(--pb-sidebar-width,308px); position: relative; }
 .md-pb-shell.is-visual-mode.is-ai-open.is-sidebar-hidden .md-pb-main { grid-template-columns: minmax(0,1fr); }
 .md-pb-shell.is-visual-mode .md-pb-ai-panel { position: absolute; inset: 0 auto 0 0; z-index: 40; width: min(340px,90vw); box-shadow: var(--pb-shadow); }
 
@@ -182,3 +182,10 @@ body.md-page-blocks-builder-shell { overflow: hidden; }
 .pb-canvas-theme-colors button span { display: block; width: 18px; height: 18px; border-radius: 2px; }
 @media (max-width:680px) { .pb-canvas-search { font-size: 16px; min-height: 40px; } .pb-canvas-welcome { inset: 110px 12px 12px; justify-content: flex-start; padding-top: 16px; overflow: auto; } .pb-canvas-welcome h2 { font-size: 20px; } }
 @media (pointer:coarse) { .pb-canvas-inspector-tabs .pb-canvas-button,.pb-canvas-theme-colors button { min-width: 44px; min-height: 44px; } }
+.md-pb-section-tools { display:flex; flex:0 0 auto; gap:4px; padding:8px; border-top:1px solid var(--pb-border); }
+.md-pb-section-tools button { min-height:32px; padding:5px 7px; border:1px solid var(--pb-border); border-radius:4px; background:var(--pb-surface); color:var(--pb-text); font:12px/1.4 var(--pb-font-ui); cursor:pointer; }
+.md-pb-section-tools button:last-child { flex:1; }
+.md-pb-section-tools svg { width:16px; height:16px; vertical-align:middle; }
+.md-pb-section-tools button:hover { background:var(--pb-accent-dim); }
+.md-pb-section-tools button:focus-visible { outline:2px solid var(--pb-accent); outline-offset:1px; }
+.md-pb-section-tools button:disabled { opacity:.5;cursor:default; }
