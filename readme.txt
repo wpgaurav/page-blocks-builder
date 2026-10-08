@@ -4,7 +4,7 @@ Tags: page builder, html blocks, css sections, gutenberg, visual builder
 Requires at least: 6.0
 Tested up to: 6.9.1
 Requires PHP: 8.1
-Stable tag: 4.1.0
+Stable tag: 4.2.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -101,6 +101,12 @@ Major release. Back up your database first: the schema change is one-way. Requir
 Security release. Fixes privilege escalation in the block preview (any Author could execute PHP on sites with PHP blocks enabled) and restores certificate verification on the update channel. If you have PHP blocks turned on, update now. Requires PHP 8.1.
 
 == Changelog ==
+
+= 4.2.0 =
+
+* Added AI agent support. With Site Agent 0.4 or later (free), any connected agent, such as Claude, ChatGPT or Cursor, gets the Page Blocks skill automatically: it can create draft pages from sections, list and edit the sections on a page, and create, update and render library blocks.
+* Added `gt_pb_agent()` for integrations. Section markup is always written through WordPress's block serializer, so HTML, CSS and JavaScript with quotes, `--` or `<script>` stay intact. Changes to published pages are staged as an autosave unless publishing is requested, and stale reads are refused. Agents cannot turn on PHP execution.
+* Added an AI agents page in the Page Blocks menu that shows what a connected agent can do and how to connect one. The AI Integration settings link to it.
 
 = 4.1.0 =
 
