@@ -106,7 +106,7 @@ Security release. Fixes privilege escalation in the block preview (any Author co
 
 * Added AI agent support. With Site Agent 0.4 or later (free), any connected agent, such as Claude, ChatGPT or Cursor, gets the Page Blocks skill automatically: it can create draft pages from sections, list and edit the sections on a page, and create, update and render library blocks.
 * Added `gt_pb_agent()` for integrations. Section markup is always written through WordPress's block serializer, so HTML, CSS and JavaScript with quotes, `--` or `<script>` stay intact. Changes to published pages are staged as an autosave unless publishing is requested, and stale reads are refused. Agents cannot turn on PHP execution.
-* The AI Integration settings link to Site Agent.
+* Added an AI agents page in the Page Blocks menu that shows what a connected agent can do and how to connect one. The AI Integration settings link to it.
 
 = 4.1.0 =
 
