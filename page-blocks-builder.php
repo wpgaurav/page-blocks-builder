@@ -5100,3 +5100,9 @@ add_filter(
 		return $skills;
 	}
 );
+
+if ( is_admin() ) {
+	add_action( 'admin_menu', array( 'GT_PB_Agent', 'menu' ), 99 );
+	add_action( 'admin_notices', array( 'GT_PB_Agent', 'card' ) );
+	add_action( 'admin_post_gt_pb_dismiss_site_agent', array( 'GT_PB_Agent', 'dismiss' ) );
+}

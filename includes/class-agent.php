@@ -544,4 +544,132 @@ final class GT_PB_Agent {
 			'edit_url'    => get_edit_post_link( $id, 'raw' ),
 		);
 	}
+
+	const SITE_AGENT_URL = 'https://gauravtiwari.org/product/site-agent/';
+	const DISMISS_META   = 'gt_pb_site_agent_card_dismissed';
+
+	/**
+	 * Site Agent's state on this site: missing, too old for plugin skills, or ready.
+	 *
+	 * @return array{state: string, url: string}
+	 */
+	public static function site_agent(): array {
+		if ( ! defined( 'SITE_AGENT_VERSION' ) ) {
+			return array(
+				'state' => 'missing',
+				'url'   => self::SITE_AGENT_URL,
+			);
+		}
+		if ( version_compare( (string) SITE_AGENT_VERSION, '0.4.0', '<' ) ) {
+			return array(
+				'state' => 'old',
+				'url'   => self::SITE_AGENT_URL,
+			);
+		}
+		return array(
+			'state' => 'ready',
+			'url'   => admin_url( 'tools.php?page=site-agent' ),
+		);
+	}
+
+	const PAGE = 'gt_pb_ai_agents';
+
+	/** The "AI agents" page in the Page Blocks menu. */
+	public static function menu(): void {
+		add_submenu_page( 'gt_page_blocks', __( 'AI agents', 'page-blocks-builder' ), __( 'AI agents', 'page-blocks-builder' ), 'manage_options', self::PAGE, array( self::class, 'render_page' ) );
+	}
+
+	/**
+	 * Site Agent's switches, when it is installed and recent enough to report them.
+	 *
+	 * @return array<string, bool>
+	 */
+	private static function site_agent_settings(): array {
+		if ( ! class_exists( 'SiteAgent\\Config' ) ) {
+			return array();
+		}
+		$config = \SiteAgent\Config::get();
+		return array(
+			'enabled' => ! empty( $config['enabled'] ),
+			'php'     => ! empty( $config['php_execute'] ),
+		);
+	}
+
+	/** Show what an agent can build and how to connect one, before sending anyone elsewhere. */
+	public static function render_page(): void {
+		$agent    = self::site_agent();
+		$settings = self::site_agent_settings();
+		$ready    = 'ready' === $agent['state'] && ! empty( $settings['enabled'] ) && ! empty( $settings['php'] );
+		echo '<div class="wrap gt-pb-ai-agents"><h1>' . esc_html__( 'AI agents', 'page-blocks-builder' ) . '</h1>';
+		echo '<p class="gt-pb-ai-lead">' . esc_html__( 'Build pages and sections by asking an AI agent such as Claude, ChatGPT or Cursor. The agent works on this site through Site Agent, a free plugin, and writes the same page-block sections you edit in the builder.', 'page-blocks-builder' ) . '</p>';
+
+		if ( $ready ) {
+			$status = array( 'success', __( 'Ready. Site Agent is active with PHP execution on, so connected agents already have the Page Blocks skill.', 'page-blocks-builder' ) );
+		} elseif ( 'ready' === $agent['state'] ) {
+			$status = array( 'warning', __( 'Site Agent is installed. Turn on Site Agent and PHP execution in its settings, then connect your agent.', 'page-blocks-builder' ) );
+		} elseif ( 'old' === $agent['state'] ) {
+			$status = array( 'warning', __( 'Site Agent is installed but older than 0.4. Update it, free, so agents get the Page Blocks skill.', 'page-blocks-builder' ) );
+		} else {
+			$status = array( 'info', __( 'Site Agent is not installed yet. It is free.', 'page-blocks-builder' ) );
+		}
+		echo '<div class="notice notice-' . esc_attr( $status[0] ) . ' inline"><p>' . esc_html( $status[1] ) . '</p></div>';
+
+		echo '<div class="gt-pb-ai-grid"><section class="gt-pb-ai-card"><h2>' . esc_html__( 'What you can ask', 'page-blocks-builder' ) . '</h2><ul>';
+		foreach ( array(
+			__( '“Build a landing page for our webinar on the blank canvas, as a draft.”', 'page-blocks-builder' ),
+			__( '“Add a pricing section after the hero on the Services page.”', 'page-blocks-builder' ),
+			__( '“Make the FAQ section on the home page match our brand colors.”', 'page-blocks-builder' ),
+			__( '“Save this testimonial strip as a library block and place it on three pages.”', 'page-blocks-builder' ),
+		) as $example ) {
+			echo '<li>' . esc_html( $example ) . '</li>';
+		}
+		echo '</ul></section>';
+
+		echo '<section class="gt-pb-ai-card"><h2>' . esc_html__( 'How it connects', 'page-blocks-builder' ) . '</h2><ol>';
+		echo '<li>' . esc_html__( 'Install Site Agent on this site. It is free.', 'page-blocks-builder' ) . '</li>';
+		echo '<li>' . esc_html__( 'In Tools → Site Agent, turn on Site Agent and PHP execution. OAuth connections are on by default.', 'page-blocks-builder' ) . '</li>';
+		echo '<li>' . esc_html__( 'Add the site’s MCP endpoint to your agent. It opens a WordPress sign-in where you approve it, with no password to copy.', 'page-blocks-builder' ) . '</li>';
+		echo '</ol>';
+		if ( 'missing' !== $agent['state'] ) {
+			echo '<p><strong>' . esc_html__( 'Endpoint', 'page-blocks-builder' ) . ':</strong> <code>' . esc_html( rest_url( 'site-agent/v1/mcp' ) ) . '</code></p>';
+		}
+		echo '</section>';
+
+		echo '<section class="gt-pb-ai-card"><h2>' . esc_html__( 'What stays in your control', 'page-blocks-builder' ) . '</h2><ul>';
+		echo '<li>' . esc_html__( 'New pages are drafts. Changes to published pages are saved as an autosave for you to review, unless you ask the agent to publish.', 'page-blocks-builder' ) . '</li>';
+		echo '<li>' . esc_html__( 'The agent cannot turn on PHP, and leaves sections that run PHP to the editor.', 'page-blocks-builder' ) . '</li>';
+		echo '<li>' . esc_html__( 'It asks before publishing a library block or giving it a theme position.', 'page-blocks-builder' ) . '</li>';
+		echo '<li>' . esc_html__( 'Revoke an agent any time in Tools → Site Agent.', 'page-blocks-builder' ) . '</li>';
+		echo '</ul></section></div>';
+
+		echo '<p class="gt-pb-ai-actions">';
+		if ( 'ready' === $agent['state'] ) {
+			echo '<a class="button button-primary" href="' . esc_url( admin_url( 'tools.php?page=site-agent' ) ) . '">' . esc_html__( 'Open Site Agent settings', 'page-blocks-builder' ) . '</a>';
+		} else {
+			echo '<a class="button button-primary" href="' . esc_url( self::SITE_AGENT_URL ) . '" target="_blank" rel="noopener noreferrer">' . esc_html( 'old' === $agent['state'] ? __( 'Get the latest Site Agent (free)', 'page-blocks-builder' ) : __( 'Get Site Agent (free)', 'page-blocks-builder' ) ) . '<span class="screen-reader-text"> ' . esc_html__( '(opens in a new tab)', 'page-blocks-builder' ) . '</span></a>';
+		}
+		echo '</p></div>';
+		echo '<style>.gt-pb-ai-agents .gt-pb-ai-lead{font-size:14px;max-width:780px}.gt-pb-ai-agents .gt-pb-ai-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:16px;margin:16px 0;max-width:1200px}.gt-pb-ai-agents .gt-pb-ai-card{background:#fff;border:1px solid #c3c4c7;border-radius:4px;padding:4px 18px 12px}.gt-pb-ai-agents .gt-pb-ai-card ul,.gt-pb-ai-agents .gt-pb-ai-card ol{margin-left:18px}.gt-pb-ai-agents .gt-pb-ai-card ul{list-style:disc}.gt-pb-ai-agents .gt-pb-ai-card li{margin-bottom:6px}</style>';
+	}
+
+	/** A dismissible card on the All Page Blocks screen, pointing to the AI agents page. */
+	public static function card(): void {
+		$screen = function_exists( 'get_current_screen' ) ? get_current_screen() : null;
+		if ( ! $screen || 'toplevel_page_gt_page_blocks' !== $screen->id || get_user_meta( get_current_user_id(), self::DISMISS_META, true ) ) {
+			return;
+		}
+		$text    = 'ready' === self::site_agent()['state']
+			? __( 'AI agents connected through Site Agent can build pages and manage this library.', 'page-blocks-builder' )
+			: __( 'Build pages and sections by asking an AI agent such as Claude or ChatGPT.', 'page-blocks-builder' );
+		$dismiss = wp_nonce_url( admin_url( 'admin-post.php?action=gt_pb_dismiss_site_agent' ), 'gt_pb_dismiss_site_agent' );
+		echo '<div class="notice notice-info gt-pb-site-agent-card"><p>' . esc_html( $text ) . ' <a href="' . esc_url( admin_url( 'admin.php?page=' . self::PAGE ) ) . '">' . esc_html__( 'See how it works', 'page-blocks-builder' ) . '</a> <a href="' . esc_url( $dismiss ) . '">' . esc_html__( 'Dismiss', 'page-blocks-builder' ) . '</a></p></div>';
+	}
+
+	/** Remember the dismissal for this user. */
+	public static function dismiss(): void {
+		check_admin_referer( 'gt_pb_dismiss_site_agent' );
+		update_user_meta( get_current_user_id(), self::DISMISS_META, 1 );
+		wp_safe_redirect( wp_get_referer() ? wp_get_referer() : admin_url( 'admin.php?page=gt_page_blocks' ) );
+		exit;
+	}
 }

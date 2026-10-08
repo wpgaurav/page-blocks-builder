@@ -54,6 +54,7 @@ function gt_pb_uninstall_site( bool $drop_tables ): void {
 	foreach ( $options as $option ) {
 		delete_option( $option );
 	}
+	delete_metadata( 'user', 0, 'gt_pb_site_agent_card_dismissed', '', true );
 
 	foreach ( array( 'gt_pb_usage_counts', 'gt_pb_usage_posts', 'gt_pb_builder_update_info', 'gt_pb_library_migration_notice' ) as $transient ) {
 		delete_transient( $transient );
