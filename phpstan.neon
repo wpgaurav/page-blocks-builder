@@ -24,6 +24,7 @@ parameters:
         - includes/class-performance.php
         - includes/class-canvas-editor.php
         - includes/class-native-content.php
+        - includes/class-agent.php
 
     excludePaths:
         - templates/*

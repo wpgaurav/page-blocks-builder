@@ -99,6 +99,7 @@ $load_utilities      = (bool) get_option( 'gt_pb_load_utilities', false );
 		</table>
 
 		<h2 class="title"><?php esc_html_e( 'AI Integration', 'page-blocks-builder' ); ?></h2>
+		<div class="notice notice-info inline gt-pb-site-agent-note"><p><strong><?php esc_html_e( 'Use your own AI agent with Site Agent.', 'page-blocks-builder' ); ?></strong> <?php esc_html_e( 'Site Agent is a free plugin that connects AI agents such as Claude, ChatGPT and Cursor to this site, signed in with OAuth. With Site Agent 0.4 or later, a connected agent already has the Page Blocks skill: it can build draft pages, edit sections and manage the library with no extra setup.', 'page-blocks-builder' ); ?> <a href="https://gauravtiwari.org/product/site-agent/" target="_blank" rel="noopener noreferrer"><?php esc_html_e( 'Get Site Agent', 'page-blocks-builder' ); ?></a></p></div>
 		<p class="description"><?php esc_html_e( 'Configure AI providers for the builder\'s code generation chat sidebar (Cmd+K).', 'page-blocks-builder' ); ?></p>
 
 		<table class="form-table" role="presentation">

@@ -196,6 +196,16 @@ Renders a published library block (HTML + scoped CSS/JS, honoring its output set
 
 ---
 
+## AI agents (Site Agent)
+
+With [Site Agent](https://gauravtiwari.org/product/site-agent/) 0.4 or later active, the plugin registers its bundled skill (`agent-skills/page-blocks/SKILL.md`) through the `site_agent_skills` filter as `gt-page-blocks`, so any MCP client connected to Site Agent finds it with `list-skills` and `get-skill`. The skill runs `gt_pb_agent( $command, $input )` through Site Agent's PHP tool:
+
+- `context`, `blocks.list|get|create|update|duplicate|render|trash` go through `pbb/v1` with its validation and permissions. New library blocks start as drafts with no position.
+- `section.markup` serializes a `gt-page-block/page-block` block with `serialize_block()`.
+- `page.sections`, `page.section`, `page.set_section` (change, insert after, append; nested sections included) and `page.create` (draft, optional blank canvas). Writes need `expected_sha256` from the latest read, refuse content that does not survive parse and re-serialize unchanged, refuse PHP sections, and stage published posts as the user's autosave unless `publish` is true.
+
+Every command returns `ok` and never throws. Agents cannot enable PHP execution.
+
 ## Migrating from `marketers-delight/page-block` (≤ 2.4.0)
 
 Version 2.6.0 renamed the block to **`gt-page-block/page-block`**. Nothing breaks on upgrade:

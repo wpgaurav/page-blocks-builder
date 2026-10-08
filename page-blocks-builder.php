@@ -4,7 +4,7 @@
  * Plugin URI: https://gauravtiwari.org/product/gt-page-blocks-builder/
  * Update URI: https://gauravtiwari.org/product/gt-page-blocks-builder/
  * Description: Standalone visual Page Blocks builder with HTML/CSS/JS sections synced to Gutenberg block content.
- * Version: 4.1.0
+ * Version: 4.2.0
  * Author: Gaurav Tiwari
  * Author URI: https://gauravtiwari.org
  * Text Domain: page-blocks-builder
@@ -20,7 +20,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 if ( ! defined( 'GT_PB_BUILDER_VERSION' ) ) {
-	define( 'GT_PB_BUILDER_VERSION', '4.1.0' );
+	define( 'GT_PB_BUILDER_VERSION', '4.2.0' );
 }
 
 if ( ! defined( 'GT_PB_BUILDER_FILE' ) ) {
@@ -515,6 +515,7 @@ class GT_Page_Blocks_Builder {
 		require_once GT_PB_BUILDER_DIR . 'includes/class-performance.php';
 		require_once GT_PB_BUILDER_DIR . 'includes/class-canvas-editor.php';
 		require_once GT_PB_BUILDER_DIR . 'includes/class-native-content.php';
+		require_once GT_PB_BUILDER_DIR . 'includes/class-agent.php';
 
 		$this->db = new gt_pb_db();
 		gt_pb_css_loader::init();
@@ -5073,3 +5074,29 @@ register_deactivation_hook(
 require_once GT_PB_BUILDER_DIR . 'includes/class-license-manager.php';
 $gt_pb_license_manager = new GT_PB_License_Manager( GT_PB_BUILDER_FILE );
 $gt_pb_license_manager->hook();
+
+if ( ! function_exists( 'gt_pb_agent' ) ) {
+	/**
+	 * Commands for AI agents. See docs/agent.md.
+	 *
+	 * @param array<string, mixed> $input Command input.
+	 * @return array<string, mixed>
+	 */
+	function gt_pb_agent( string $command, array $input = array() ): array {
+		return GT_PB_Agent::call( $command, $input );
+	}
+}
+
+/** Serve the bundled skill through Site Agent 0.4+ list-skills and get-skill. */
+add_filter(
+	'site_agent_skills',
+	static function ( $skills ) {
+		$skills                   = is_array( $skills ) ? $skills : array();
+		$skills['gt-page-blocks'] = array(
+			'directory' => GT_PB_BUILDER_DIR . 'agent-skills/page-blocks',
+			'plugin'    => 'GT Page Blocks Builder',
+			'version'   => GT_PB_BUILDER_VERSION,
+		);
+		return $skills;
+	}
+);
